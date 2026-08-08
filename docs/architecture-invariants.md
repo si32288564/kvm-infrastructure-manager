@@ -157,7 +157,43 @@
 | INV-AVR-012 | Fault/Event delivery failureを理由にAvailability responsibility/actionを変更しない | FI-AVR-010 |
 | INV-AVR-013 | heartbeat/Agent lossだけでHost source fencing完了を確定しない | FI-AVR-003 |
 
-## 12. Security, Audit, and Failure
+## 12. Workload Resilience Intent
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-WRI-001 | NFVO/VNFMのopaque roleをVNF lifecycle、application health、authorization authorityに使用しない | AT-WRI-002 |
+| INV-WRI-002 | Tenant/NFVOへraw HostGroup/failure topologyを公開せずpublic dimension/level classだけを受け付ける | AT-WRI-003 |
+| INV-WRI-003 | HARD Failure Domain constraintをscore/soft ruleへ降格またはsilent relaxしない | FI-WRI-003 |
+| INV-WRI-004 | rack、power-path等のFailure Domain dimensionを独立に評価する | AT-WRI-004 |
+| INV-WRI-005 | ResilienceDomainClaimをVM Allocation/Availability Binding/resource claimsと同じFinal Admission transactionでcommitする | AT-WRI-007 |
+| INV-WRI-006 | concurrent member Placementでhard same-domain claimは一方だけがcommitできる | FI-WRI-001 |
+| INV-WRI-007 | missing/stale/UNKNOWN domain evidenceをdistinct domainとして数えない | FI-WRI-002 |
+| INV-WRI-008 | old VM/source ownershipがUNKNOWNのMember Slot/Domain Claimをreplacementへ再利用しない | FI-WRI-004 |
+| INV-WRI-009 | domain/hierarchy driftだけで既存VMを暗黙migration/restartしない | FI-WRI-005 |
+| INV-WRI-010 | Resilience IntentはVM Availability responsibilityを変更しない | AT-WRI-012 |
+| INV-WRI-011 | Northbound mapperはCore DB/Domain Claim/Allocationへ直接writeしない | XCT-WRI-001 |
+| INV-WRI-012 | active Member/Domain Claimを持つResilience Groupを削除しない | FI-WRI-007 |
+| INV-WRI-013 | required members未充足をmin-distinct違反にせずPENDINGとし、max-members-per-domainは各admissionで強制する | AT-WRI-015 |
+
+## 13. Recovery Storm Control
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-RCV-001 | Recovery Queue/Budget Lease authorityをPostgreSQL transactionで確定し、in-memory/Bus状態をauthorityにしない | FI-RCV-002 |
+| INV-RCV-002 | Queue Entryは各PLANNING/DISPATCH phaseの該当全budget scopeを不可分取得するまでそのphaseへ進まない | AT-RCV-003 |
+| INV-RCV-003 | Budget Leaseはfencing、Placement/capacity claim、Command Lease、verificationを代替しない | AT-RCV-004 |
+| INV-RCV-004 | Budget Lease expiry/worker lossをRecovery未実行の証明にしない | FI-RCV-003 |
+| INV-RCV-005 | max concurrencyとstart rate/window/burstを全workerで共有するdurable generationから強制する | FI-RCV-001 |
+| INV-RCV-006 | recovery priorityはsafety/eligibilityを上書きしない | AT-RCV-007 |
+| INV-RCV-007 | aging/fair-share/per-scope capで一Project/Planによるstarvationを防ぐ | FI-RCV-005 |
+| INV-RCV-008 | circuit breaker復旧だけでdispatchせずfencing/evidence/Placement generationを再検証する | FI-RCV-006 |
+| INV-RCV-009 | duplicate/correlated failure signalを重複Recovery Queue Entryへ無制限展開しない | FI-RCV-007 |
+| INV-RCV-010 | queue delay/saturationをsuccess/failureへ丸めずWAITING/BLOCKED/ESCALATED evidenceとして保持する | AT-RCV-010 |
+| INV-RCV-011 | Budget Policy変更だけでdispatch/started Recovery Operationを暗黙cancel/reclassifyしない | FI-RCV-008 |
+| INV-RCV-012 | Control Plane/worker failover後もBudget/Queue/Lease authorityとorderingをPostgreSQLから復元する | FI-RCV-009 |
+| INV-RCV-013 | dispatchはRecovery OperationとBudget Consumptionを不可分commitし、terminal verificationまでactive concurrencyへ計上する | FI-RCV-011 |
+
+## 14. Security, Audit, and Failure
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -169,7 +205,7 @@
 | INV-HA-001 | 同一Site HA failoverはcommitted authority RPO 0を目標とする | FI-DB-001 |
 | INV-DR-001 | restore後の未知resourceはquarantineし、明示adoption前にmutationしない | FI-DR-001 |
 
-## 13. Extensions
+## 15. Extensions
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -180,7 +216,7 @@
 | INV-EXT-005 | UNKNOWNをFAILED/SUCCEEDEDへ丸めるadapterを受け入れない | XCT-FAIL-001 |
 | INV-EXT-006 | capability消失時は新規利用を停止し、既存resourceを暗黙変更しない | XCT-CAP-001 |
 
-## 14. Documentation
+## 16. Documentation
 
 | ID | Invariant | 主な検証 |
 |---|---|---|

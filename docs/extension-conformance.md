@@ -122,6 +122,14 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-AVR-002 | Rule/adapterがresponsibility、fencing state、Availability Binding、Recovery Operationを変更しない |
 | XCT-AVR-003 | UNKNOWN fencing/storage/device/policy evidenceをeligible/safeへ丸めない |
 | XCT-AVR-004 | rule version、supported Policy/evidence schema、fixture result、support tierを宣言する |
+| XCT-WRI-001 | Resilience mapperがpure mappingだけを行いCore DB/Domain Claim/Allocationへwriteしない |
+| XCT-WRI-002 | unknown/stale external member/constraint schemaを拒否しhard ruleをsoftへ変換しない |
+| XCT-WRI-003 | Project/correlation/member roleをbounded Core schemaへmapしraw topologyを外部へ返さない |
+| XCT-WRI-004 | mapper version、supported Northbound/Core schema、idempotency、fixture resultを宣言する |
+| XCT-RCV-001 | Recovery Ordering Ruleがpure/deterministicでrank/reasonだけを返す |
+| XCT-RCV-002 | RuleがBudget Lease、Queue state、Recovery Operation、priority class authorityを変更しない |
+| XCT-RCV-003 | UNKNOWN safety/backend/budget inputをdispatchableへ丸めない |
+| XCT-RCV-004 | rule version、fairness properties、input schema、fixture/starvation test resultを宣言する |
 
 ### C2
 

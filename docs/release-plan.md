@@ -30,6 +30,7 @@
 - Hardware Identity Evidence policy、Evaluator Artifact rollout、External Remediation trust contract
 - HostGroup、Failure Domain、Placement Scope、rollout/maintenance snapshot model
 - Availability Responsibility、VM Binding、Host Failure Epoch、Managed Recovery model
+- Workload Resilience Intent/Domain Claimとdurable Recovery Budget/Queue model
 
 ### Exit criteria
 
@@ -45,6 +46,7 @@
 - identityからauthorityまでのEnrollment/Baseline/Compliance gateがfailure/test matrixへtraceされる。
 - HostGroup membership generationがPlacement final admissionとrollout/maintenance snapshotへtraceされる。
 - Workload/Infrastructure/Manual responsibilityがfencing、Placement、Execution、Fault/Event testへtraceされる。
+- NF側HA domain separationとRecovery storm budget/fairnessがtransaction/failover testへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -58,6 +60,7 @@
 - provenance付きidentity evidence収集とEvaluator artifact/input digest付きResult
 - explicit HostGroup、Placement Pool、materialized membership generation
 - Availability Policy/Pool bindingとVM Availability Bindingのread-only表示
+- explicit Workload Resilience Group/memberとread-only Recovery Queue model
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
@@ -79,6 +82,7 @@
 - authenticatedだけのHostがREADY/armedにならず、Critical driftがplacementをblockすることを検証する。
 - dry/final間のHostGroup membership変更を検出し、stale Hostへ予約しないことを検証する。
 - Availability Policy欠損/競合HostをPlacementせず、WORKLOAD_MANAGED障害で自動restartしないことを検証する。
+- concurrent resilience memberを同一hard domainへcommitせず、Budget Lease二重取得を防ぐことを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -89,6 +93,7 @@
 - policy-based Enrollment、safe typed convergence、continuous drift detection
 - selector-based HostGroup、Failure Domain placement、immutable rollout snapshot
 - Host Failure Epoch、WORKLOAD_MANAGED event、MANUAL decision workflow
+- NFVO Resilience Intent mapping、multi-dimension Domain Claim、durable Recovery Queue/fair budget
 - OVN overlay、Subnet、Port、Security Group
 - Ceph RBD、Volume、Snapshot
 - NUMA、HugePages、CPU Pinning
@@ -114,6 +119,7 @@
 - Evaluator shadow/canary rolloutとExternal Remediation request/claim + KIM再観測
 - Group-based maintenance wave、failure-domain concurrency、Placement Scope exposure
 - INFRASTRUCTURE_MANAGED restart/evacuate、fencing/storage eligibility、Availability Rebind rollout
+- correlated failure storm、backend circuit breaker、priority/fair-share recovery campaign
 - NFVO integration profile
 - ローリングアップグレード
 - offline bundle、SBOM、artifact signing

@@ -74,6 +74,26 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-AVR-008 | recovery候補Hostを異responsibility Policyまたはfailure-domain違反Poolへ変更 | policy/domain incompatibility | candidate ineligible、silent fallback禁止 | bound/current Policy、domain path、reason | 責任変更、constraint無視 | compatible current candidateへfinal admission |
 | FI-AVR-009 | EVACUATE中に一VMをcapacity不足、一VMをUNKNOWN、一VMを成功させる | per-VM outcomes | plan partial/blocked、成功VM維持 | VM Operations/Attempts/reasons | 全体rollback、失敗VM成功扱い | 各VMがverified/blocked/escalated terminalへ収束 |
 | FI-AVR-010 | WORKLOAD_MANAGED Fault/Event sinkを停止する | outbox age/delivery failure | durable retry、responsibility維持 | event/outbox/Policy correlation | INFRA recovery fallback、event loss | sink復旧後同一eventを再送 |
+| FI-WRI-001 | active/standby memberを同時に同rack/feed候補へfinal admission | Domain Claim row conflict | 一方commit、他方rollback/reselection | constraint/member/claim generations | 両方same-domain commit | distinct candidateまたはbounded insufficient-domain failure |
+| FI-WRI-002 | candidate Hostのrackまたはpower evidenceを欠損/staleにする | domain evidence UNKNOWN | candidate ineligible、distinct countへ含めない | hierarchy/evidence generation、reason | unknownを新domain扱い | trusted current domain evidence |
+| FI-WRI-003 | distinct domain不足時にsoft score候補だけを提示 | hard constraint unsatisfied | Placement failure、claimなし | required/available domain summary | hard-to-soft fallback、same-domain commit | domain capacity追加またはexplicit constraint revision |
+| FI-WRI-004 | old member VM/Volume ownershipをUNKNOWNのまま同slotへreplacement bind | slot/source ownership conflict | replacement admission停止 | member/VM/attachment evidence | slot再利用、二重VM/attach | old ownership terminal/fenced証明 |
+| FI-WRI-005 | Hostのrack/power membershipを変更し既存member separationを破る | current domain vs claim mismatch | VIOLATED/UNKNOWN event、既存VM維持 | old claim/current hierarchy/generation | 暗黙migration/restart/claim rewrite | explicit migration/replacement/constraint revision |
+| FI-WRI-006 | Northbound create commit後responseをdropし同correlationを再送 | idempotency hit | 同じGroup/member/Operation返却 | request digest、Project、audit | duplicate Group/member slot | original resource回収 |
+| FI-WRI-007 | active member/domain claimを持つResilience Groupをdelete | active reference guard | DRAINING/delete拒否 | member/claim/reference set | orphan claim/VM mutation | members/claims解放後authorized delete |
+| FI-WRI-008 | mapperをstale constraint schemaで応答させる | contract/version mismatch | request拒否、Core state不変 | adapter/input/output version、audit | unknown field受理、partial group | supported contractで再送 |
+| FI-WRI-009 | required memberの一部を未作成のままcompletion deadlineを超過 | member completeness/deadline | PENDINGからVIOLATED/action-required、既存member維持 | required/bound slots、deadline、event | 最初のmember placement拒否、既存member削除 | missing member bindまたはexplicit intent revision |
+| FI-RCV-001 | 100 Recovery Entryを複数workerで同時取得 | budget concurrency/rate contention | configured slots/rateだけlease | budget generation/tokens/timestamps | limit超過dispatch | lease release/window refill |
+| FI-RCV-002 | 同じbudget slotを二workerがtransaction競合取得 | row/token conflict | 一workerだけBudget Lease commit | owner/token/generation/audit | double consumption | loserが別eligible Entryを選択 |
+| FI-RCV-003 | Budget Lease取得後dispatch commit前後でworkerをkill | lease/Operation outcome uncertainty | DB stateで未dispatchを再queue、dispatch済みはread-back | queue/lease/Operation correlation | duplicate Recovery Operation | idempotent original recoveryへ収束 |
+| FI-RCV-004 | planning完了後、applicable Pool budgetは空き、destination backend dispatch budgetは飽和 | dispatch multi-scope budget unavailable | Entry WAITING、planning結果保持、部分dispatch leaseなし | phase/all scopes/usage/reason | planning budgetでdispatch、一部budgetだけ保持 | 全dispatch scopeを一transactionで取得 |
+| FI-RCV-005 | 一Projectが大量high-volume Entryを投入し別Projectを待機 | fair-share/aging evaluation | per-project capとagingでbounded progress | queue rank/share/wait age | starvation、任意priority abuse | 全eligible Projectがpolicy内progress |
+| FI-RCV-006 | storage backendをdegraded後に復旧 | health gate/circuit state |該当Entry pause、他backend継続 | health generation/circuit/event | busy retry、復旧だけで即dispatch | fencing/evidence/Placement full revalidation |
+| FI-RCV-007 | 同一Host failure signalをduplicateしrack correlationを後着させる | epoch dedupe/correlation update | VMごと単一Entry、shared domain budget適用 | signal digest/epoch/correlation generation | duplicate Entries、budget bypass |一つのcurrent correlated planへ収束 |
+| FI-RCV-008 | Budget Policyを低limitへ変更中にOperation実行 | policy generation change | started維持、new leaseはnew policy | old/new policy、active Operations | running cancel/reclassify、旧policy新lease | started terminal化とnew generation scheduling |
+| FI-RCV-009 | active leases/queue中にDB failoverとworker restart | DB term/worker loss | old owner fence、committed lease/queue復元 | DB term、tokens、queue rank | slot loss/二重消費/ordering reset | current DB authorityでbounded dispatch再開 |
+| FI-RCV-010 | queue age thresholdを超過させcapacityを不足のまま維持 | age/escalation threshold | ESCALATED/action-required、成功失敗は未確定 | age/capacity attempts/events | queue drop、FAILED/RECOVERED推測 | capacity/policy/operator decisionで再評価 |
+| FI-RCV-011 | dispatch commit直後にBudget Leaseをexpireしworkerを停止 | lease expired + active Operation/Consumption | Consumptionをactive計上、slot再利用停止 | Operation/Consumption/Lease/Attempt correlation | concurrency slot二重利用、duplicate dispatch | Operationがverified terminal後にConsumption release |
 | FI-LIBVIRT-001 | libvirt mutation後にtimeoutを返す | backend timeout | Attempt UNKNOWN、read-back | Command/Attempt/evidence | 即時反対mutation | Domain UUID/stateで解決 |
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
@@ -103,6 +123,8 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
 | Host Grouping / Failure Domain | FI-HGR-001..008 |
 | Availability Responsibility / Managed Recovery | FI-AVR-001..010 |
+| Workload Resilience Intent | FI-WRI-001..009 |
+| Recovery Storm Control | FI-RCV-001..011 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |

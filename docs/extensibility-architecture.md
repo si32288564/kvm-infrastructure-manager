@@ -37,6 +37,8 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 | Placement Rule | NUMA、PCI、locality、affinity | pure eligibility/scoring rule |
 | HostGroup Selector | CMDB/asset/inventory facts | pure membership proposal、provenance、no direct DB write |
 | Recovery Eligibility Rule | storage/device/failure-domain policy | pure bounded decision、no fencing/restart authority |
+| Resilience Intent Mapper | NFVO/VNFM member/separation model | pure public-to-Core mapping、no Domain Claim write |
+| Recovery Ordering Rule | priority/fairness/health facts | pure queue rank、no Budget/Operation authority |
 | Identity Adapter | OIDC issuer/claim mapping | Principal verification/binding。credential発行はしない |
 | Northbound Adapter | ETSI IFA 005 profile | external modelとCore resource mapping |
 | Secret Provider | file/KMS/Vault系 | opaque reference、rotation、least privilege |
@@ -65,6 +67,8 @@ Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、a
 HostGroup Selectorはpure C1 ruleまたはC2 external assertion adapterです。候補membershipとprovenanceだけを返し、Coreがcardinality/hierarchy/conflictを検証してPostgreSQLへmaterializeします。Selectorがmembership、Placement Scope、Group policyを直接writeしません。
 
 Recovery Eligibility Ruleはpure C1 ruleとし、VM Availability Binding、fencing/storage/device evidence、candidate snapshotからbounded eligibility/reasonだけを返します。responsibility変更、fencing完了宣言、Recovery Operation/Lease作成、backend mutationを行いません。
+
+Resilience Intent MapperはNorthbound C2/C3境界で外部member/constraintをCore schemaへmapしますが、Domain ClaimやVM Allocationを直接writeしません。Recovery Ordering Ruleはpure C1としてbounded priority/rankだけを返し、Budget Lease、queue state、Recovery Operationを変更しません。
 
 ## 4. Contract Shape
 

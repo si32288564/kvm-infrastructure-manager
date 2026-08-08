@@ -145,6 +145,10 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 
 Host failure confirmed後はVM Availability Bindingで責任を分岐します。`WORKLOAD_MANAGED`はFault/Eventを送るが自動restartしません。`MANUAL`は明示Decisionを待ちます。`INFRASTRUCTURE_MANAGED`だけがfencing proof、single-writer、restart-on-other-host eligibility、Failure Domain、transactional admissionを満たしてRecovery Operationを開始できます。Policy/Binding/fencing/attachmentがUNKNOWNならBLOCKEDを維持します。
 
+NF側HAのmember Placementではrack/power等のDomain Claimをtransactionalに競合制御し、domain不足/UNKNOWNをsilent relaxしません。domain driftはVIOLATED/UNKNOWNとして通知し、既存VMを暗黙migrationしません。
+
+相関Host/Failure Domain障害のRecoveryはdurable budget/queueでbackpressureします。worker lossやBudget Lease expiryを未実行証明にせず、backend circuit breaker復旧後もfencing/Placement generationを再検証します。queue saturationはAlarm/Escalationであり、安全条件やresponsibilityを変更しません。
+
 Host lifecycle固有のbootstrap response loss、duplicate identity、Baseline conflict、Compliance evaluator failure、decommission partitionも同じ原則に従います。identity conflictはquarantine、stale evidenceはUNKNOWN、remediation結果不明はtyped read-backで解決します。
 
 identity evidenceの一部一致をHost同一性の証明へ格上げせず、source間conflictはEnrollmentを停止します。Evaluator revision間の判定差はrollout failureとして封じ込め、旧Resultを改変しません。外部remediation callbackの偽装/replay/expiryは拒否し、正当なcompletion claimでもKIMのfresh observationとcurrent Evaluatorが一致しなければNON_COMPLIANT/UNKNOWNとplacement blockを維持します。
@@ -207,6 +211,8 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 | Agent loss | 継続 | 対象Host停止 | journal/read-back | mutation証明不能 |
 | Host loss | 不明または停止 | 対象Host停止 | fencing後に限定 | storage/device ownership不明 |
 | Managed workload recovery | responsibilityにより維持/停止/不明 | bound Policyで分岐 | Infrastructure Managedのみ全gate後 | Policy/Binding/fencing/attachment不明 |
+| Recovery storm / budget exhaustion | 既存workload状態を維持 | durable queueで待機 | budget/fair queueからbounded dispatch | queue age/backend degradation/insufficient capacity |
+| Workload resilience constraint failure | 既存memberを維持しVIOLATED/UNKNOWN | affected member placement停止 | source/hierarchy再評価 | distinct domain不足、member ownership不明 |
 | Host enrollment/compliance failure | 既存workloadはpolicy依存 | enrollment/placement/remediation停止 | evidence再取得/明示approval | 自動merge/arm/推測compliance |
 | HostGroup membership/hierarchy failure | 既存workloadを維持 | affected placement/snapshot作成停止 | source再取得/再materialize | Group推測選択、snapshot改変、暗黙migration |
 | Network/dataplane backend loss | compute継続、connectivity degradedの可能性 | 対象network/dataplane停止 | intent/typed resolver | external object、PMD/PCI ownership不明 |

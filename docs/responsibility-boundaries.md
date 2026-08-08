@@ -85,10 +85,13 @@ KIM は provider network、gateway、external connectivity の参照とbinding�
 | Virtual-to-physical mapping | Service-level orchestration |
 | Infrastructure Managed Policyでのfenced VM restart/evacuate | Workload Managed PolicyでのNF/VNF service failover |
 | Host failure evidence、Availability Binding、Fault/Event | active/standby role、application health、replacement intent |
+| 公開Failure Domain constraint、transactional Domain Claim | member role/集合、VNF redundancy intent、replacement timing |
 
 ETSI model は Northbound adapter で対応づけ、内部 authority model へ直接焼き込みません。
 
 Availability responsibilityはVMごとのBindingで固定します。`WORKLOAD_MANAGED`ではKIMはsource containmentとFault/Eventを所有しますが、自動VM restart/replacementを所有しません。`INFRASTRUCTURE_MANAGED`でもKIMはfencing、storage single-writer、Placement eligibilityを満たす範囲だけを所有し、VNF内部のservice recoveryを保証しません。
+
+NFVO/VNFMはopaque member roleと公開Failure Domain classを指定します。KIMはProject ownership、hard separation、Domain Claim、drift evidenceを所有しますが、active/standby role transitionやapplication healthを解釈しません。
 
 ## 6. データベース Authority
 

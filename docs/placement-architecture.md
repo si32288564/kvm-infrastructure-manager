@@ -31,6 +31,7 @@ flowchart LR
 - Host inventory generation と capability generation
 - HostGroup membership、policy、hierarchy generationとrequested Placement Scope
 - effective Availability Policy/GroupPolicyBinding generation。既存VM recoveryではAvailability Binding revisionとfailure epoch
+- Workload Resilience Group/member/constraint generation、existing Domain Claims
 - allocation/reservation generation
 - network/storage locality requirements
 - migration の場合は source Host と current attachment/device state
@@ -56,6 +57,7 @@ backend mutation、Agent Command、Message publish、external API callも行い�
 - affinity/anti-affinity、AZ、trait、policy
 - Placement Pool membershipとfailure-domain path/freshness
 - effective Availability Policyの一意性とrequested/bound responsibility compatibility
+- Workload Resilienceのrack/power等dimension別hard constraintとDomain Claim conflict
 - quota と project policy
 - migration capability と destination compatibility
 
@@ -74,6 +76,8 @@ Baseline blocking Controlはscoreではなくeligibilityで評価します。Hos
 HostGroupはcandidate scopeとfailure-domain ruleを提供しますが、Host固有eligibilityを上書きしません。materialized membership/policy/hierarchy generationをFinal Admissionで再検証し、stale/conflict時は部分予約を残さずreselectionします。Group aggregate capacityは表示用の導出値で、reservation authorityではありません。詳細は [Host Grouping Architecture](host-grouping-architecture.md) に従います。
 
 Availability Policy欠損/stale/conflictのHostはplacement不適格です。Final Admissionはeffective Policyを再解決し、VM/AllocationへAvailability Binding revisionを同じtransactionで保存します。Host failure recoveryはbound Policy/failure-domain constraintをPlacement Requestへ含め、current destination PoolのPolicy compatibilityも再評価します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従います。
+
+Workload Resilience memberはrack、power-path等のconstraintをdimension別に評価します。Final Admissionでexisting/pending Domain Claimsをlockし、新しいResilienceDomainClaimをVM Allocationと不可分commitします。concurrent active/standby Placementが同じdomainへ入る競合を一方だけcommit可能にします。詳細は [Workload Resilience Intent Architecture](workload-resilience-intent-architecture.md) に従います。
 
 ## 4. Scoring
 
@@ -96,7 +100,7 @@ score は適格性を上書きしません。weight と計算根拠は versioned
 2. dry evaluation と同じadmission ruleとHostGroup membership/policy/hierarchy generationを最新authority stateへ再適用する。
 3. CPU、memory、HugePages、PCI、network、storage のclaimsを不可分に確保する。
    OVS-DPDK利用時はPMD/service CPU、DPDK socket memory、Port/RxQ、VM Dataplane Bindingも同じtransactionに含める。
-4. Quota usage、Reservation、Availability Binding、Desired State、Job、Command intent、idempotency recordを同時にcommitする。
+4. Quota usage、Reservation、Availability Binding、Resilience Domain Claim、Desired State、Job、Command intent、idempotency recordを同時にcommitする。
 
 一つでも満たせない場合は何もcommitしません。競合による不適格化は通常動作であり、同じ request snapshot でまだ有効な次候補を選び直します。policy/inventoryの意味が変わった場合は新しいevaluationへ戻します。
 

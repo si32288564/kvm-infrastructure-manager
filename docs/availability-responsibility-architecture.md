@@ -43,7 +43,7 @@ storage_requirements
 network_device_requirements
 recovery_eligibility_policy
 failure_domain_constraints
-recovery_concurrency / rate_limit
+recovery_budget_policy_reference
 max_attempts / escalation_policy
 notification_policy
 status / support_tier
@@ -211,7 +211,112 @@ old failure epoch、old Binding、stale fencing proof、expired LeaseからのRe
 
 `EVACUATE` planはVM間の部分成功を表現し、失敗した一VMのrollback推測を他VMへ波及させません。capacity不足、ineligible binding、unknown attachmentは対象VMだけをBLOCKED/ESCALATEDにします。
 
-## 10. Event and Northbound Contract
+## 10. Recovery Storm Control
+
+多数Host/Failure Domain障害時にRecovery Operationを一斉dispatchしません。immutable versioned `RecoveryBudgetPolicy`をAvailability Policyから参照します。
+
+```text
+RecoveryBudgetPolicy
+├─ policy_id / version / digest
+├─ scope_dimensions
+├─ max_concurrent_planning
+├─ max_concurrent_recovery
+├─ start_rate / window / burst
+├─ per_project / resilience_group caps
+├─ priority_classes / aging / fair_share
+├─ backend_health_gates
+├─ circuit_breaker_thresholds
+├─ queue_age_escalation
+├─ retry_backoff / jitter
+└─ approval / audit / support_tier
+```
+
+scopeはSite、Placement Pool、Failure Domain、backend、Project等を組み合わせます。Budgetは`PLANNING`と`DISPATCH` phaseを持ちます。
+
+- `PLANNING`: failure epoch、source Site/domain、Project等、候補探索前に確定できるscopeのbudgetを取得する。read-only planningだけを許可する。
+- `DISPATCH`: destination Pool/domain/backendが決まった後、mutation開始前に全applicable dispatch budgetを取得する。
+
+Planning budgetはdispatchを許可しません。各phaseで該当する全scope leaseを一transactionで取得し、一つでも不足なら部分leaseを残しません。
+
+### Recovery Queue
+
+```text
+RecoveryQueueEntry
+├─ queue_entry_id
+├─ failure_epoch_id / vm_id
+├─ availability_binding_revision
+├─ recovery_plan_id / requested_action
+├─ applicable_budget_versions
+├─ priority_class / enqueued_at
+├─ state / attempt / bounded_reason
+└─ correlation / audit
+
+RecoveryBudgetLease
+├─ queue_entry_id / budget_scope
+├─ phase: PLANNING | DISPATCH
+├─ owner / token / expiry
+├─ budget_generation
+└─ acquired_at / released_at
+
+RecoveryBudgetConsumption
+├─ recovery_operation_id / queue_entry_id
+├─ budget_scopes / budget_generations
+├─ counted_from / terminal_at
+├─ operation_state / verification_state
+└─ release_evidence / audit
+```
+
+```text
+WAITING_PLANNING
+  -> PLANNING_LEASED
+  -> PLANNING
+  -> WAITING_DISPATCH
+  -> DISPATCH_LEASED
+  -> ADMITTING
+  -> DISPATCHED
+  -> VERIFYING
+  -> RECOVERED | BLOCKED | UNKNOWN | ESCALATED
+```
+
+Queue/Budget LeaseはPostgreSQL transactionで発行し、複数workerが同じslotを消費しません。in-memory semaphoreやMessage Bus deliveryをbudget authorityにしません。
+
+Budget Leaseはplanning/dispatch開始許可であり、次を代替しません。
+
+- source fencing proof
+- storage/device ownership
+- Placement dry/final admission
+- CPU/memory/network/storage capacity reservation
+- Command Lease/Attempt authority
+- post-recovery observation
+
+dispatch transactionはRecovery Operation作成とBudget Leaseのdurable `RecoveryBudgetConsumption`への変換を不可分にcommitします。active consumptionはOperationがverification付きterminalになるまでconcurrencyへ計上します。
+
+Budget Lease expiryは、既にdispatch済みのRecovery Operationが実行されなかった証明ではありません。dispatch前のexpired leaseだけをrelease可能とし、dispatch後はOperation/Consumption/Command authorityとread-backで解決します。budget tokenだけを再利用して重複dispatchまたはconcurrency過小計上をしません。
+
+### Ordering and Fairness
+
+queue選択はversioned policyで次を評価します。
+
+1. phase開始時点で検証可能なsafety/eligibility preconditionを満たすEntryだけを候補にする。
+2. explicit priority classを適用するが、fencing/admissionを上書きしない。
+3. aging/fair-shareで単一Project/Recovery Planによる飢餓を防ぐ。
+4. per-Project/Resilience Group/Failure Domain concurrencyを守る。
+5. dependency backendがdegradedならcircuit breakerで該当Entryをpauseする。
+
+priorityはTenantが任意数値で指定せず、公開classとProject policyからbounded Core classへmapします。同priority内のorderingはstable keyで再現可能にします。
+
+### Correlated Failure and Backpressure
+
+- 同じHost/source failure signalを一つのfailure epochへdeduplicateする。
+- rack/power/site等の相関failureはaffected epoch/groupを関連付け、共通budget scopeへ集約する。
+- recovery queue age、budget saturation、blocked reason、backend healthをalarm/eventへ出す。
+- capacity不足時にbusy retryせず、event/generation changeまたはbounded backoffでre-evaluateする。
+- queue age threshold超過はESCALATED/action-requiredにできるが、成功/失敗を推測しない。
+- circuit breaker復旧だけでEntryをdispatchせず、fencing/evidence/Placement generationを再検証する。
+
+RecoveryBudgetPolicy変更は新規leaseへ反映します。既にdispatch/startedしたOperationのauthorityを暗黙cancelせず、明示cancel可能条件とread-backを必要とします。
+
+## 11. Event and Northbound Contract
 
 責任種別にかかわらず次をdurable outboxから通知します。
 
@@ -225,7 +330,7 @@ Eventは`failure_epoch_id`、VM/Operation correlation、policy version、observe
 
 `WORKLOAD_MANAGED`向けevent delivery失敗を理由にKIMがInfrastructure Managed recoveryへ切り替えません。deliveryは再送し、責任Policyは維持します。
 
-## 11. Policy Change and Lifecycle
+## 12. Policy Change and Lifecycle
 
 AvailabilityPolicy lifecycle:
 
@@ -238,14 +343,14 @@ DRAFT -> ACTIVE -> DEPRECATED -> RETIRED
 - Policy revokeは自動responsibility変更を意味しない。affected BindingをBLOCKED/action-requiredにし、明示Rebindを要求する。
 - bulk Rebindは対象VMのimmutable snapshot、canary/batch、failure threshold、pause/abortを持つ。
 
-## 12. Security and Audit
+## 13. Security and Audit
 
 - AvailabilityPolicy publish/bind/rebind/manual recoveryは別permissionとapproval policyを持つ。
 - Tenant/Workloadは許可された公開Availability classを要求できるが、内部fencing requirementやresponsibility bindingを直接変更しない。
 - automatic recovery decisionはfailure evidence、Policy/Binding、fencing proof、candidate evaluation、actor/service identityを監査する。
 - compromised Agent、external event、NFVO callbackだけでfenced/recoveredへ進めない。
 
-## 13. API Resources
+## 14. API Resources
 
 ```text
 /api/v1/availability-policies
@@ -257,6 +362,8 @@ DRAFT -> ACTIVE -> DEPRECATED -> RETIRED
 /api/v1/host-failure-epochs/{id}/recovery-plan
 /api/v1/vm-recovery-operations
 /api/v1/manual-recovery-decisions
+/api/v1/recovery-budget-policies
+/api/v1/recovery-queue
 ```
 
 すべてのmutationはETag/If-Match、Idempotency-Key、Operation、Authorization、Audit contractに従います。

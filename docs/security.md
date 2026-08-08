@@ -54,6 +54,8 @@ flowchart LR
 - Tenantには許可されたPlacement Scopeだけを公開し、raw Host membership、rack/power topology、operator/owner cohortを秘匿する。
 - AvailabilityPolicy publish/Pool binding/VM Rebind/Manual Recovery Decisionを別permissionとapprovalで保護し、Tenant/Agent/NFVO callbackによる責任変更を許可しない。
 - source fencing proofはtrusted BMC/storage/cluster等のtyped evidenceから検証し、heartbeat lossやAgent自己申告だけでFENCEDへ進めない。
+- Workload Resilience Group/memberはProject scopeを強制し、NFVO opaque roleをauthorization/application authorityに使用せず、raw failure topologyを公開しない。
+- Recovery priorityは公開bounded classからmapし、Tenant指定の任意数値で他Projectをstarveさせない。Budget LeaseはCore serviceだけが発行する。
 
 ## 5. Network と Tenant 分離
 

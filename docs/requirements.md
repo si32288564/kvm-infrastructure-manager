@@ -114,7 +114,45 @@
 | AVR-015 | recovery destinationでcurrent Placement Pool/Policy compatibility、Compliance、capacity、Failure Domainを再評価しsilent fallbackしない | Must |
 | AVR-016 | Host failure/recovery Eventをresponsibilityにかかわらずdurableに通知し、delivery failureでresponsibilityを変更しない | Must |
 
-### 2.6 Image、Flavor
+### 2.6 Workload Resilience Intent
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| WRI-001 | Project scopeのversioned WorkloadResilienceGroup、Member Slot、Failure Domain Constraintを管理する | Must |
+| WRI-002 | NFVO/VNFMのactive/standby等のroleをopaque metadataとして保持し、VNF lifecycle/application health authorityに使用しない | Must |
+| WRI-003 | Northbound APIで公開Failure Domain classのdimension/levelを指定し、raw HostGroup/topologyを公開しない | Must |
+| WRI-004 | rack、power-path等の複数dimensionへ独立したhard separation/max-members/min-domains constraintを指定できる | Must |
+| WRI-005 | stable Member Slotへ同時に複数active VMをbindせず、Project ownershipとgenerationを検証する | Must |
+| WRI-006 | Placement SnapshotへResilience Group/member/constraint/domain claim/hierarchy generationを含める | Must |
+| WRI-007 | ResilienceDomainClaimをVM Allocation/Availability Binding/resource claimsと同じFinal Admission transactionでcommitする | Must |
+| WRI-008 | concurrent member Placementでも同一Failure Domainへのhard constraint違反を一方だけcommit可能にする | Must |
+| WRI-009 | distinct domain不足またはdomain evidence UNKNOWN時にconstraintをsilent relaxせずPlacementを拒否する | Must |
+| WRI-010 | replacement時にold VM/source ownershipがUNKNOWNならMember Slot/Domain Claimを再利用しない | Must |
+| WRI-011 | hierarchy/domain driftで既存VMを暗黙migrationせずVIOLATED/UNKNOWNとFault/Eventを記録する | Must |
+| WRI-012 | Resilience IntentがAvailability responsibilityを上書きせず、全responsibility branchのPlacement/Recoveryでconstraintを再利用する | Must |
+| WRI-013 | Northbound mappingがCore authorization、Project scope、idempotency、transactional admissionを迂回しない | Must |
+| WRI-014 | active Member/Domain Claimを持つResilience Groupを削除しない | Must |
+| WRI-015 | required member未充足をPENDINGとして表現し、増分max-members constraintとcomplete時min-distinct評価を区別する | Must |
+
+### 2.7 Recovery Storm Control
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| RCV-001 | immutable versioned RecoveryBudgetPolicyをAvailabilityPolicyから参照する | Must |
+| RCV-002 | RecoveryQueueEntryとPostgreSQL transactionで発行するRecoveryBudgetLeaseをdurable authorityとして管理する | Must |
+| RCV-003 | PLANNING/DISPATCH phaseごとにSite/Pool/Failure Domain/backend/Project等の該当全budget scopeを不可分取得する | Must |
+| RCV-004 | Budget Leaseをdispatch許可に限定し、fencing、Placement、capacity claim、Command Lease、verificationを代替させない | Must |
+| RCV-005 | Budget Lease expiry/worker lossから未実行を推測せず、Recovery Operation/Command/read-backで重複dispatchを防ぐ | Must |
+| RCV-006 | max concurrency、start rate/window/burst、bounded backoff/jitterをscope別に強制する | Must |
+| RCV-007 | bounded priority class、aging、fair-share、per-Project/Resilience Group capでstarvationを防ぐ | Must |
+| RCV-008 | backend health gate/circuit breakerで該当recoveryをpauseし、復旧後に全safety generationを再検証する | Must |
+| RCV-009 | duplicate failure signalをfailure epochへdeduplicateし、correlated failureを共通budget scopeへ集約する | Must |
+| RCV-010 | queue age、budget saturation、waiting/blocked/unknown/escalated stateを監査・Alarm/Eventへ公開する | Must |
+| RCV-011 | Budget Policy変更だけでdispatch/started Recovery Operationを暗黙cancel/reclassifyしない | Must |
+| RCV-012 | Control Plane/worker failover後もbudget/queue/lease authorityとfair orderingをPostgreSQLから復元する | Must |
+| RCV-013 | Recovery dispatch時にBudget LeaseをOperationと不可分なdurable Budget Consumptionへ変換しterminal verificationまで並行数へ計上する | Must |
+
+### 2.8 Image、Flavor
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -124,7 +162,7 @@
 | FLV-001 | vCPU、RAM、root disk、追加仕様を Flavor として管理できる | Must |
 | FLV-002 | NUMA、HugePages、CPU Pinning を Flavor で要求できる | Should |
 
-### 2.7 Compute
+### 2.9 Compute
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -138,7 +176,7 @@
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 
-### 2.8 Scheduler
+### 2.10 Scheduler
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -150,7 +188,7 @@
 | SCH-006 | final admission の競合失敗時に同じ request snapshot の残候補を再選択できる | Must |
 | SCH-007 | dry admission は状態を変更せず、capacity を予約しない | Must |
 
-### 2.9 Network
+### 2.11 Network
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -162,7 +200,7 @@
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
 
-### 2.10 NFV Dataplane
+### 2.12 NFV Dataplane
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -182,7 +220,7 @@
 | DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
 | DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
 
-### 2.11 Storage
+### 2.13 Storage
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -193,7 +231,7 @@
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
 
-### 2.12 Operation、Event、Notification
+### 2.14 Operation、Event、Notification
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -208,7 +246,7 @@
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
-### 2.13 Fault、Performance、Audit
+### 2.15 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
 |---|---|---|

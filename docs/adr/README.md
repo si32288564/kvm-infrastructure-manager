@@ -30,3 +30,5 @@
 - [ADR-0013: ZTPとContinuous ComplianceをHost Lifecycleへ統合する](0013-host-lifecycle-baseline-compliance.md)
 - [ADR-0014: Host Groupを第一級resourceとして扱う](0014-first-class-host-groups.md)
 - [ADR-0015: Availability責任をPlacement Pool Policyとして固定する](0015-availability-responsibility.md)
+- [ADR-0016: NF側HAの分離意図をtransactional Failure Domain claimへ変換する](0016-workload-resilience-intent.md)
+- [ADR-0017: Recovery stormをdurable budgetとqueueで制御する](0017-bounded-recovery-storm-control.md)

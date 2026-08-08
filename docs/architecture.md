@@ -51,6 +51,8 @@ flowchart TB
     Recovery["Availability / Failure Recovery Service"] --> DB
     Recovery --> Scheduler
     Recovery --> Workflow
+    Resilience["Workload Resilience Intent Service"] --> DB
+    Resilience --> Scheduler
     Reconciler["Resource Reconcilers"] --> DB
     Reconciler --> Bus
     Inventory["Inventory and Capacity"] --> DB
@@ -136,6 +138,10 @@ HostGroupはHost capability、Compliance、resource capacityを上書きせず�
 Placement Poolへimmutable Availability Policyをbindし、Host failure responsibilityをInfrastructure Managed、Workload Managed、Manualへ分類します。Final Admission時のeffective PolicyをVM Availability Bindingへ固定し、Group/Policy変更だけで既存VMの責任を変更しません。
 
 Workload ManagedではFault/Eventを通知して自動restartせず、Infrastructure Managedではsource fencing、VM/resource eligibility、transactional admission、Execution、observationを通じて別Hostへ復旧します。Manualは明示Decisionを要求します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) を参照します。
+
+### Workload Resilience Intent
+
+NFVO/VNFMが指定するmember集合とrack/power等のhard separationをProject scope resourceとして受け、Final AdmissionでFailure Domain Claimを不可分commitします。active/standby roleはopaqueで、KIMはVNF lifecycleを所有しません。詳細は [Workload Resilience Intent Architecture](workload-resilience-intent-architecture.md) を参照します。
 
 ### Host OS Portability Layer
 
@@ -304,6 +310,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md)
 - [Host Grouping Architecture](host-grouping-architecture.md)
 - [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md)
+- [Workload Resilience Intent Architecture](workload-resilience-intent-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

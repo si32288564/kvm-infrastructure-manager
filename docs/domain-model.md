@@ -11,7 +11,8 @@
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
 | Host Lifecycle and Compliance | Hardware Identity Evidence、Enrollment Policy、Host Profile、Baseline、Control、Evaluator、Assignment、Compliance、External Remediation、Maintenance |
 | Host Grouping | Host Group、Dimension、Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope |
-| Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Manual Recovery Decision |
+| Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Budget Queue/Lease/Consumption、Manual Recovery Decision |
+| Workload Resilience | Resilience Group、Member Slot、Failure Domain Constraint、Domain Claim |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
@@ -39,6 +40,16 @@ erDiagram
     HOST ||--o{ HOST_FAILURE_EPOCH : fails_in
     HOST_FAILURE_EPOCH ||--o{ VM_RECOVERY_OPERATION : plans
     VM ||--o{ VM_RECOVERY_OPERATION : recovers
+    RECOVERY_BUDGET_POLICY ||--o{ AVAILABILITY_POLICY : referenced_by
+    HOST_FAILURE_EPOCH ||--o{ RECOVERY_QUEUE_ENTRY : queues
+    RECOVERY_QUEUE_ENTRY ||--o{ RECOVERY_BUDGET_LEASE : leases
+    VM_RECOVERY_OPERATION ||--o{ RECOVERY_BUDGET_CONSUMPTION : consumes
+    PROJECT ||--o{ WORKLOAD_RESILIENCE_GROUP : owns
+    WORKLOAD_RESILIENCE_GROUP ||--o{ RESILIENCE_MEMBER_SLOT : contains
+    WORKLOAD_RESILIENCE_GROUP ||--o{ FAILURE_DOMAIN_CONSTRAINT : constrains
+    RESILIENCE_MEMBER_SLOT ||--o| VM : binds
+    FAILURE_DOMAIN_CONSTRAINT ||--o{ RESILIENCE_DOMAIN_CLAIM : claims
+    VM ||--o{ RESILIENCE_DOMAIN_CLAIM : occupies
     HOST_PROFILE ||--o{ HOST : classifies
     HOST_BASELINE ||--o{ BASELINE_CONTROL : contains
     HOST ||--o{ HARDWARE_IDENTITY_EVIDENCE : identified_by
@@ -180,6 +191,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - rollout/maintenanceはimmutable Group Membership Snapshotへbindし、Group変更だけで既存workloadを変更しない。
 - placement可能なHost/request contextはeffective Availability Policyを一意に解決し、VMはFinal Admission時のAvailability Binding revisionを保持する。
 - WORKLOAD_MANAGED/MANUAL VMをKIMが自動restartせず、INFRASTRUCTURE_MANAGEDもfencing/admission/verificationを迂回しない。
+- Resilience Domain ClaimはFinal Admissionでresource claimsと不可分commitし、opaque roleをVNF lifecycle authorityに使用しない。
+- Recovery budget/queue/leaseはdispatch authorityだけを持ち、capacity/fencing/Command authorityを兼ねない。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

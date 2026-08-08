@@ -98,7 +98,45 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AVR-015 | destinationのPool Policy compatibilityを含むdry/final admissionを再実行しsilent fallbackしない |
 | AT-AVR-016 | Fault/Recovery Eventがdurable outbox、correlation、policy version、redaction、再送contractを持つ |
 
-## 7. API / Data / Operations
+## 7. Workload Resilience Intent
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-WRI-001 | Project scopeのResilience Group/member/constraint/domain claim lifecycleを認可・generation・監査付きで管理する |
+| AT-WRI-002 | active/standby等のopaque roleを保存するがVNF lifecycle/application health判断に使用しない |
+| AT-WRI-003 | public Failure Domain classを内部dimension/levelへmapしraw topologyをresponse/eventへ出さない |
+| AT-WRI-004 | rackとpower-feed等の複数dimensionへhard max-members/min-domainsを独立適用する |
+| AT-WRI-005 | Member Slotへ同時に一VMだけをbindしProject ownership/generationを検証する |
+| AT-WRI-006 | Placement SnapshotへGroup/member/constraint/claim/hierarchy generationを完全に含める |
+| AT-WRI-007 | Domain ClaimとVM Allocation/Availability Binding/resource claimsを一transactionでcommit/rollbackする |
+| AT-WRI-008 | parallel member admissionがsame-domain conflictを一件だけcommitし残候補をreselectする |
+| AT-WRI-009 | insufficient/UNKNOWN domainでhard constraintをrelaxせずbounded ineligible reasonを返す |
+| AT-WRI-010 | old member ownership UNKNOWN時にreplacement slot/claim bindを拒否する |
+| AT-WRI-011 | domain driftをVIOLATED/UNKNOWNと通知し既存VM/claim/historyを暗黙変更しない |
+| AT-WRI-012 | WORKLOAD/INFRASTRUCTURE/MANUALの各Placement/Recoveryで同じconstraintを守りresponsibilityを変更しない |
+| AT-WRI-013 | Northbound create/bind retryをidempotentにしCore authz/admission/auditを通す |
+| AT-WRI-014 | active member/claim/referenceがあるGroup deleteを拒否する |
+| AT-WRI-015 | incomplete member setをPENDINGにし、各admissionのmax-membersとcompletion時min-distinctを正しく評価する |
+
+## 8. Recovery Storm Control
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-RCV-001 | immutable RecoveryBudgetPolicyをAvailabilityPolicy reference、scope、rate/concurrency/fairness/health contract付きで管理する |
+| AT-RCV-002 | Recovery Queue/Entry/Budget LeaseをPostgreSQL authority、generation、token、expiry付きで管理する |
+| AT-RCV-003 | PLANNING/DISPATCH phase別にSite/Pool/domain/backend/Projectのapplicable budgetを全て不可分取得する |
+| AT-RCV-004 | Budget Lease取得後もfencing、final admission、capacity、Command Lease、verificationを個別に要求する |
+| AT-RCV-005 | lease expiry/worker restart後にdispatch済みOperationをduplicateせずread-backへ収束する |
+| AT-RCV-006 | max concurrency、rate/window/burst、backoff/jitterをmulti-workerで上限内に保つ |
+| AT-RCV-007 | bounded priority/aging/fair-share/per-scope capでsafetyとstarvation防止を両立する |
+| AT-RCV-008 | backend health circuit breakerが該当Entryだけをpauseし復旧後にfull revalidationする |
+| AT-RCV-009 | duplicate Host signalを同failure epochへ収束しcorrelated domain failureをshared budgetへ集約する |
+| AT-RCV-010 | queue age/saturation/waiting/blocked/unknown/escalatedをmetrics/event/auditで説明する |
+| AT-RCV-011 | Budget Policy変更後もstarted Operationを維持しnew leaseだけをnew generationへ従わせる |
+| AT-RCV-012 | DB/worker failover後にqueue authority、active budget consumption、公平なorderingを復元する |
+| AT-RCV-013 | dispatch transactionがRecovery Operationと全scope Budget Consumptionを不可分commitしterminal verification後だけreleaseする |
+
+## 9. API / Data / Operations
 
 | ID | Acceptance Contract |
 |---|---|
@@ -111,7 +149,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-OPS-005 | retry/cancelが許可状態とauthorityを検証し、unsafe actionを拒否する |
 | AT-EVT-001 | event/webhookをdurable outboxから再送し、重複IDとredaction contractを維持する |
 
-## 8. Execution
+## 10. Execution
 
 | ID | Acceptance Contract |
 |---|---|
@@ -123,7 +161,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-006 | successful Result後もJobはverifyingで、matching observation後だけsucceededになる |
 | AT-EXEC-007 | terminal Job/Attempt/Event履歴がimmutableである |
 
-## 9. Placement / Migration
+## 11. Placement / Migration
 
 | ID | Acceptance Contract |
 |---|---|
@@ -137,7 +175,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-PLC-008 | affinity/anti-affinity/PCI/SR-IOV/NUMA constraintをeligibilityで評価する |
 | AT-PLC-009 | eligibility reason、score、rank、final conflict、reselectionを説明できる |
 
-## 10. Compute / Image / Network / Storage
+## 12. Compute / Image / Network / Storage
 
 | ID | Acceptance Contract |
 |---|---|
@@ -152,7 +190,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 
-## 11. NFV Dataplane
+## 13. NFV Dataplane
 
 | ID | Acceptance Contract |
 |---|---|
@@ -170,7 +208,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DPL-012 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない |
 | AT-DPL-013 | Validated OVS/DPDK/distribution/NIC driver組合せだけをsupport matrix対象として公開する |
 
-## 12. Security / Audit / Documentation
+## 14. Security / Audit / Documentation
 
 | ID | Acceptance Contract |
 |---|---|
@@ -183,7 +221,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
 | AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
 
-## 13. HA / Upgrade / Packaging
+## 15. HA / Upgrade / Packaging
 
 | ID | Acceptance Contract |
 |---|---|
@@ -191,7 +229,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-001 | N-1→N upgrade/rollback中にAPI/Agent contractと既存VMを維持する |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 
-## 14. Performance Tests
+## 16. Performance Tests
 
 | ID | Performance Contract |
 |---|---|

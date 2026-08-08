@@ -57,6 +57,12 @@
 | Q-048 | Infrastructure recovery scope | local disk、SR-IOV/PCI、DPDK、shared Volume別のinitial restart-on-other-host support | Technical Preview 前 |
 | Q-049 | NFVO/VNFM fault contract | WORKLOAD_MANAGED event mapping、delivery SLO、ack/replay/correlation profile | Technical Preview 前 |
 | Q-050 | Availability Rebind policy | existing VM bulk rebindのcanary、approval、maintenance、rollback条件 | Product Beta 前 |
+| Q-051 | Northbound resilience profile | 対象NFVO/VNFMのmember/role/separation modelとCore API mapping | Technical Preview 前 |
+| Q-052 | Public Failure Domain classes | rack、chassis、power-feed等の公開class、min domain、情報秘匿profile | Phase 0 |
+| Q-053 | Resilience member replacement | old VM/source UNKNOWN時のNFVO retry、slot fencing、operator escalation | Technical Preview 前 |
+| Q-054 | Recovery budget defaults | Site/Pool/backend別concurrency、rate/burst、queue age、backoff初期値 | Technical Preview 前 |
+| Q-055 | Recovery priority/fairness | 公開priority class、Project fair-share、aging、emergency override approval | Product Beta 前 |
+| Q-056 | Correlated failure model | Host/rack/power/site epoch correlation sourceとbudget scope集約規則 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -75,3 +81,4 @@
 13. Enrollment/Baseline/Complianceのinitial policyとControl catalog
 14. Initial HostGroup dimension、binding precedence、公開Placement Scope
 15. Initial Availability class、fencing evidence、managed recovery support scope
+16. Northbound resilience profileとRecovery budget/fairness defaults
