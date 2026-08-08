@@ -64,6 +64,9 @@
 | Q-055 | Recovery priority/fairness | 公開priority class、Project fair-share、aging、emergency override approval | Product Beta 前 |
 | Q-056 | Correlated failure profile | FailureCampaign authorityは確定。初期Host/rack/power/site correlation rule、evidence source、time bound、late merge運用値を決定 | Technical Preview 前 |
 | Q-057 | Recovery budget lock schema | canonical ordering契約は確定。初期scope dimension rank、normalized ID encoding、DB isolation/retry上限を決定 | Developer Preview 前 |
+| Q-058 | Data retention profile | class別online/archive/tombstone/dedupe期間、legal hold、容量見積りを決定 | Technical Preview 前 |
+| Q-059 | Schema compatibility profile | N/N-1 window、initial isolation level、DDL lock budget、backfill batch/checkpoint値を決定 | Developer Preview 前 |
+| Q-060 | Backup/PITR profile | PostgreSQL distribution、base/WAL方式、object storage、encryption/key custody、restore drill頻度を決定 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -84,3 +87,4 @@
 15. Initial Availability class、fencing evidence、managed recovery support scope
 16. Northbound resilience profileとRecovery budget/fairness defaults
 17. Failure Campaign correlation profileとcanonical BudgetScopeKey schema
+18. Data retention、schema compatibility、backup/PITRのinitial product profile

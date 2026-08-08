@@ -147,6 +147,23 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-API-003 | 同一idempotency key+異なるpayloadが409 conflictになる |
 | AT-DATA-001 | desired/allocation/Job/Command/idempotencyの一要素失敗で全transactionがrollbackする |
 | AT-DATA-002 | desired/observed generationを独立保持し、stale observationをcurrent表示しない |
+| AT-DATA-003 | schema catalogがCurrent Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionとowner/scope/retentionを宣言する |
+| AT-DATA-004 | current summary/pointer再計算が過去Decision/Evidenceを改変せず、projectionをauthorityから再構築できる |
+| AT-DATA-005 | domain mutation、Operation/idempotency、Outboxの一要素失敗で全transactionをrollbackする |
+| AT-DATA-006 | Inbox受理、domain decision、Receipt/Outboxを不可分commitし、duplicate/replayへ同じReceiptを返す |
+| AT-DATA-007 | versioned retention、archive、tombstone、legal/security holdをresource/data class別に強制する |
+| AT-DATA-008 | GC Candidate/Lease/Receiptがreference-safeかつ冪等で、DB GCからbackend side effectを発行しない |
+| AT-DATA-009 | append-heavy partitionの作成/detachでglobal uniqueness、FK/reference、Tenant scope、backup coverageを維持する |
+| AT-DATA-010 | expand/migrate/switch/contract中にN/N-1 replicaが互換schema範囲だけでread/writeする |
+| AT-DATA-011 | migration/backfillがartifact digest、schema generation、Lease、checkpoint、batch/lock limit、verificationを保持する |
+| AT-DATA-012 | concurrent updateとbackfill競合時にcurrent generationを上書きせずretry後も同じ結果へ収束する |
+| AT-DATA-013 | Backup Manifestがbase backup、WAL range、schema/migration、artifact、key reference、checksumを検証する |
+| AT-DATA-014 | PITR起動時にrestore epoch/database authority generationを発行しpre-restore authorityを拒否する |
+| AT-DATA-015 | recovery modeがresourceをMATCHED/DB_ONLY/BACKEND_ONLY/CONFLICTING/UNKNOWNに分類しscope別にauthorityを再開する |
+| AT-DATA-016 | backend-only adoptionがidentity/ownership/fencing/authorization付きOperationを要求し自動adopt/deleteしない |
+| AT-DATA-017 | PITR point後に配送/実行済みのEvent/Commandをstable IDで再送しReceipt/journalへ収束する |
+| AT-DATA-018 | replication/WAL/backup gap、partition/GC backlog、migration、Outbox/Inbox age、restore reconciliationをmetrics/alarmで公開する |
+| AT-DATA-019 | RECOVERY_READ_ONLYがrecovery-control writeだけを許可し、旧writer/Control Plane/credentialのfencing proof後にscope別mutationを再開する |
 | AT-OPS-001 | Operation状態、進捗、correlation、bounded failure reasonを照会できる |
 | AT-OPS-005 | retry/cancelが許可状態とauthorityを検証し、unsafe actionを拒否する |
 | AT-EVT-001 | event/webhookをdurable outboxから再送し、重複IDとredaction contractを維持する |

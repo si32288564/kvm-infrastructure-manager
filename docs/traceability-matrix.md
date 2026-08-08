@@ -123,7 +123,26 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | RCV-014 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0017 | INV-RCV-014 | AT-RCV-014, FI-RCV-012 | Planned |
 | RCV-015 | availability-responsibility-architecture, execution-architecture, failure-model | ADR-0007, ADR-0010, ADR-0017 | INV-RCV-015 | AT-RCV-015, FI-RCV-007, FI-RCV-013 | Planned |
 
-## 10. Image / Flavor / Compute
+## 10. Data and Persistence
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| DAT-001, DAT-004 | data-persistence-architecture, domain-model | ADR-0018 | INV-DATA-004 | AT-DATA-003, AT-DATA-004, FI-DATA-012 | Planned |
+| DAT-002, DAT-003 | data-persistence-architecture, architecture, execution-architecture | ADR-0007, ADR-0018 | INV-DATA-001, INV-DATA-003 | AT-DATA-001, AT-EXEC-007 | Planned |
+| DAT-005 | data-persistence-architecture, architecture | ADR-0018 | INV-DATA-005 | AT-DATA-005, FI-DATA-001, FI-DATA-002 | Planned |
+| DAT-006 | data-persistence-architecture | ADR-0018 | INV-DATA-006 | AT-DATA-006, FI-DATA-003 | Planned |
+| DAT-007, DAT-008 | data-persistence-architecture, security | ADR-0018 | INV-DATA-007, INV-DATA-009 | AT-DATA-007, AT-DATA-008, FI-DATA-004, FI-DATA-005 | Planned |
+| DAT-009 | data-persistence-architecture, responsibility-boundaries | ADR-0018 | INV-DATA-008 | AT-DATA-008, FI-DATA-005 | Planned |
+| DAT-010 | data-persistence-architecture | ADR-0018 | INV-DATA-010 | AT-DATA-009, FI-DATA-005 | Planned |
+| DAT-011 | data-persistence-architecture | ADR-0018 | INV-DATA-011 | AT-DATA-010, FI-DATA-007 | Planned |
+| DAT-012, DAT-013 | data-persistence-architecture | ADR-0018 | INV-DATA-012, INV-DATA-013 | AT-DATA-011, AT-DATA-012, FI-DATA-006, FI-DATA-007 | Planned |
+| DAT-014 | data-persistence-architecture, ha-dr | ADR-0009, ADR-0018 | INV-DATA-014 | AT-DATA-013, AT-DATA-018, FI-DATA-008 | Planned |
+| DAT-015 | data-persistence-architecture, ha-dr, failure-model | ADR-0009, ADR-0010, ADR-0018 | INV-DATA-015 | AT-DATA-014, FI-DATA-009 | Planned |
+| DAT-016, DAT-017 | data-persistence-architecture, ha-dr, failure-model | ADR-0009, ADR-0010, ADR-0018 | INV-DATA-016, INV-DATA-017 | AT-DATA-015, AT-DATA-016, FI-DR-001, FI-DATA-011 | Planned |
+| DAT-018 | data-persistence-architecture, execution-architecture, ha-dr | ADR-0007, ADR-0009, ADR-0018 | INV-DATA-018 | AT-DATA-017, FI-DATA-010 | Planned |
+| DAT-019 | data-persistence-architecture, ha-dr, failure-model | ADR-0009, ADR-0010, ADR-0018 | INV-DATA-019 | AT-DATA-019, FI-DATA-009, FI-DATA-013 | Planned |
+
+## 11. Image / Flavor / Compute
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -134,7 +153,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | CMP-005, CMP-006, CMP-009 | placement-architecture | ADR-0006 | INV-PLC-007 | AT-PLC-007 | Planned |
 | CMP-008 | api-principles, security | ADR-0005 | INV-SEC-001, INV-SEC-002 | AT-CMP-008 | Planned |
 
-## 11. Placement
+## 12. Placement
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -143,7 +162,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | SCH-003, SCH-005 | placement-architecture | ADR-0006 | INV-PLC-001 | AT-PLC-009 | Planned |
 | SCH-006 | placement-architecture | ADR-0006 | INV-PLC-005 | AT-PLC-005 | Planned |
 
-## 12. Network / Storage
+## 13. Network / Storage
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -163,7 +182,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | DPL-010, DPL-011 | nfv-dataplane-resource-architecture, execution-architecture | ADR-0007, ADR-0012 | INV-DPL-007, INV-DPL-008, INV-DPL-010 | AT-DPL-008, AT-DPL-009, FI-DPDK-003, FI-DPDK-005, XCT-DPDK-002, XCT-DPDK-003, XCT-DPDK-004 | Planned |
 | DPL-013, DPL-014, DPL-015 | nfv-dataplane-resource-architecture, failure-model | ADR-0010, ADR-0012 | INV-DPL-005, INV-DPL-009 | AT-DPL-011, AT-DPL-012, AT-DPL-013, FI-DPDK-001 | Planned |
 
-## 13. Operations / Observability / Audit
+## 14. Operations / Observability / Audit
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -174,7 +193,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | O11Y-001, O11Y-002, O11Y-003 | security, failure-model | ADR-0010 | INV-SEC-002 | AT-O11Y-001 | Planned |
 | AUD-001, AUD-002 | security, responsibility-boundaries | ADR-0005, ADR-0010 | INV-SEC-001, INV-SEC-002 | AT-AUD-001, AT-AUD-002 | Planned |
 
-## 14. Non-functional Requirements
+## 15. Non-functional Requirements
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -186,7 +205,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
 | NFR-EXT-001, NFR-EXT-002, NFR-EXT-003, NFR-EXT-004, NFR-EXT-005, NFR-EXT-006 | extensibility-architecture | ADR-0011 | INV-EXT-001, INV-EXT-002, INV-EXT-003, INV-EXT-004, INV-EXT-005, INV-EXT-006 | XCT-CONTRACT-001, XCT-BOUNDARY-001, XCT-BOUNDARY-002, XCT-BOUNDARY-003, XCT-FAIL-001, XCT-CAP-001, XCT-LIFE-001 | Planned |
 
-## 15. Coverage Gate
+## 16. Coverage Gate
 
 Phase 0完了条件:
 

@@ -97,6 +97,8 @@ NFVO/VNFMはopaque member roleと公開Failure Domain classを指定します。
 
 PostgreSQL は desired state、allocation、network intent、attachment、operation/execution authority の System of Record です。libvirt、OVN、Ceph の observed state は復旧証拠ですが、未知 resource を自動的に KIM 所有へ昇格させません。復旧時の adoption は identity、provenance、generation と operator authorization を必要とします。
 
+KIMは自身のauthority data、decision/evidence、delivery journal、schema migration、retention/GC、backup/PITR reconciliationを所有します。ただし、汎用Data Warehouse、顧客application backup、外部SIEM/Archive lifecycle、Secret valueの保管を所有しません。DB retentionやrestoreをbackend resource削除/作成のauthorityとして使用しません。
+
 ## 7. 明示的な非責任
 
 KIMは以下を暗黙にも代行しません。

@@ -56,6 +56,8 @@ flowchart LR
 - source fencing proofはtrusted BMC/storage/cluster等のtyped evidenceから検証し、heartbeat lossやAgent自己申告だけでFENCEDへ進めない。
 - Workload Resilience Group/memberはProject scopeを強制し、NFVO opaque roleをauthorization/application authorityに使用せず、raw failure topologyを公開しない。
 - Recovery priorityは公開bounded classからmapし、Tenant指定の任意数値で他Projectをstarveさせない。Budget LeaseはCore serviceだけが発行する。
+- persistent data classごとにTenant scope、PII/secret classification、retention/legal hold、archive/restore permissionをschema catalogへ宣言する。
+- Outbox/Inbox/archive/backupへsecret valueや不要なraw identityを保存せず、restore/GC/migration operatorを通常resource operatorから権限分離する。
 
 ## 5. Network と Tenant 分離
 

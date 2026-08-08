@@ -13,6 +13,7 @@
 | Host Grouping | Host Group、Dimension、Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope |
 | Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Budget Queue/Lease/Consumption、Manual Recovery Decision |
 | Workload Resilience | Resilience Group、Member Slot、Failure Domain Constraint、Domain Claim |
+| Data and Persistence | Schema Catalog、Retention Policy、Outbox、Inbox/Receipt、GC Snapshot/Lease/Receipt、Migration、Backup Manifest、Restore Epoch |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
@@ -84,6 +85,9 @@ erDiagram
     JOB ||--o{ COMMAND : dispatches
     COMMAND ||--o{ ATTEMPT : attempts
     COMMAND ||--o| LEASE : authorizes
+    OPERATION ||--o{ OUTBOX_RECORD : emits
+    INBOX_RECORD ||--o| DELIVERY_RECEIPT : returns
+    BACKUP_MANIFEST ||--o{ RESTORE_EPOCH : restores
 ```
 
 ## 3. 識別子と共通属性
@@ -195,6 +199,9 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - Recovery budget/queue/leaseはdispatch authorityだけを持ち、capacity/fencing/Command authorityを兼ねない。
 - 全budget scopeはcanonical key順で不可分取得し、deadlock/serialization retryで部分authorityを残さない。
 - Failure Epochを改変せずversioned Failure Campaignへ相関付け、VM単位のRecovery Campaign Claimで重複dispatch/consumptionを防ぐ。
+- Current Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionを分類し、projectionやdelivery状態をresource authorityにしない。
+- retention/GCはactive reference、UNKNOWN、legal hold、tombstoneを検証し、DB cleanupからbackend mutationを開始しない。
+- PITR後はrestore epochで旧Lease/session/claimをfenceし、read-only reconciliation前にmutation authorityを再開しない。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

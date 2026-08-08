@@ -154,7 +154,31 @@
 | RCV-014 | applicable budget scopeをversioned canonical key順でlockし、deadlock/serialization failure時は全取得をrollbackして再評価する | Must |
 | RCV-015 | FailureCampaignごとにVM/actionのunique Recovery Campaign Claimを保持し、late correlation/mergeでも重複Queue、dispatch、Budget Consumptionを防ぐ | Must |
 
-### 2.8 Image、Flavor
+### 2.8 Data and Persistence
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| DAT-001 | persistent dataをCurrent Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionとして分類しschema catalogで管理する | Must |
+| DAT-002 | ownership、desired state、allocation、attachment、execution/recovery authorityをPostgreSQL commitだけで進める | Must |
+| DAT-003 | current pointer/summary更新時も過去Decision、Attempt、Result、Observation、Compliance、fencing evidenceを改変しない | Must |
+| DAT-004 | Derived Projectionをauthorityから再構築可能にし、projection failureをdomain mutationの成功根拠にしない | Must |
+| DAT-005 | domain mutation、Operation/idempotency、Outbox Eventを同一transactionでcommit/rollbackする | Must |
+| DAT-006 | Inbox inputをsource identity/generation/message ID/digestでdeduplicateし、domain decisionとReceipt/Outboxを不可分commitする | Must |
+| DAT-007 | data class別のversioned Retention Policy、legal/security hold、archive、tombstone期間を管理する | Must |
+| DAT-008 | active reference、UNKNOWN、open Operation、Lease/Claim、legal holdを持つdataをGCせず、GCをLease/Receipt付きで冪等化する | Must |
+| DAT-009 | DB retention/GC/partition削除からlibvirt、OVN、Ceph等のbackend side effectを開始しない | Must |
+| DAT-010 | append-heavy historyをpartition可能にし、authority uniqueness、transactional admission、Tenant isolationをpartition境界で失わない | Must |
+| DAT-011 | schema変更をexpand、migrate/backfill、switch、contractで実施し、N/N-1 reader/writer compatibilityを維持する | Must |
+| DAT-012 | migration/backfillをartifact digest、schema generation、single Lease、checkpoint、bounded batch/lock、verification付きで管理する | Must |
+| DAT-013 | backfillが並行更新のcurrent generationを上書きせず、失敗/再開時にも冪等に収束する | Must |
+| DAT-014 | base backup、continuous WAL、schema/migration catalog、artifact manifest、checksumを一つのBackup Manifestへbindする | Must |
+| DAT-015 | PITR後に新しいrestore epoch/database authority generationを発行し、pre-restore Lease、session、worker/publisher claimをfenceする | Must |
+| DAT-016 | restore後はread-only recovery modeでfull observationし、MATCHED、DB_ONLY、BACKEND_ONLY、CONFLICTING、UNKNOWNへ分類する | Must |
+| DAT-017 | backend-only resourceを自動adopt/deleteせず、ownership/fencing/authorization付きAdoption Operationを要求する | Must |
+| DAT-018 | PITR後のOutbox/Inbox/Command再送をstable ID/Receiptでdeduplicateし、外部side effect不明をUNKNOWN/read-backで解決する | Must |
+| DAT-019 | DR restore epochを旧Site/primary fencingの代替にせず、旧database writer、Control Plane dispatch、credential/endpointのfencing proofまで通常mutationを再開しない | Must |
+
+### 2.9 Image、Flavor
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -164,7 +188,7 @@
 | FLV-001 | vCPU、RAM、root disk、追加仕様を Flavor として管理できる | Must |
 | FLV-002 | NUMA、HugePages、CPU Pinning を Flavor で要求できる | Should |
 
-### 2.9 Compute
+### 2.10 Compute
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -178,7 +202,7 @@
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 
-### 2.10 Scheduler
+### 2.11 Scheduler
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -190,7 +214,7 @@
 | SCH-006 | final admission の競合失敗時に同じ request snapshot の残候補を再選択できる | Must |
 | SCH-007 | dry admission は状態を変更せず、capacity を予約しない | Must |
 
-### 2.11 Network
+### 2.12 Network
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -202,7 +226,7 @@
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
 
-### 2.12 NFV Dataplane
+### 2.13 NFV Dataplane
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -222,7 +246,7 @@
 | DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
 | DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
 
-### 2.13 Storage
+### 2.14 Storage
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -233,7 +257,7 @@
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
 
-### 2.14 Operation、Event、Notification
+### 2.15 Operation、Event、Notification
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -248,7 +272,7 @@
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
-### 2.15 Fault、Performance、Audit
+### 2.16 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
 |---|---|---|

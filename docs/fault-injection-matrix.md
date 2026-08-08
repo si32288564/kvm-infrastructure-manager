@@ -34,6 +34,19 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-DB-001 | primary failover中に同時mutation | primary/term change、transaction error | old primary fencing、bounded retry | commit/idempotency/term evidence | split-brain commit、data loss | RPO 0、単一committed result |
 | FI-DB-002 | commit成功後response loss | transaction outcome unknown | idempotency照会 | committed rows、request digest | 二重commit | 元Operationを回収 |
 | FI-DR-001 | backup restore後に新しいbackend VM/Port/Volumeを提示 | generation/provenance mismatch | recovery mode、quarantine | unresolved resource、observation evidence | 自動adopt/削除/attach | explicit authorized adoptionまたは外部所有確定 |
+| FI-DATA-001 | domain mutationまたはOutbox insertの片方をcommit直前に失敗 | transaction failure | 全domain/Operation/Outbox row rollback | transaction/error/idempotency evidence | eventなしauthority commit、phantom event | 同一request再送で一つのatomic commit |
+| FI-DATA-002 | Outbox publish成功後ACKをdropしpublisherを再起動 | ACK loss/expired publish Lease | 同じevent IDを再送 | Outbox attempts/receipt correlation | 新event生成、domain mutation再実行 | consumer dedupeとOutbox published収束 |
+| FI-DATA-003 | 同一Inbox keyへ同一/異なるpayload digestを並行送信 | dedupe/unique conflict | 同一digestは同じReceipt、異digestは拒否 | source/generation/key/digests/audit | domain decision二重commit、last-wins | original decision/Receipt回収 |
+| FI-DATA-004 | active authority reference、UNKNOWN、open Operation、legal hold中のevidenceをGC対象化 | eligibility/reference/hold guard | GC Candidate/Lease発行拒否 | references/hold/reason/policy generation | safety evidence/tombstone削除 | reference解消と新snapshot再評価 |
+| FI-DATA-005 | partition detachまたはbatch GC途中でworker/DB failover | Lease/transaction interruption | committed batchだけ保持し残り停止 | GC snapshot/Lease/Receipt/partition manifest | orphan reference、backend cleanup、二重delete | current Leaseでcheckpointから再開しintegrity確認 |
+| FI-DATA-006 | backfill対象rowをAPIが同時更新しworkerを再起動 | generation/precondition conflict | stale backfill write拒否、checkpoint retry | old/current generation、migration/checkpoint | current value上書き、二重変換 | current generationからidempotent再計算 |
+| FI-DATA-007 | N/N-1混在中にcontract DDL、長時間row/index lock、未知schema switchを注入 | compatibility/readiness/lock timeout | switch/contract停止、serving replica維持 | binary/schema ranges、DDL error、migration state | 互換外write、無期限API停止 | compatible expandまたは承認rollback後に再開 |
+| FI-DATA-008 | backup manifestからWAL segment/artifact/checksumを欠損・破損させる | manifest/integrity/restore verification failure | production recovery開始拒否 | backup IDs、LSN range、digest/error | 不完全DBでmutation開始 | 完全なverified backup setでisolated restore成功 |
+| FI-DATA-009 | PITR後にpre-restore Lease/session/publisher claimからmutation/resultを送信 | restore epoch/authority generation mismatch | stale actor/result拒否 | old/current epoch、token、audit | stale dispatch/Result/Outbox claim受理 | current epochでre-enroll/re-lease/reconcile |
+| FI-DATA-010 | PITR point後に既に配送/実行済みのEvent/CommandをDBから再送 | consumer Receipt/Agent journal hit |同じReceipt/resultを回収 | stable ID、digest、attempt/journal evidence | webhook/Host side effect二重実行 | Outbox/Commandがoriginal outcomeへ収束 |
+| FI-DATA-011 | restore後にDB_ONLY/BACKEND_ONLY/CONFLICTING/UNKNOWN resourceを混在提示 | full observation/classification mismatch | scope mutation停止、backend-only quarantine | DB/observed identity/generation/ownership evidence | 自動adopt/delete、反対mutation | matchedまたはexplicit Adoption/domain resolution |
+| FI-DATA-012 | Derived Projection/current summary/検索indexを全削除 | projection health/missing generation | authority write継続可否をpolicy通り制御しprojection再構築 | source authority snapshot、rebuild generation | projectionを正本に逆同期、authority消失 | authorityから同じprojectionを再生成 |
+| FI-DATA-013 | DR restore中に旧primary/Control Planeを隔離後再接続し、旧credentialからmutationを送信 | DR fencing/restore epoch/endpoint conflict | 復元側はREAD_ONLY維持または旧actor拒否、単一writerだけを有効化 | DR activation、old/current DB/credential generation、fencing proof | 両Site mutation、restore epochだけで安全宣言 | 旧writer/dispatch/credential fencingを外部証明しcurrent側だけでmutation成功 |
 | FI-BUS-001 | internal messageをduplicate/reorder | delivery metadata、old generation | handler idempotency、DB authority確認 | work/event dedupe evidence | 二重Command/transition | 単一authority stateへ収束 |
 | FI-BUS-002 | Bus停止後に復旧 | consumer/work age alarm | durable acceptance後のdispatch待機 | pending work age | DB authority loss、成功推測 | DBから未完work再駆動 |
 | FI-GATEWAY-001 | Lease前にAgent Gateway partition | heartbeat/session loss | 新Lease停止、Host ineligible | gateway/Host alarm | Agent cached/autonomous mutation | session+capability再検証 |
@@ -118,7 +131,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 |---|---|
 | Client | FI-CLIENT-001..002 |
 | API / Control Plane | FI-CP-001..002 |
-| Database / DR | FI-DB-001..002, FI-DR-001 |
+| Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..013 |
 | Internal Message | FI-BUS-001..002 |
 | Agent Gateway / Transport | FI-GATEWAY-001..002, FI-TRANSPORT-001..002 |
 | Agent | FI-AGENT-001..002 |

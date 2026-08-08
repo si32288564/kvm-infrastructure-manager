@@ -143,6 +143,12 @@ Workload ManagedではFault/Eventを通知して自動restartせず、Infrastruc
 
 NFVO/VNFMが指定するmember集合とrack/power等のhard separationをProject scope resourceとして受け、Final AdmissionでFailure Domain Claimを不可分commitします。active/standby roleはopaqueで、KIMはVNF lifecycleを所有しません。詳細は [Workload Resilience Intent Architecture](workload-resilience-intent-architecture.md) を参照します。
 
+### Data and Persistence
+
+PostgreSQL上のdataをCurrent Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionへclassifyし、更新・retention・partition・restore規則を分離します。domain mutationとOutbox、Inbox受理とdomain decisionはそれぞれ不可分にcommitします。
+
+schema変更はexpand/migrate/switch/contractで行い、N/N-1互換、checkpointed backfill、bounded lockを要求します。PITR後はrestore epochで旧Lease/session/claimをfenceし、read-only observation、quarantine、explicit adoption後にscope別authorityを再開します。詳細は [Data and Persistence Architecture](data-persistence-architecture.md) を参照します。
+
 ### Host OS Portability Layer
 
 Control Plane と Agent protocol は OS 非依存の正規化モデルのみを扱います。ディストリビューション固有の処理は Agent 内の adapter 境界に閉じ込めます。
@@ -189,6 +195,8 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 | Volume metadata | PostgreSQL | 実体は backend が所有 |
 | Operation history | PostgreSQL | 長期監査とは分離 |
 | Job、Command、Lease、Attempt | PostgreSQL | Execution authority と履歴 |
+| Outbox、Inbox、Receipt | PostgreSQL | delivery journal。domain decisionとtransactionalに接続 |
+| Schema/Retention Catalog、Migration/GC record、Backup Manifest、Restore Epoch | PostgreSQL | persistence lifecycleとrestore fencing authority |
 | Audit log | Append-only sink | 外部転送を推奨 |
 
 ## 5. 整合性モデル
@@ -304,6 +312,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [Execution Architecture](execution-architecture.md)
 - [Agent Protocol Architecture](agent-protocol.md)
 - [HA / DR Architecture](ha-dr.md)
+- [Data and Persistence Architecture](data-persistence-architecture.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)

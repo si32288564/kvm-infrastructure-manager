@@ -32,3 +32,4 @@
 - [ADR-0015: Availability責任をPlacement Pool Policyとして固定する](0015-availability-responsibility.md)
 - [ADR-0016: NF側HAの分離意図をtransactional Failure Domain claimへ変換する](0016-workload-resilience-intent.md)
 - [ADR-0017: Recovery stormをdurable budgetとqueueで制御する](0017-bounded-recovery-storm-control.md)
+- [ADR-0018: 永続データをclassifyし安全なschema evolutionとrestoreを行う](0018-classified-persistence-and-safe-evolution.md)

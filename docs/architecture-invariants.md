@@ -35,6 +35,22 @@
 | INV-DATA-001 | desired state、allocation、attachment、execution authorityはPostgreSQL commitでのみ確定する | AT-DATA-001 |
 | INV-DATA-002 | desired stateとobserved stateを別resource/generationとして保持する | AT-DATA-002 |
 | INV-DATA-003 | terminal Job/Attempt/audit historyを結果に合わせて書き換えない | AT-EXEC-007 |
+| INV-DATA-004 | Derived ProjectionとMessage delivery状態をresource/ownership/execution authorityにしない | AT-DATA-003 |
+| INV-DATA-005 | domain mutation、Operation/idempotency、Outbox Eventを一つのtransactionでcommit/rollbackする | FI-DATA-001 |
+| INV-DATA-006 | Inboxの同一source/generation/message ID+digestは同じReceiptへ収束し、異なるdigestはconflictにする | FI-DATA-003 |
+| INV-DATA-007 | current authorityが参照するDecision/Evidence、UNKNOWN、open Operation、active Lease/Claim、legal holdをGCしない | FI-DATA-004 |
+| INV-DATA-008 | DB GC/partition detach/archiveはbackend resource mutationを開始しない | AT-DATA-008 |
+| INV-DATA-009 | tombstoneはresource identity、scope、final generation、delete decision、integrity digestを保持する | AT-DATA-007 |
+| INV-DATA-010 | partitioningはauthority uniqueness、transactional admission、Tenant isolationを分裂させない | AT-DATA-009 |
+| INV-DATA-011 | schema switch前にN/N-1 reader/writer compatibilityとrequired replica capabilityを検証する | FI-DATA-007 |
+| INV-DATA-012 | migration/backfillはsingle Lease、artifact digest、checkpoint、bounded lock/batch、verificationを持つ | AT-DATA-011 |
+| INV-DATA-013 | backfillはcurrent generationの並行更新を上書きせず、retryで同じ結果へ収束する | FI-DATA-006 |
+| INV-DATA-014 | restore可能なbackupはbase/WAL/schema/migration/artifact/checksumを一つのmanifestへbindする | FI-DATA-008 |
+| INV-DATA-015 | PITR後のrestore epochはpre-restore Lease、session、worker/publisher claimをcurrent authorityからfenceする | FI-DATA-009 |
+| INV-DATA-016 | restore後はread-only classification/reconciliation前にmutation authorityを再開しない | AT-DATA-015 |
+| INV-DATA-017 | BACKEND_ONLY/CONFLICTING/UNKNOWN resourceを自動adopt/deleteしない | FI-DATA-011 |
+| INV-DATA-018 | PITR後の再送はstable ID/Receiptでdeduplicateし、外部side effect不明をUNKNOWNとしてread-backする | FI-DATA-010 |
+| INV-DATA-019 | restore epochだけで旧Site/primaryをfencedとみなさず、外部DR fencing proofなしに通常mutationを再開しない | FI-DATA-013 |
 
 ## 5. Placement
 

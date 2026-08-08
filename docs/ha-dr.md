@@ -9,6 +9,8 @@ PostgreSQLは管理情報のキャッシュではなくauthorityです。High Av
 
 DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Model](failure-model.md) に従います。
 
+data class、backup manifest、restore epoch、schema/retention contractの詳細は [Data and Persistence Architecture](data-persistence-architecture.md) に従います。
+
 本書のControl Plane HA/DRと、Host failure時のmanaged VM recoveryは別問題です。VM recovery責任と動作は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従い、Control Plane failoverだけでVM restart/evacuateを開始しません。
 
 ## 2. Authority Data
@@ -26,6 +28,7 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 - HostGroup、Dimension、materialized Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope
 - Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Manual Recovery Decision
 - Recovery Budget Policy、Queue Entry、Budget Lease/Consumption、canonical scope schema、Workload Resilience Group/Member/Constraint/Domain Claim
+- Schema/Retention Catalog、Outbox/Inbox/Receipt、GC/Migration record、Backup Manifest、Restore Epoch
 
 backend observationだけでこれらを無条件に復元しません。
 
@@ -54,11 +57,13 @@ backend observationだけでこれらを無条件に復元しません。
 restore時点より新しいbackend resourceが存在し得るため、通常reconciliationとは別のrecovery modeを使用します。
 
 1. Control Planeをread-only recovery modeで起動する。
-2. Host/OVN/Storageからobserved stateをfull resyncする。
-3. DB authorityと一致するresourceだけをmanagedとして再確認する。
-4. backendにだけ存在するresourceを`unresolved`/`quarantined`として隔離する。
-5. identity、provenance、attachment/fencing、operator authorizationを確認して明示adoptする。
-6. capacity/allocation ledgerを検証してからmutationを再開する。
+2. 新しいrestore epoch/database authority generationでpre-restore Lease、session、publisher/worker claimをfenceする。
+3. 旧database writer、旧Control Plane dispatch path、旧credential/endpointの外部fencing proofをDR activation recordへ保存する。
+4. Host/OVN/Storageからobserved stateをfull resyncする。
+5. DB authorityと一致するresourceだけをmanagedとして再確認する。
+6. backendにだけ存在するresourceを`unresolved`/`quarantined`として隔離する。
+7. identity、provenance、attachment/fencing、operator authorizationを確認して明示adoptする。
+8. capacity/allocation ledgerを検証し、dependency scopeごとにmutationを再開する。
 
 未知VM/Port/Volumeを自動削除または自動adoptしません。結果不明Commandの反対操作も自動発行しません。
 
@@ -71,3 +76,6 @@ restore時点より新しいbackend resourceが存在し得るため、通常rec
 - expired Lease、started Attempt、UNKNOWN outcomeの復旧試験
 - OVN/Ceph unavailableを含む段階的reconciliation
 - audit trailとrecovery decisionの保存
+- Backup ManifestのWAL/schema/artifact/checksum完全性とrestore epoch fencing
+- PITR point後に配送/実行済みのOutbox/Inbox/Command再送とReceipt回収
+- MATCHED/DB_ONLY/BACKEND_ONLY/CONFLICTING/UNKNOWNのscope別authority再開

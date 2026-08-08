@@ -31,6 +31,7 @@
 - HostGroup、Failure Domain、Placement Scope、rollout/maintenance snapshot model
 - Availability Responsibility、VM Binding、Host Failure Epoch、Managed Recovery model
 - Workload Resilience Intent/Domain Claimとdurable Recovery Budget/Queue model
+- Data classification、Outbox/Inbox、retention/GC、schema migration、partition、PITR restore model
 
 ### Exit criteria
 
@@ -47,6 +48,7 @@
 - HostGroup membership generationがPlacement final admissionとrollout/maintenance snapshotへtraceされる。
 - Workload/Infrastructure/Manual responsibilityがfencing、Placement、Execution、Fault/Event testへtraceされる。
 - NF側HA domain separationとRecovery storm budget/fairnessがtransaction/failover testへtraceされる。
+- authority/history分離、Outbox/Inbox atomicity、schema migration、GC、PITR restore epochがfailure/test matrixへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -67,6 +69,7 @@
 - OVS-DPDK capability discoveryとread-only dataplane observation
 - local storage
 - Operation API、監査、基本メトリクス
+- transactional Outbox/Inboxとschema generation/readiness
 
 ### Exit criteria
 
@@ -83,6 +86,7 @@
 - dry/final間のHostGroup membership変更を検出し、stale Hostへ予約しないことを検証する。
 - Availability Policy欠損/競合HostをPlacementせず、WORKLOAD_MANAGED障害で自動restartしないことを検証する。
 - concurrent resilience memberを同一hard domainへcommitせず、Budget Lease二重取得を防ぐことを検証する。
+- domain mutation/OutboxとInbox/domain decisionの不可分性、N/N-1 expand migrationを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -99,6 +103,7 @@
 - NUMA、HugePages、CPU Pinning
 - OVS-DPDK PMD/RxQ allocation、vhost multiqueue、typed online operation
 - Backup/restore、診断バンドル
+- partitioned history、retention/GC、checkpointed backfill、PITR recovery mode
 
 ### Exit criteria
 
@@ -106,6 +111,7 @@
 - Control Plane の単一ノード障害で API が継続する。
 - Tenant isolation test を通過する。
 - DB restore 後に backend state と収束できる。
+- restore epochが旧Lease/session/claimをfenceし、backend-only resourceをquarantineする。
 
 ## Phase 3: Product Beta
 

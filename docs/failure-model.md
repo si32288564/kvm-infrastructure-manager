@@ -115,6 +115,14 @@ Campaign membershipはappend-only evidenceとgeneration付きdecisionで更新�
 - Recover:同じidempotency keyでcommit済みか照会。HAはRPO 0を維持。
 - Escalate:corruption/site lossはDR recovery modeへ移行。
 
+schema compatibility failure、migration/backfill interruption、missing partition、GC/reference conflict、Outbox/Inbox backlog、backup/WAL gapもDatabase/Persistence failureとして扱います。
+
+- migration/GC worker lossはLease/checkpoint/Receiptから再開し、部分処理をsuccessへ丸めない。
+- DDL lock timeoutまたはN/N-1 incompatibilityではswitch/contractを停止し、authority semanticsを混在させない。
+- retention期限超過だけでactive reference、UNKNOWN、legal hold、dedupe evidenceを削除しない。
+- PITR後はrestore epochで旧actorをfenceし、旧database writer/Control Plane/credentialの外部fencing proofとread-only classification前にmutationを再開しない。
+- Outbox/Inbox/Command再送はstable ID/Receiptへ収束させ、外部side effectを未実行と推測しない。
+
 ### 5.4 Internal Message Failure
 
 例: duplicate、delay、reordering、consumer crash、Bus outage。

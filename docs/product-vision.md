@@ -44,6 +44,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 - HostGroupによりPlacement scope、Failure Domain、Baseline rollout、Maintenance waveを一貫したmembership generationで管理できる。
 - Placement PoolごとにKIM managed HA、NF/workload managed HA、manual recoveryの責任境界を明示できる。
 - NFVO/VNFMのactive/standby等をrack/powerの複数Failure Domainへhard分離し、大規模障害時のmanaged recoveryをbounded rateで実行できる。
+- authority、履歴evidence、delivery journal、projectionを分離し、upgrade、retention、PITR後も安全なownership判断を維持できる。
 - オフライン環境にインストールし、アップグレードとロールバックを管理できる。
 
 ## 4. 製品境界
