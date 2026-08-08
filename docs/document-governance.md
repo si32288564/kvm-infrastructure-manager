@@ -56,3 +56,4 @@ ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureま�
 - System-wide failure semantics
 - Extension contractとCore invariant境界
 - NFV dataplane resource/admission/disruption boundary
+- Host enrollment、Baseline/Compliance authority、remediation/placement/decommission boundary

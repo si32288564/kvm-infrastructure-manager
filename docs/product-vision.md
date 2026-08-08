@@ -40,6 +40,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 - ETSI NFV の概念と対応する外部モデルを提供できる。
 - 小規模なエッジから 100 ホスト規模まで、同一の運用モデルを適用できる。
 - KVM/libvirt を利用できる一般的な Linux ディストリビューションを、Control Plane を変更せずに採用できる。
+- Host参加からBaseline適用、Continuous Compliance、maintenance、decommissionまでを一つのlifecycleで管理できる。
 - オフライン環境にインストールし、アップグレードとロールバックを管理できる。
 
 ## 4. 製品境界
@@ -62,6 +63,7 @@ KIM が初期リリースで所有しない責務:
 - WAN 全体のパス制御
 - 課金および請求
 - ベアメタル OS プロビジョニング
+- 汎用OS ZTP、PXE/OS installation、firmware lifecycle、Host wipe
 - User lifecycle、password、MFA、Identity federation、Credential authority
 - 汎用 package installation、任意設定ファイル変更、OS patch management
 

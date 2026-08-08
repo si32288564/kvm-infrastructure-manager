@@ -44,7 +44,30 @@
 | HST-010 | discovery、preflight、validation と Host mutation を明確に分離する | Must |
 | HST-011 | Host mutation は versioned typed infrastructure remediation に限定し、任意 package/service/config 操作を許可しない | Must |
 
-### 2.3 Image、Flavor
+### 2.3 Host Lifecycle、Baseline、Compliance
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| HLC-001 | Hostをdiscovery、identity bootstrap、enrollment、baseline、ready、maintenance、decommissionのlifecycleで管理する | Must |
+| HLC-002 | authenticated HostをEnrollment approvalまたは信頼済みPolicy Match前にtrusted/armedへ昇格させない | Must |
+| HLC-003 | Enrollment Policyをversioned ruleとして管理し、identity evidenceとapproved factsで評価する | Must |
+| HLC-004 | Host Profileとimmutable versioned Host Baselineを管理する | Must |
+| HLC-005 | Baseline Controlをrequirement、applicability、severity、placement impact、remediation mode、evidence contractで表現する | Must |
+| HLC-006 | Control statusをCOMPLIANT、NON_COMPLIANT、DEGRADED、UNKNOWN、NOT_APPLICABLEで評価する | Must |
+| HLC-007 | Compliance ResultとevidenceをInventory/Baseline/evaluator generation付きappend-only履歴として保持する | Must |
+| HLC-008 | Critical NON_COMPLIANT/UNKNOWNをHost-wideまたはcapability-scoped Placement Eligibilityへ反映する | Must |
+| HLC-009 | remediation modeをobserve-only、auto-remediate-safe、maintenance-required、external-remediationに分類する | Must |
+| HLC-010 | auto remediationにもEnrollment/Baseline/Authority generation、Lease、journal、verificationを要求する | Must |
+| HLC-011 | Inventory/evidence更新と期限切れによりContinuous Complianceとdrift detectionを実行する | Must |
+| HLC-012 | Baseline rolloutをcanary/batch/pause/abort/verification gateで管理する | Should |
+| HLC-013 | disruptive remediationをdrain、impact approval、maintenance authority後に実行する | Must |
+| HLC-014 | external-remediationではKIMがHostを変更せずrequirement/evidence/maintenance境界だけを管理する | Must |
+| HLC-015 | decommissionでplacement停止、authority/Lease fencing、resource drain、credential失効、evidence保持を行う | Must |
+| HLC-016 | duplicate Host identity/hardware conflictをquarantineし、自動mergeしない | Must |
+| HLC-017 | credential renewal、Agent reconnect、Gateway recovery、Baseline assignmentだけでHost authorityをarmしない | Must |
+| HLC-018 | Hostが自身のapproval、Profile、Baseline、Control policyを変更できない | Must |
+
+### 2.4 Image、Flavor
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -54,7 +77,7 @@
 | FLV-001 | vCPU、RAM、root disk、追加仕様を Flavor として管理できる | Must |
 | FLV-002 | NUMA、HugePages、CPU Pinning を Flavor で要求できる | Should |
 
-### 2.4 Compute
+### 2.5 Compute
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -68,7 +91,7 @@
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 
-### 2.5 Scheduler
+### 2.6 Scheduler
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -80,7 +103,7 @@
 | SCH-006 | final admission の競合失敗時に同じ request snapshot の残候補を再選択できる | Must |
 | SCH-007 | dry admission は状態を変更せず、capacity を予約しない | Must |
 
-### 2.6 Network
+### 2.7 Network
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -92,7 +115,7 @@
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
 
-### 2.7 NFV Dataplane
+### 2.8 NFV Dataplane
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -112,7 +135,7 @@
 | DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
 | DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
 
-### 2.8 Storage
+### 2.9 Storage
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -123,7 +146,7 @@
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
 
-### 2.9 Operation、Event、Notification
+### 2.10 Operation、Event、Notification
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -138,7 +161,7 @@
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
-### 2.10 Fault、Performance、Audit
+### 2.11 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
 |---|---|---|

@@ -44,6 +44,7 @@ KIM が所有するもの:
 - workload 要件に対する preflight/admission
 - bounded reason code と remediation hint
 - KIM resource を成立させるために仕様化された typed operation
+- Enrollment、Host Profile/Baseline、Compliance evidence、Placement block、maintenance authority
 
 外部 Configuration Management が所有するもの:
 
@@ -51,6 +52,7 @@ KIM が所有するもの:
 - 任意 service、設定ファイル、kernel argument の管理
 - reboot orchestration と全社 OS baseline
 - KIM 外のアプリケーションおよび Host 構成
+- PXE/OS installation、汎用ZTP、firmware lifecycle、Host wipe
 
 KIM の typed remediation は schema、precondition、対象 resource、rollback/verification、authority generation を持つ閉じた操作です。任意 package 名、shell、argv、file path、設定内容を受け取りません。
 
@@ -89,6 +91,7 @@ KIMは以下を暗黙にも代行しません。
 
 - User/Service credentialの発行、password/MFA/federation
 - 汎用OS構成管理、任意package/service/configuration、patching、reboot orchestration
+- PXE/OS provisioning、firmware update、secure erase
 - 物理switch/router、WAN transport、inter-PoP pathのライフサイクル
 - Ceph cluster、OVN cluster、外部IdPそのものの構築・アップグレード
 - NS/VNF lifecycle、VNFD/NSD interpretation、VNF内部設定

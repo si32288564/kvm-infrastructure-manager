@@ -26,6 +26,7 @@
 - Architecture InvariantsとRequirement-to-Test Traceability Matrix
 - 12 failure classのFault Injection Matrix
 - NFV Dataplane Resource ModelとOVS-DPDK support boundary
+- Host Lifecycle、Enrollment、Baseline、Continuous Compliance、Decommission model
 
 ### Exit criteria
 
@@ -38,6 +39,7 @@
 - 各failure classにDetect/Contain/Fence/Observe/Recover/Reconcile/Escalateと禁止操作が割り当てられる。
 - 初期extension pointがCore authorityを迂回しないことをcontract testで検証できる。
 - PMD CPU、DPDK memory、Port/RxQを含むdataplane admissionが既存placement invariantsへtraceされる。
+- identityからauthorityまでのEnrollment/Baseline/Compliance gateがfailure/test matrixへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -47,6 +49,7 @@
 
 - 単一 Control Plane
 - Host Agent 登録と inventory
+- manual Enrollment approval、Host Profile/Baseline Assignment、read-only Compliance
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
@@ -65,6 +68,7 @@
 - write-before-execute journal、lease expiry、stale Result fencingを自動試験する。
 - Developer Preview対象Invariantのtest contractがImplemented状態になる。
 - DPDK claimのdry/final admissionとworkload resource競合をfixtureで検証する。
+- authenticatedだけのHostがREADY/armedにならず、Critical driftがplacementをblockすることを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -72,6 +76,7 @@
 
 - 3-node Control Plane
 - OIDC、Tenant、RBAC、Quota
+- policy-based Enrollment、safe typed convergence、continuous drift detection
 - OVN overlay、Subnet、Port、Security Group
 - Ceph RBD、Volume、Snapshot
 - NUMA、HugePages、CPU Pinning
@@ -93,6 +98,7 @@
 - cold/live migration
 - SR-IOV
 - disruptive dataplane maintenance operationとOVS/DPDK version certification
+- Baseline rollout、maintenance-required/external remediation、decommission workflow
 - NFVO integration profile
 - ローリングアップグレード
 - offline bundle、SBOM、artifact signing

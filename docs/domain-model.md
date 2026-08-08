@@ -9,6 +9,7 @@
 |---|---|
 | Tenancy and Authorization | Tenant、Project、Membership、Role Binding、Policy、Quota |
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
+| Host Lifecycle and Compliance | Enrollment Policy、Host Profile、Baseline、Control、Assignment、Compliance、Maintenance |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
@@ -23,6 +24,11 @@
 ```mermaid
 erDiagram
     SITE ||--o{ HOST : contains
+    HOST_PROFILE ||--o{ HOST : classifies
+    HOST_BASELINE ||--o{ BASELINE_CONTROL : contains
+    HOST ||--o{ BASELINE_ASSIGNMENT : receives
+    HOST_BASELINE ||--o{ BASELINE_ASSIGNMENT : assigns
+    BASELINE_ASSIGNMENT ||--o{ COMPLIANCE_RESULT : evaluates
     TENANT ||--o{ PROJECT : contains
     PROJECT ||--o{ VM : owns
     PROJECT ||--o{ NETWORK : owns
@@ -121,6 +127,10 @@ stateDiagram-v2
 
 Attempt outcomeは`SUCCEEDED`、`FAILED`、`UNKNOWN`です。Lease expiry、executor interruption、backend outcome不明、rollback未確認は`UNKNOWN`としてappend-onlyに記録します。新Attemptが作られても旧Attemptのstale Resultが現在のauthorityを進めることはありません。
 
+### Host lifecycle and compliance
+
+Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Baseline Assignment、current evidence、blocking Controlなしを必要とします。Compliance Resultは評価ごとにimmutableで、current summaryが最新valid resultを参照します。
+
 ## 5. ETSI NFV 概念との対応
 
 | ETSI NFV 概念 | KIM 内部概念 |
@@ -143,6 +153,9 @@ Attempt outcomeは`SUCCEEDED`、`FAILED`、`UNKNOWN`です。Lease expiry、exec
 - Port および Volume Attachment は Project 境界を越えない。
 - Quota 消費と Allocation claim は VM dispatch より前に確定する。
 - Host が maintenance または disabled の場合、新規 Allocation を作らない。
+- authenticatedだけのHostをenrolled/ready/armedとして扱わない。
+- Baseline versionとCompliance historyを上書きしない。
+- Critical NON_COMPLIANT/UNKNOWN HostまたはcapabilityをPlacement eligibleにしない。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

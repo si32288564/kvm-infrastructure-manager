@@ -28,6 +28,7 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 | Extension Point | 例 | Contract |
 |---|---|---|
 | Host OS Integration | Ubuntu、RHEL-compatible、SUSE | discovery、preflight、bounded typed remediation |
+| Baseline Control Evaluator | CPU/DPDK/Security/Agent controls | pure applicability/evaluation、bounded evidence |
 | Agent Operation Module | VM power、CPU placement、Volume attach | closed Command type、narrow backend interface、read-back |
 | Network Backend | OVN、将来のprovider adapter | plan/apply/observe capability、intent generation |
 | NFV Dataplane Module | OVS-DPDK discovery/operation | PMD/DPDK memory/Port/RxQ capability、closed typed operation |
@@ -53,6 +54,8 @@ Extensionは一つのplugin interfaceへ統合せず、影響度と隔離境界�
 Identity、Secret、Placementは高影響領域であり、Identity/Secret連携はC2の隔離service、Placement Ruleは副作用のないC1 moduleを基本とします。許可能力と検証項目は [Extension Conformance Contract](extension-conformance.md) を正本とします。
 
 OVS-DPDK Host moduleはC1の静的登録moduleを基本とし、generic OVSDB/EAL/PCI操作を公開しません。Control Plane側のDataplane orchestrationはC0 Coreとしてallocation authorityを保持します。
+
+Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、authority armingを行いません。Remediation Moduleは別のclosed C1 CommandとしてExecution domainを通ります。外部Configuration Management連携はC2 serviceまたはC3 integrationで、KIM authorityを迂回しません。
 
 ## 4. Contract Shape
 

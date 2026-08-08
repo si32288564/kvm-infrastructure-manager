@@ -114,6 +114,12 @@ flowchart TB
 - 任意 XML の実行を受け付けず、versioned command schema のみ処理する。
 - 再起動後も重複実行を防げる command journal を持つ。
 
+### Host Lifecycle and Compliance
+
+Host discovery、identity bootstrap、Enrollment approval/Policy Match、Profile/Baseline Assignment、Preflight、Typed Convergence、Verification、Continuous Compliance、Maintenance、Decommissionを一つのauthority modelで管理します。
+
+credentialはidentityだけを証明します。mutation authorityはEnrollment、Baseline、current compliance/preflight、Agent capability、policyを検証した別generationとして発行します。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) を参照します。
+
 ### Host OS Portability Layer
 
 Control Plane と Agent protocol は OS 非依存の正規化モデルのみを扱います。ディストリビューション固有の処理は Agent 内の adapter 境界に閉じ込めます。
@@ -151,6 +157,7 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 |---|---|---|
 | Principal credential、User lifecycle | External Identity Platform | KIM は所有しない |
 | Tenant、Project、Membership、Role Binding、Quota、Policy | PostgreSQL | KIM が所有 |
+| Enrollment、Profile、Baseline、Assignment、Compliance history | PostgreSQL | KIMがversioned authority/evidenceを所有 |
 | VM desired state | PostgreSQL | API が更新 |
 | VM runtime state | libvirt/QEMU | Agent が observed state として同期 |
 | Placement allocation | PostgreSQL | Scheduler が世代管理 |
@@ -224,6 +231,8 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 |---|---|
 | Agent 切断 | Host を unreachable とし、新規配置を停止。既存 VM は変更しない |
 | OS adapter の preflight 失敗 | Host を unsupported または degraded とし、不足機能と修正候補を表示する |
+| Enrollment/identity conflict | Hostをquarantineし、Baseline assignment/authorityを発行しない |
+| Critical Baseline drift | Hostまたは該当capabilityの新規placementを停止し、policyによりauthorityをfence |
 | Host 障害 | VM を unknown とし、共有ストレージと fencing 条件が満たされた場合のみ再作成を許可 |
 | Message 重複 | command ID と generation で同一結果を返す |
 | OVN 不整合 | drift を検出し、所有資源のみ再適用する |
@@ -275,6 +284,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)
+- [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

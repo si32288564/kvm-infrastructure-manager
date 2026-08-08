@@ -44,6 +44,14 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-AGENT-002 | backend実行後、journal完了前にAgent kill | started journal+backend state | capability unavailable | UNKNOWN、read-back evidence | rollback推測 | typed resolverで適用/未適用確定 |
 | FI-HOST-001 | active VM Hostのpower/network loss | heartbeat/BMC/Agent loss | Host ineligible、source fencing要求 | Host failure、affected resources | shared diskの別Host二重attach | source fenced+resource eligibility再評価 |
 | FI-HOST-002 | Host clockを閾値外へskew | clock health/lease anomaly | 新Lease停止 | clock alarm、Host state | wall clockのみでauthority判定 | clock正常化+capability/preflight |
+| FI-HLC-001 | bootstrap responseをdropし、同一Hostがidentity bootstrapを再送 | bootstrap retry/identity correlation | 単一pending Host identityへ収束 | credential request digest、fingerprint、audit | credential/Host row二重発行、auto enrollment | 同一identityを回収しapproval待ちを維持 |
+| FI-HLC-002 | 同一identity+異なるhardware、または同一hardware+異なるidentityを別Agentから提示 | identity/fingerprint conflict | 両sessionのmutation停止、conflict quarantine | conflicting evidence、session、audit | 自動merge、既存Host authority継承 | 明示的な管理者解決とcredential rotation |
+| FI-HLC-003 | Baseline assignment更新とpreflight/final admissionを競合 | assignment generation mismatch | stale evaluation/claimを拒否 | old/current generation、decision evidence | 旧BaselineでREADY/claim commit | current generationで再評価 |
+| FI-HLC-004 | evaluatorを停止またはevidenceを期限切れにする | evaluation failure/evidence expiry | status UNKNOWN、定義scopeの新規placement停止 | last good result、新failure/expiry evidence | UNKNOWNをCOMPLIANT/NON_COMPLIANTへ推測変換 | fresh evidenceでcurrent generationを再評価 |
+| FI-HLC-005 | safe remediation適用後、Result responseをdrop | Command timeout/observation mismatch | Attempt UNKNOWN、反対/重複remediation停止 | Lease、journal、Attempt、read-back evidence | blind retry、authority bypass | typed observationで適用有無を確定 |
+| FI-HLC-006 | canaryでfailure thresholdを超過させる | rollout health threshold breach | rollout pause、未対象Hostのassignment不変 | batch/result/threshold/decision audit | 全Host継続、旧result書換え、自動state rollback | authorized resume/abortと新assignment decision |
+| FI-HLC-007 | maintenance/decommission中にControl Plane-Agent通信をpartition | session/Lease loss | authority disarm、進行中stepをUNKNOWN/blocked | lifecycle step、Lease、resource/evidence snapshot | drain未確認で次step、credential先行再利用 | reconnect後のcurrent authority/resource再検証 |
+| FI-HLC-008 | disarmed Hostでreconnect、Gateway recovery、credential renewal、Baseline再assignmentを連続実行 | session/trust/assignment change | disarmed stateを維持、Command配送停止 | authority generation、events、audit | implicit arm/READY復帰 | 明示arm条件とcurrent preflight/complianceを満たす |
 | FI-LIBVIRT-001 | libvirt mutation後にtimeoutを返す | backend timeout | Attempt UNKNOWN、read-back | Command/Attempt/evidence | 即時反対mutation | Domain UUID/stateで解決 |
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
@@ -70,7 +78,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Internal Message | FI-BUS-001..002 |
 | Agent Gateway / Transport | FI-GATEWAY-001..002, FI-TRANSPORT-001..002 |
 | Agent | FI-AGENT-001..002 |
-| Host | FI-HOST-001..002 |
+| Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..008 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |

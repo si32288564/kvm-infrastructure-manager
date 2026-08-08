@@ -64,6 +64,7 @@ Agent credentialはHost identityを証明しますが、操作許可そのもの
 - armed Host Operation Authority generation
 - active immutable Command
 - PostgreSQLが発行するcurrent Lease
+- approved Enrollment、active Baseline Assignment、remediation policyとcurrent compliance/preflight generation
 
 Agent compromise時のblast radiusは、そのHost向けCommandとそのHostからのobserved dataに限定します。Agentから任意publishや他HostのCommand取得を許可しません。
 
@@ -82,5 +83,6 @@ Agent GatewayまたはControl Planeへ接続できない場合、Agentはfail-sa
 - Result配送に失敗した場合、同じResult/token/attemptを期限内に再送する。Lease失効後は新しいmutationを開始せず、observationとjournal evidenceを次回接続時に報告する。
 - Inventory/heartbeatはbounded local queueに保持できるが、古いobservationをcurrentとして表示しない。
 - Gateway復旧だけでHost Operation Authorityをarmしない。
+- Agent reconnect、credential renewal、Baseline assignmentだけでもHost Operation Authorityをarmしない。
 
 AgentはControl Plane不在時の自律オーケストレーターではありません。安全性に必要な局所処理を除き、authorityなしのdesired state変更を行いません。

@@ -97,7 +97,24 @@
 | INV-DPL-009 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない | AT-DPL-012 |
 | INV-DPL-010 | PCI/PMD/OVS mutation結果不明時はresourceをquarantineしblind replay/rebindしない | FI-DPDK-005 |
 
-## 9. Security, Audit, and Failure
+## 9. Host Lifecycle and Compliance
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-HLC-001 | Host authentication/credential発行だけではenrollment、READY、mutation authorityのいずれも成立しない | AT-HLC-002 |
+| INV-HLC-002 | Host ProfileとHost Baseline versionはimmutableで、assignmentと適用generationを明示する | AT-HLC-004 |
+| INV-HLC-003 | Compliance Resultとevidenceはappend-onlyで、UNKNOWNを推測して別statusへ丸めない | AT-HLC-006 |
+| INV-HLC-004 | blocking controlのNON_COMPLIANT/DEGRADED/UNKNOWNは定義されたHostまたはcapability scopeをplacement不適格にする | AT-HLC-007 |
+| INV-HLC-005 | auto-remediate-safeもenrollment、current assignment、armed authority、Command Lease、Agent journalを迂回しない | FI-HLC-005 |
+| INV-HLC-006 | Host preflightとcompliance evaluationは副作用を起こさない | AT-HLC-005 |
+| INV-HLC-007 | Host/Agentは自身のapproval、Profile、Baseline、Control policyを変更できない | AT-HLC-015 |
+| INV-HLC-008 | reconnect、credential renewal、Gateway recovery、Baseline assignmentだけでHost authorityをarmしない | FI-HLC-008 |
+| INV-HLC-009 | external-remediation modeはKIMからHost mutationを開始しない | AT-HLC-013 |
+| INV-HLC-010 | decommissionはauthority/Leaseをfenceし、managed resourceをdrainし、credentialを失効するまで完了しない | AT-HLC-014 |
+| INV-HLC-011 | duplicate Host identity/hardware fingerprint conflictを自動mergeせずquarantineする | FI-HLC-002 |
+| INV-HLC-012 | Baseline rolloutは旧version/resultを改変せず、rollbackを自動的なHost state復元とみなさない | FI-HLC-006 |
+
+## 10. Security, Audit, and Failure
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -109,7 +126,7 @@
 | INV-HA-001 | 同一Site HA failoverはcommitted authority RPO 0を目標とする | FI-DB-001 |
 | INV-DR-001 | restore後の未知resourceはquarantineし、明示adoption前にmutationしない | FI-DR-001 |
 
-## 10. Extensions
+## 11. Extensions
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -120,7 +137,7 @@
 | INV-EXT-005 | UNKNOWNをFAILED/SUCCEEDEDへ丸めるadapterを受け入れない | XCT-FAIL-001 |
 | INV-EXT-006 | capability消失時は新規利用を停止し、既存resourceを暗黙変更しない | XCT-CAP-001 |
 
-## 11. Documentation
+## 12. Documentation
 
 | ID | Invariant | 主な検証 |
 |---|---|---|

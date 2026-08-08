@@ -20,6 +20,7 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 - logical network intent とprovider binding
 - Operation、Job、Command、Lease、Attempt、idempotency
 - Host Operation Authority と監査outbox
+- Enrollment Policy、Host Profile/Baseline、Assignment、Compliance evidence/summary
 
 backend observationだけでこれらを無条件に復元しません。
 

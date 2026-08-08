@@ -143,6 +143,8 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 - Recover:再起動後full inventory。再作成はsource fencingとstorage/network条件を必須とする。
 - Prohibited:heartbeat lossだけで同じdiskを別Hostへattachしない。
 
+Host lifecycle固有のbootstrap response loss、duplicate identity、Baseline conflict、Compliance evaluator failure、decommission partitionも同じ原則に従います。identity conflictはquarantine、stale evidenceはUNKNOWN、remediation結果不明はtyped read-backで解決します。
+
 ### 5.8 libvirt / QEMU Failure
 
 例: synchronous error、daemon restart、QEMU crash、operation timeout。
@@ -198,6 +200,7 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 | Gateway loss | 継続 | Host配送停止 | session再確立 | in-flight outcome unknown |
 | Agent loss | 継続 | 対象Host停止 | journal/read-back | mutation証明不能 |
 | Host loss | 不明または停止 | 対象Host停止 | fencing後に限定 | storage/device ownership不明 |
+| Host enrollment/compliance failure | 既存workloadはpolicy依存 | enrollment/placement/remediation停止 | evidence再取得/明示approval | 自動merge/arm/推測compliance |
 | Network/dataplane backend loss | compute継続、connectivity degradedの可能性 | 対象network/dataplane停止 | intent/typed resolver | external object、PMD/PCI ownership不明 |
 | Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
 

@@ -30,6 +30,7 @@ flowchart LR
 - Service Identity/Credentialは外部Identity Platformが発行し、KIMはPrincipalとProject/Role Bindingだけを保持する。
 - Control Plane workload と Agent は相互 TLS の workload identity を持つ。
 - Agent bootstrap credential は一回用途とし、登録後にノード固有証明書へ交換する。
+- authenticated Hostを自動承認せず、Enrollment Policy/approvalとidentity evidenceを別に検証する。
 - system administrator、infrastructure operator、tenant administrator、member、viewer を初期 role とする。
 - break-glass 操作は追加認証、理由入力、短時間承認、専用監査を必要とする。
 
@@ -44,6 +45,8 @@ flowchart LR
 - SELinux、AppArmor、firewall、service manager の状態と評価結果を OS Integration Adapter が正規化する。変更は明示されたtyped remediationだけに限定する。
 - Agentは内部Message Bus credentialを持たず、Agent Gatewayとのoutbound mTLS sessionを標準境界とする。
 - Agent credentialはHost identityを証明するが操作authorityではない。Command Leaseにはarmed authority generationを必要とする。
+- Hostは自身のEnrollment approval、Profile、Baseline、Control severity/remediation policyを変更できない。
+- Baseline/Enrollment Policyはversion、digest、author/approver、auditを持ち、automatic arming/remediationのdecision evidenceを保存する。
 
 ## 5. Network と Tenant 分離
 

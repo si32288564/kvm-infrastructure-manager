@@ -44,6 +44,7 @@ backend mutation、Agent Command、Message publish、external API callも行い�
 評価対象:
 
 - Host enabled/maintenance/reachability と Agent capability
+- Host lifecycle、active Baseline Assignment、Compliance generation/evidence freshness
 - CPU、overcommit、pCPU set、NUMA locality
 - memory、HugePage size/node、reserved memory
 - PCI/SR-IOV/IOMMU group と device ownership
@@ -63,6 +64,8 @@ backend mutation、Agent Command、Message publish、external API callも行い�
 - score input facts
 
 OVS-DPDK要求を持つshapeは [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md) のresource/claimを含めます。
+
+Baseline blocking Controlはscoreではなくeligibilityで評価します。Host-wide violationは全候補用途を除外し、capability-scoped violationは該当workload requirementだけを除外します。Final AdmissionでCompliance generationとevidence freshnessを再検証します。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) に従います。
 
 ## 4. Scoring
 

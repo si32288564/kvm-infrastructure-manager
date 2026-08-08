@@ -41,6 +41,12 @@
 | Q-032 | DPDK HugePage ownership | Host-wide reserved poolとKIM allocation ledgerのauthority境界 | Phase 0 |
 | Q-033 | Dataplane disruption policy | ovs-vswitchd restartのimpact/drain/maintenance workflow | Technical Preview 前 |
 | Q-034 | Performance policy classes | queue/latency/throughput requirementをTenant APIへ公開する粒度 | Technical Preview 前 |
+| Q-035 | Enrollment trust evidence | bootstrap credential、hardware identity、attestationの初期必須範囲 | Phase 0 |
+| Q-036 | Policy-auto enrollment/arming | manual approvalなしで許可するSite/Host classとguardrail | Phase 0 |
+| Q-037 | Initial Host Profiles/Baselines | general-compute、nfv-sriov、nfv-ovs-dpdkのcontrol set | Developer Preview 前 |
+| Q-038 | Compliance evidence retention | Control Result/evidence/auditの保持期間と容量 | Technical Preview 前 |
+| Q-039 | External remediation integration | Configuration Managementへのevent/ticket/maintenance contract | Technical Preview 前 |
+| Q-040 | Decommission authority | credential revoke、drain exception、physical wipe境界のoperator policy | Product Beta 前 |
 
 ## 最初に確定すべき判断
 
@@ -56,3 +62,4 @@
 10. 初期releaseで正式に公開するextension points
 11. release blocker invariantと手動検証owner
 12. OVS-DPDKのinitial resource schemaとsupport matrix
+13. Enrollment/Baseline/Complianceのinitial policyとControl catalog

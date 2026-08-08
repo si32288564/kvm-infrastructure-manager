@@ -30,7 +30,28 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AGT-006 | 2系統以上のLinuxで同じControl Plane contractへ正規化し、OS名分岐を要求しない |
 | AT-AGT-007 | typed remediation allow-list外のpackage/service/config/kernel変更を拒否する |
 
-## 4. API / Data / Operations
+## 4. Host Lifecycle / Baseline / Compliance
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-HLC-001 | Host lifecycleが許可されたtransitionだけを実行し、transition actor/reason/generationを監査する |
+| AT-HLC-002 | 有効なHost credentialとsessionだけではenrollment、READY、authority armedにならない |
+| AT-HLC-003 | manual approvalまたはversioned Enrollment Policy matchだけがHostをENROLLEDへ進める |
+| AT-HLC-004 | Host Profile/Baseline versionをimmutableに保持し、assignment generationとrollout provenanceを追跡する |
+| AT-HLC-005 | preflight/compliance evaluation前後でHost、backend、DB authorityに副作用がない |
+| AT-HLC-006 | controlごとにstatus、severity、observed/required state、evidence、evaluated generationをappend-onlyで保存する |
+| AT-HLC-007 | blocking controlがHost-wideまたはcapability-scoped eligibilityだけを定義通り拒否し、final admissionで再検証される |
+| AT-HLC-008 | remediation modeごとにobserve-only、safe auto、maintenance、externalの許可境界を強制する |
+| AT-HLC-009 | safe auto remediationもcurrent assignment、armed authority、typed Command、Lease、journal、verificationを必要とする |
+| AT-HLC-010 | observation change、evidence expiry、Agent/version changeで継続再評価し、drift actionをpolicy通り実行する |
+| AT-HLC-011 | Baseline rolloutをcanary/batchで進め、failure thresholdで停止し旧version/resultを改変しない |
+| AT-HLC-012 | disruptive remediationがmaintenance authority、impact set、drain condition、post-verificationを要求する |
+| AT-HLC-013 | external-remediation controlはinstruction/evidence requestだけを生成し、KIMからHost mutationを発行しない |
+| AT-HLC-014 | decommissionがdisarm、Lease fencing、resource drain、credential revocation、最終evidence保存後だけ完了する |
+| AT-HLC-015 | Host/Agentからのapproval/Profile/Baseline/Control policy変更要求を認可境界で拒否・監査する |
+| AT-HLC-016 | duplicate identity/hardware fingerprintを自動mergeせず、conflictをquarantineして明示解決を要求する |
+
+## 5. API / Data / Operations
 
 | ID | Acceptance Contract |
 |---|---|
@@ -43,7 +64,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-OPS-005 | retry/cancelが許可状態とauthorityを検証し、unsafe actionを拒否する |
 | AT-EVT-001 | event/webhookをdurable outboxから再送し、重複IDとredaction contractを維持する |
 
-## 5. Execution
+## 6. Execution
 
 | ID | Acceptance Contract |
 |---|---|
@@ -55,7 +76,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-006 | successful Result後もJobはverifyingで、matching observation後だけsucceededになる |
 | AT-EXEC-007 | terminal Job/Attempt/Event履歴がimmutableである |
 
-## 6. Placement / Migration
+## 7. Placement / Migration
 
 | ID | Acceptance Contract |
 |---|---|
@@ -69,7 +90,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-PLC-008 | affinity/anti-affinity/PCI/SR-IOV/NUMA constraintをeligibilityで評価する |
 | AT-PLC-009 | eligibility reason、score、rank、final conflict、reselectionを説明できる |
 
-## 7. Compute / Image / Network / Storage
+## 8. Compute / Image / Network / Storage
 
 | ID | Acceptance Contract |
 |---|---|
@@ -84,7 +105,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 
-## 8. NFV Dataplane
+## 9. NFV Dataplane
 
 | ID | Acceptance Contract |
 |---|---|
@@ -102,7 +123,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DPL-012 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない |
 | AT-DPL-013 | Validated OVS/DPDK/distribution/NIC driver組合せだけをsupport matrix対象として公開する |
 
-## 9. Security / Audit / Documentation
+## 10. Security / Audit / Documentation
 
 | ID | Acceptance Contract |
 |---|---|
@@ -115,7 +136,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
 | AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
 
-## 10. HA / Upgrade / Packaging
+## 11. HA / Upgrade / Packaging
 
 | ID | Acceptance Contract |
 |---|---|
@@ -123,7 +144,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-001 | N-1→N upgrade/rollback中にAPI/Agent contractと既存VMを維持する |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 
-## 11. Performance Tests
+## 12. Performance Tests
 
 | ID | Performance Contract |
 |---|---|

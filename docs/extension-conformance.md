@@ -107,6 +107,10 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-DPDK-002 | arbitrary OVSDB/EAL/PCI/shell操作を受理しない |
 | XCT-DPDK-003 | restart-required変更をonline operationとして報告・実行しない |
 | XCT-DPDK-004 | side effect後のtimeoutをPMD/RxQ/Port/runtime read-backで解決し、不能ならUNKNOWNにする |
+| XCT-HLC-001 | Baseline Control Evaluatorがpure/deterministicでDB/backend mutationを行わない |
+| XCT-HLC-002 | unknown/stale/conflicting evidenceをCOMPLIANTへ丸めずUNKNOWNにする |
+| XCT-HLC-003 | remediation moduleがclosed Control/Commandだけを受け、generic configurationを実行しない |
+| XCT-HLC-004 | evaluator/module追加がControl version、evidence contract、support tierを宣言する |
 
 ### C2
 
