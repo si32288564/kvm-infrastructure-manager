@@ -11,7 +11,7 @@
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
 | Host Lifecycle and Compliance | Hardware Identity Evidence、Enrollment Policy、Host Profile、Baseline、Control、Evaluator、Assignment、Compliance、External Remediation、Maintenance |
 | Host Grouping | Host Group、Dimension、Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope |
-| Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Budget Queue/Lease/Consumption、Manual Recovery Decision |
+| Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Budget Queue/Lease/Consumption、Manual Recovery Decision |
 | Workload Resilience | Resilience Group、Member Slot、Failure Domain Constraint、Domain Claim |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
@@ -193,6 +193,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - WORKLOAD_MANAGED/MANUAL VMをKIMが自動restartせず、INFRASTRUCTURE_MANAGEDもfencing/admission/verificationを迂回しない。
 - Resilience Domain ClaimはFinal Admissionでresource claimsと不可分commitし、opaque roleをVNF lifecycle authorityに使用しない。
 - Recovery budget/queue/leaseはdispatch authorityだけを持ち、capacity/fencing/Command authorityを兼ねない。
+- 全budget scopeはcanonical key順で不可分取得し、deadlock/serialization retryで部分authorityを残さない。
+- Failure Epochを改変せずversioned Failure Campaignへ相関付け、VM単位のRecovery Campaign Claimで重複dispatch/consumptionを防ぐ。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

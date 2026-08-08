@@ -84,7 +84,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | AVR-009 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-004, INV-AVR-012 | AT-AVR-009, FI-AVR-004, FI-AVR-010 | Planned |
 | AVR-010 | availability-responsibility-architecture, security | ADR-0015 | INV-AVR-005 | AT-AVR-010, FI-AVR-005 | Planned |
 | AVR-011, AVR-012 | availability-responsibility-architecture, failure-model, placement-architecture | ADR-0006, ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-007, INV-AVR-008, INV-AVR-013 | AT-AVR-011, AT-AVR-012, FI-AVR-003, FI-AVR-007, FI-AVR-008, XCT-AVR-001, XCT-AVR-002, XCT-AVR-003, XCT-AVR-004 | Planned |
-| AVR-013 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015 | INV-AVR-009, INV-AVR-010 | AT-AVR-013, FI-AVR-006 | Planned |
+| AVR-013 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015, ADR-0017 | INV-AVR-009, INV-AVR-010 | AT-AVR-013, FI-AVR-006, FI-RCV-013 | Planned |
 | AVR-014 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015 | INV-AVR-011 | AT-AVR-014, FI-AVR-009 | Planned |
 | AVR-015 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-AVR-008 | AT-AVR-015, FI-AVR-008 | Planned |
 | AVR-016 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-012 | AT-AVR-016, FI-AVR-010 | Planned |
@@ -120,6 +120,8 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | RCV-010 | availability-responsibility-architecture | ADR-0017 | INV-RCV-010 | AT-RCV-010, FI-RCV-010 | Planned |
 | RCV-011 | availability-responsibility-architecture | ADR-0017 | INV-RCV-011 | AT-RCV-011, FI-RCV-008 | Planned |
 | RCV-013 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0017 | INV-RCV-013 | AT-RCV-013, FI-RCV-003, FI-RCV-011 | Planned |
+| RCV-014 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0017 | INV-RCV-014 | AT-RCV-014, FI-RCV-012 | Planned |
+| RCV-015 | availability-responsibility-architecture, execution-architecture, failure-model | ADR-0007, ADR-0010, ADR-0017 | INV-RCV-015 | AT-RCV-015, FI-RCV-007, FI-RCV-013 | Planned |
 
 ## 10. Image / Flavor / Compute
 

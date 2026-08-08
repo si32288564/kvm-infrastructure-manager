@@ -62,7 +62,8 @@
 | Q-053 | Resilience member replacement | old VM/source UNKNOWN時のNFVO retry、slot fencing、operator escalation | Technical Preview 前 |
 | Q-054 | Recovery budget defaults | Site/Pool/backend別concurrency、rate/burst、queue age、backoff初期値 | Technical Preview 前 |
 | Q-055 | Recovery priority/fairness | 公開priority class、Project fair-share、aging、emergency override approval | Product Beta 前 |
-| Q-056 | Correlated failure model | Host/rack/power/site epoch correlation sourceとbudget scope集約規則 | Technical Preview 前 |
+| Q-056 | Correlated failure profile | FailureCampaign authorityは確定。初期Host/rack/power/site correlation rule、evidence source、time bound、late merge運用値を決定 | Technical Preview 前 |
+| Q-057 | Recovery budget lock schema | canonical ordering契約は確定。初期scope dimension rank、normalized ID encoding、DB isolation/retry上限を決定 | Developer Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -82,3 +83,4 @@
 14. Initial HostGroup dimension、binding precedence、公開Placement Scope
 15. Initial Availability class、fencing evidence、managed recovery support scope
 16. Northbound resilience profileとRecovery budget/fairness defaults
+17. Failure Campaign correlation profileとcanonical BudgetScopeKey schema

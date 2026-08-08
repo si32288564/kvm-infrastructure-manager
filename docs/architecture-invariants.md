@@ -151,7 +151,7 @@
 | INV-AVR-006 | INFRASTRUCTURE_MANAGED recoveryはPolicy要求を満たすsource fencing proofなしに開始しない | FI-AVR-003 |
 | INV-AVR-007 | fencing、single-writer attachment、resource ownership、Availability BindingのUNKNOWNを推測で安全扱いしない | FI-AVR-007 |
 | INV-AVR-008 | recovery destinationはcurrent Placement/Compliance/capacity/failure-domainとbound Policy compatibilityを再評価する | FI-AVR-008 |
-| INV-AVR-009 | Recovery Operationはfailure epoch、VM、Availability Binding revision、actionへ冪等にbindする | AT-AVR-013 |
+| INV-AVR-009 | Recovery Operationはcanonical Failure Campaign、VM、Availability Binding revision、actionへ冪等にbindし、元epoch群をevidenceとして保持する | AT-AVR-013 |
 | INV-AVR-010 | stale failure epoch、Binding、fencing proof、Lease、Resultはcurrent recovery authorityを進めない | FI-AVR-006 |
 | INV-AVR-011 | EVACUATEはVM単位Operationへ分解し、一VMの失敗/UNKNOWNを他VMの推測rollbackへ波及させない | FI-AVR-009 |
 | INV-AVR-012 | Fault/Event delivery failureを理由にAvailability responsibility/actionを変更しない | FI-AVR-010 |
@@ -192,6 +192,8 @@
 | INV-RCV-011 | Budget Policy変更だけでdispatch/started Recovery Operationを暗黙cancel/reclassifyしない | FI-RCV-008 |
 | INV-RCV-012 | Control Plane/worker failover後もBudget/Queue/Lease authorityとorderingをPostgreSQLから復元する | FI-RCV-009 |
 | INV-RCV-013 | dispatchはRecovery OperationとBudget Consumptionを不可分commitし、terminal verificationまでactive concurrencyへ計上する | FI-RCV-011 |
+| INV-RCV-014 | 全budget acquisition pathは同じversioned canonical scope順でlockし、deadlock/serialization failureで部分Leaseを残さない | FI-RCV-012 |
+| INV-RCV-015 | 同一Failure Campaign/VM/Binding/actionは一つのRecovery Campaign Claimへ収束し、late mergeでも追加dispatchを許可しない | FI-RCV-013 |
 
 ## 14. Security, Audit, and Failure
 

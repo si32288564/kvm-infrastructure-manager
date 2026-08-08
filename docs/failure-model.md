@@ -78,6 +78,14 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 
 秘密情報、生backend error、他Tenantのresource identityを公開表現へ含めません。
 
+### Failure Campaign
+
+`FailureEpoch`は個別Host/source authorityの障害履歴として不変に保ちます。rack、power feed、site、shared backend等の同一物理事故に由来する複数Epochは、別のdurable/versioned `FailureCampaign`へ関連付けます。
+
+Campaignは`campaign_id/generation`、typed correlation class、member epoch、affected domain snapshot、evidence/provenance、first/last observed、状態、canonical recovery planを持ちます。相関は設備/topology identityとbounded time evidenceを必要とし、単なる同時刻発生やTenant申告だけではauthorityにしません。
+
+Campaign membershipはappend-only evidenceとgeneration付きdecisionで更新します。後着evidenceによるmergeでも元Epoch、開始済みOperation、Consumptionを改変せず、VM単位のunique Recovery Campaign Claimで追加Queue/dispatchをfenceします。相関がUNKNOWNなら安全側に新規dispatchを停止し、二つの独立事故とみなしてbudgetを二重利用しません。
+
 ## 5. Failure Classes
 
 ### 5.1 Client Failure
@@ -147,7 +155,7 @@ Host failure confirmed後はVM Availability Bindingで責任を分岐します�
 
 NF側HAのmember Placementではrack/power等のDomain Claimをtransactionalに競合制御し、domain不足/UNKNOWNをsilent relaxしません。domain driftはVIOLATED/UNKNOWNとして通知し、既存VMを暗黙migrationしません。
 
-相関Host/Failure Domain障害のRecoveryはdurable budget/queueでbackpressureします。worker lossやBudget Lease expiryを未実行証明にせず、backend circuit breaker復旧後もfencing/Placement generationを再検証します。queue saturationはAlarm/Escalationであり、安全条件やresponsibilityを変更しません。
+相関Host/Failure Domain障害のRecoveryはFailure Campaignへ正規化し、durable Campaign Claim/budget/queueでdeduplicate/backpressureします。worker lossやBudget Lease expiryを未実行証明にせず、backend circuit breaker復旧後もfencing/Placement generationを再検証します。queue saturationはAlarm/Escalationであり、安全条件やresponsibilityを変更しません。
 
 Host lifecycle固有のbootstrap response loss、duplicate identity、Baseline conflict、Compliance evaluator failure、decommission partitionも同じ原則に従います。identity conflictはquarantine、stale evidenceはUNKNOWN、remediation結果不明はtyped read-backで解決します。
 

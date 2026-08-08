@@ -94,6 +94,8 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-RCV-009 | active leases/queue中にDB failoverとworker restart | DB term/worker loss | old owner fence、committed lease/queue復元 | DB term、tokens、queue rank | slot loss/二重消費/ordering reset | current DB authorityでbounded dispatch再開 |
 | FI-RCV-010 | queue age thresholdを超過させcapacityを不足のまま維持 | age/escalation threshold | ESCALATED/action-required、成功失敗は未確定 | age/capacity attempts/events | queue drop、FAILED/RECOVERED推測 | capacity/policy/operator decisionで再評価 |
 | FI-RCV-011 | dispatch commit直後にBudget Leaseをexpireしworkerを停止 | lease expired + active Operation/Consumption | Consumptionをactive計上、slot再利用停止 | Operation/Consumption/Lease/Attempt correlation | concurrency slot二重利用、duplicate dispatch | Operationがverified terminal後にConsumption release |
+| FI-RCV-012 | 二workerへ同じ複数scopeを逆入力順で与え、row lock競合/deadlock/serialization failureを注入 | DB lock/serialization error | canonical順取得または全rollback後bounded retry | scope key/order、transaction ID、SQL state、retry audit | 部分Lease保持、別順retry、limit bypass | current scope/generationから全scope再取得 |
+| FI-RCV-013 | Host epochごとにQueue作成後、rack/powerの同一事故evidenceを遅延到着させCampaignをmerge | Campaign generation/claim uniqueness conflict | 未dispatchEntryをcanonical claimへ統合し、started Operationは追加dispatchをfenceしてreconcile | member epochs、evidence、old/current Campaign、Claims/Operations/Consumptions | VM重複restart、二重Budget計上、履歴改変 | 一つのcurrent Campaign decisionとverified Operationへ収束 |
 | FI-LIBVIRT-001 | libvirt mutation後にtimeoutを返す | backend timeout | Attempt UNKNOWN、read-back | Command/Attempt/evidence | 即時反対mutation | Domain UUID/stateで解決 |
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
@@ -124,7 +126,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Host Grouping / Failure Domain | FI-HGR-001..008 |
 | Availability Responsibility / Managed Recovery | FI-AVR-001..010 |
 | Workload Resilience Intent | FI-WRI-001..009 |
-| Recovery Storm Control | FI-RCV-001..011 |
+| Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |

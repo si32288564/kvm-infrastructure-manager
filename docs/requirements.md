@@ -109,7 +109,7 @@
 | AVR-010 | MANUALではauthorized Manual Recovery DecisionまでKIMから自動VM mutationを開始しない | Must |
 | AVR-011 | INFRASTRUCTURE_MANAGED recoveryでsource fencing、storage single-writer、VM/resource eligibility、failure-domain、transactional admissionを必須とする | Must |
 | AVR-012 | fencing、attachment、resource ownership、Availability BindingのいずれかがUNKNOWNならautomatic recoveryを開始しない | Must |
-| AVR-013 | Recovery Operationをfailure epoch、VM、Availability Binding revision、actionで冪等化し、stale epoch/resultをfenceする | Must |
+| AVR-013 | Recovery Operationをcanonical Failure Campaign、VM、Availability Binding revision、actionで冪等化し、stale Campaign/epoch/resultをfenceする | Must |
 | AVR-014 | EVACUATEをHost-scoped planからVM単位Operationへ分解し、部分成功、capacity不足、個別BLOCKEDを表現する | Must |
 | AVR-015 | recovery destinationでcurrent Placement Pool/Policy compatibility、Compliance、capacity、Failure Domainを再評価しsilent fallbackしない | Must |
 | AVR-016 | Host failure/recovery Eventをresponsibilityにかかわらずdurableに通知し、delivery failureでresponsibilityを変更しない | Must |
@@ -146,11 +146,13 @@
 | RCV-006 | max concurrency、start rate/window/burst、bounded backoff/jitterをscope別に強制する | Must |
 | RCV-007 | bounded priority class、aging、fair-share、per-Project/Resilience Group capでstarvationを防ぐ | Must |
 | RCV-008 | backend health gate/circuit breakerで該当recoveryをpauseし、復旧後に全safety generationを再検証する | Must |
-| RCV-009 | duplicate failure signalをfailure epochへdeduplicateし、correlated failureを共通budget scopeへ集約する | Must |
+| RCV-009 | duplicate failure signalをfailure epochへdeduplicateし、複数epochをevidence付きversioned FailureCampaignへ相関付ける | Must |
 | RCV-010 | queue age、budget saturation、waiting/blocked/unknown/escalated stateを監査・Alarm/Eventへ公開する | Must |
 | RCV-011 | Budget Policy変更だけでdispatch/started Recovery Operationを暗黙cancel/reclassifyしない | Must |
 | RCV-012 | Control Plane/worker failover後もbudget/queue/lease authorityとfair orderingをPostgreSQLから復元する | Must |
 | RCV-013 | Recovery dispatch時にBudget LeaseをOperationと不可分なdurable Budget Consumptionへ変換しterminal verificationまで並行数へ計上する | Must |
+| RCV-014 | applicable budget scopeをversioned canonical key順でlockし、deadlock/serialization failure時は全取得をrollbackして再評価する | Must |
+| RCV-015 | FailureCampaignごとにVM/actionのunique Recovery Campaign Claimを保持し、late correlation/mergeでも重複Queue、dispatch、Budget Consumptionを防ぐ | Must |
 
 ### 2.8 Image、Flavor
 

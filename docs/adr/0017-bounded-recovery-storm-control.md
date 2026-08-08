@@ -13,10 +13,12 @@ Infrastructure Managed HAでHost、rack、power、site障害が起きると、�
 - durable `RecoveryQueueEntry`とPostgreSQL transactionで発行する`RecoveryBudgetLease`を導入する。
 - Site/Pool/Failure Domain/backend/Project等のapplicable budgetをすべて取得してからplanning/dispatchする。
 - PLANNINGとDISPATCH phaseを分離し、各phaseのapplicable budget scopeを一transactionで取得する。
+- 全scope row/tokenを`phase rank + scope dimension rank + normalized scope ID + policy ID + generation`のcanonical順でlockし、全取得経路をCore Budget Acquirerへ限定する。serialization/deadlock時は全rollbackし、bounded retry前にscope setを再評価する。
 - dispatch transactionでRecovery Operationとdurable `RecoveryBudgetConsumption`を不可分commitし、verified terminalまでconcurrencyへ計上する。
 - Budget Leaseをdispatch許可だけに限定し、fencing、Placement admission、capacity claim、Command Lease、verificationを代替させない。
 - priority class、aging、fair-share、per-scope concurrency、rate/burst、backend health circuit breakerをversioned policyで評価する。
-- same failure signalをfailure epochへdeduplicateし、correlated failureを共通budget scopeへ集約する。
+- same failure signalをfailure epochへdeduplicateし、複数Epochをevidence付きversioned `FailureCampaign`へ相関付ける。
+- `RecoveryCampaignClaim(campaign, VM, Binding revision, action)`をunique authorityとしてQueue/Operation/Consumptionをbindし、後着Campaign mergeでも追加dispatchと二重Budget計上をfenceする。
 - Budget Lease expiryやworker lossからRecovery未実行を推測せず、Operation/Command/read-backで解決する。
 - queue delay、saturation、blocked/escalated stateをdurable evidence/eventとして公開する。
 
@@ -24,5 +26,6 @@ Infrastructure Managed HAでHost、rack、power、site障害が起きると、�
 
 - Control Plane failover後もrecovery concurrency/rate authorityを維持できます。
 - Budget/Queue/Lease/Consumption、fair scheduling、circuit breaker、queue observabilityが必要になります。
+- canonical scope schema、Campaign correlation rule、late merge reconciliationをversioning/test対象として管理する必要があります。
 - Recovery開始遅延を許容する代わりにbackend overloadと重複dispatchを抑えます。
 - Budget tuning、priority/fairness class、failure campaignによる検証が必要です。

@@ -131,6 +131,8 @@ Retry policyはCommand typeとoutcome reasonごとに閉じて定義します。
 
 Host failure recoveryも専用のmutation経路を作らず、`HostFailureEpoch -> RecoveryPlan -> VMRecoveryOperation -> Job/Command/Lease/Attempt -> Observation`として本Execution modelを使用します。
 
-Recovery idempotencyはfailure epoch、VM、Availability Binding revision、actionへbindします。old epoch/binding/fencing proofのCommand/Resultはcurrent recovery authorityを進めません。`WORKLOAD_MANAGED`と`MANUAL`はPolicy decisionだけでJob/Commandを自動作成せず、`INFRASTRUCTURE_MANAGED`もsource fencingとtransactional final admission後にだけdispatchします。
+Recovery idempotencyはcanonical Failure Campaign、VM、Availability Binding revision、actionへbindし、元failure epoch群をevidenceとして保持します。old Campaign/epoch/binding/fencing proofのCommand/Resultはcurrent recovery authorityを進めません。`WORKLOAD_MANAGED`と`MANUAL`はPolicy decisionだけでJob/Commandを自動作成せず、`INFRASTRUCTURE_MANAGED`もsource fencingとtransactional final admission後にだけdispatchします。
 
-多数Recoveryはdurable Recovery Queueへ入り、PostgreSQL Recovery Budget Lease取得後にplanning/dispatchします。Budget Leaseは本章のCommand Leaseではなくdispatch concurrency/rate authorityだけを持ちます。dispatch時にOperationとdurable Budget Consumptionを不可分commitし、verified terminalまでconcurrencyへ計上します。expiry/worker lossからRecovery未実行を推測せず、dispatch済みOperationは通常のAttempt/read-backで解決します。
+多数Recoveryはdurable Recovery Queueへ入り、PostgreSQL Recovery Budget Lease取得後にplanning/dispatchします。全applicable scopeはCore schemaのcanonical順にlockし、deadlock/serialization failureでは部分取得を残さずrollback/re-evaluateします。Budget Leaseは本章のCommand Leaseではなくdispatch concurrency/rate authorityだけを持ちます。dispatch時にOperationとdurable Budget Consumptionを不可分commitし、verified terminalまでconcurrencyへ計上します。expiry/worker lossからRecovery未実行を推測せず、dispatch済みOperationは通常のAttempt/read-backで解決します。
+
+相関rack/power/site/backend障害は、個別`HostFailureEpoch`を改変せずversioned `FailureCampaign`へ関連付けます。Queue/Operation/ConsumptionはVM単位のunique Recovery Campaign Claimへbindし、duplicate signalやlate Campaign mergeから新しいRecoveryを重複dispatchしません。merge前に開始済みのOperationは取消し推測をせず、current Campaign generationの下でread-back/reconciliationします。

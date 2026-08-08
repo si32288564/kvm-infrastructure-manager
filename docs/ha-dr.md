@@ -24,8 +24,8 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 - Host Operation Authority と監査outbox
 - Hardware Identity Evidence、Enrollment Policy、Host Profile/Baseline、Evaluator Artifact/Assignment、Compliance evidence/summary、External Remediation Request/Claim
 - HostGroup、Dimension、materialized Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope
-- Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Manual Recovery Decision
-- Recovery Budget Policy、Queue Entry、Budget Lease/Consumption、Workload Resilience Group/Member/Constraint/Domain Claim
+- Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Manual Recovery Decision
+- Recovery Budget Policy、Queue Entry、Budget Lease/Consumption、canonical scope schema、Workload Resilience Group/Member/Constraint/Domain Claim
 
 backend observationだけでこれらを無条件に復元しません。
 

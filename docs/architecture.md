@@ -137,7 +137,7 @@ HostGroupはHost capability、Compliance、resource capacityを上書きせず�
 
 Placement Poolへimmutable Availability Policyをbindし、Host failure responsibilityをInfrastructure Managed、Workload Managed、Manualへ分類します。Final Admission時のeffective PolicyをVM Availability Bindingへ固定し、Group/Policy変更だけで既存VMの責任を変更しません。
 
-Workload ManagedではFault/Eventを通知して自動restartせず、Infrastructure Managedではsource fencing、VM/resource eligibility、transactional admission、Execution、observationを通じて別Hostへ復旧します。Manualは明示Decisionを要求します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) を参照します。
+Workload ManagedではFault/Eventを通知して自動restartせず、Infrastructure Managedではsource fencing、VM/resource eligibility、transactional admission、Execution、observationを通じて別Hostへ復旧します。Manualは明示Decisionを要求します。相関rack/power/site障害はversioned Failure Campaignへ束ね、VM単位のunique Campaign Claimとcanonical budget lock順序で重複Recoveryとstormを防ぎます。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) を参照します。
 
 ### Workload Resilience Intent
 

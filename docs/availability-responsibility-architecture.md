@@ -205,7 +205,7 @@ HostFailureEpoch
               -> Observation / Verification
 ```
 
-VM Recoveryのidempotency scopeは`failure_epoch_id + vm_id + availability_binding_revision + action`です。同じscopeは同じRecovery Operationへ収束します。
+各failure epochは初期状態で単一memberのFailure Campaignへ所属します。VM Recoveryのidempotency scopeは`canonical_failure_campaign_id + vm_id + availability_binding_revision + action`です。同じscopeは同じRecovery Campaign Claim/Operationへ収束します。元のepoch ID群はevidence correlationとして保持します。
 
 old failure epoch、old Binding、stale fencing proof、expired LeaseからのResultはcurrent recovery authorityを進めません。Result response lossはaccepted receiptを回収し、side effect後のtimeoutはUNKNOWN/read-backで解決します。
 
@@ -238,13 +238,31 @@ scopeはSite、Placement Pool、Failure Domain、backend、Project等を組み�
 
 Planning budgetはdispatchを許可しません。各phaseで該当する全scope leaseを一transactionで取得し、一つでも不足なら部分leaseを残しません。
 
+### Deterministic Budget Acquisition
+
+複数scopeのrow/tokenは、全workerと全Control Plane serviceが同じcanonical keyで整列してからlockします。
+
+```text
+BudgetScopeKey
+  = phase_rank
+  + scope_dimension_rank
+  + normalized_scope_id
+  + budget_policy_id
+  + budget_generation
+```
+
+`phase_rank`と`scope_dimension_rank`はversioned Core schemaで固定し、locale、入力順、query plan、worker実装へ依存させません。取得処理は共通のCore Budget Acquirerだけが所有し、adapter/extensionが独自順序でrow lockまたは部分leaseを取得することを禁止します。
+
+transactionは、applicable scope setとgenerationを確定し、canonical順に全rowをlockし、全limit/tokenを検証してから全Leaseをcommitします。途中でscope/generation変更、serialization failure、deadlock detectionが起きた場合は全transactionをrollbackし、Entryを`WAITING_*`のままbounded backoff/jitter後にscope setから再評価します。deadlock/timeoutをbudget許可へ丸めず、部分取得したLeaseを保持したままretryしません。
+
 ### Recovery Queue
 
 ```text
 RecoveryQueueEntry
 ├─ queue_entry_id
-├─ failure_epoch_id / vm_id
+├─ failure_campaign_id / failure_epoch_ids / vm_id
 ├─ availability_binding_revision
+├─ recovery_campaign_claim_id
 ├─ recovery_plan_id / requested_action
 ├─ applicable_budget_versions
 ├─ priority_class / enqueued_at
@@ -307,8 +325,30 @@ priorityはTenantが任意数値で指定せず、公開classとProject policy�
 
 ### Correlated Failure and Backpressure
 
+```text
+FailureCampaign
+├─ campaign_id / generation / canonical_campaign_id
+├─ correlation_class / rule_version
+├─ member_epoch_ids / membership_generation
+├─ affected_domain_snapshot
+├─ evidence / provenance / confidence
+├─ first_observed_at / last_observed_at
+└─ OPEN | STABILIZING | CLOSED | UNKNOWN
+
+RecoveryCampaignClaim
+├─ canonical_campaign_id / vm_id
+├─ availability_binding_revision / action
+├─ queue_entry_id / recovery_operation_id
+├─ budget_consumption_ids
+└─ generation / state / reconciliation_evidence
+```
+
 - 同じHost/source failure signalを一つのfailure epochへdeduplicateする。
-- rack/power/site等の相関failureはaffected epoch/groupを関連付け、共通budget scopeへ集約する。
+- 複数のfailure epochを、durable/versioned `FailureCampaign`へ相関付ける。相関はtyped rule、topology/equipment identity、time bound、evidence provenanceを必要とし、時刻近接だけでmergeしない。
+- rack/power/site等の相関failureはCampaign scopeへ集約し、`FailureCampaignMembership`のgenerationとaffected domain snapshotを保持する。
+- VMごとの`RecoveryCampaignClaim(canonical_campaign_id, vm_id, availability_binding_revision, action)`をunique authorityとし、Queue Entry、Recovery Operation、Budget Consumptionを同じclaimへbindする。同一Campaign/VMを別epochから二重dispatchまたは二重計上しない。
+- 後着evidenceでCampaignがmergeされた場合、未dispatch Entryを一transactionでcanonical Campaign/Claimへ収束する。既にdispatch済みOperationは履歴を書き換えたり暗黙cancelせず、追加dispatchをfenceし、既存Operation/Consumptionをreconcileして一つのcurrent decisionへ収束する。
+- 相関が証明できない、Campaign membershipが競合する、またはmerge後のsource ownershipが不明な場合は`UNKNOWN`として新規dispatchを停止する。都合よく別CampaignとしてBudgetを迂回しない。
 - recovery queue age、budget saturation、blocked reason、backend healthをalarm/eventへ出す。
 - capacity不足時にbusy retryせず、event/generation changeまたはbounded backoffでre-evaluateする。
 - queue age threshold超過はESCALATED/action-requiredにできるが、成功/失敗を推測しない。
@@ -326,7 +366,7 @@ RecoveryBudgetPolicy変更は新規leaseへ反映します。既にdispatch/star
 - Recovery started/blocked/unknown/recovered
 - operator action requirementとbounded reason
 
-Eventは`failure_epoch_id`、VM/Operation correlation、policy version、observed generationを持ちます。secret、raw Host topology、他Tenant identityを含めません。
+Eventは`failure_campaign_id/generation`、member `failure_epoch_id`、VM/Operation correlation、policy version、observed generationを持ちます。secret、raw Host topology、他Tenant identityを含めません。
 
 `WORKLOAD_MANAGED`向けevent delivery失敗を理由にKIMがInfrastructure Managed recoveryへ切り替えません。deliveryは再送し、責任Policyは維持します。
 

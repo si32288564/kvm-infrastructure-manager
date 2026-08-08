@@ -93,7 +93,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AVR-010 | MANUAL failureでACTION_REQUIREDを維持し、authorized Decision後だけ同じrecovery gateを通す |
 | AT-AVR-011 | INFRASTRUCTURE_MANAGED recoveryがfencing/storage/device/network/failure-domain/Placement gateをすべて評価する |
 | AT-AVR-012 | recovery前提のUNKNOWNをBLOCKEDとして保持し、VM/Volume/Allocationを推測cleanupしない |
-| AT-AVR-013 | 同一failure epoch+VM+Binding+actionの並行要求を単一Recovery Operationへ収束する |
+| AT-AVR-013 | 同一canonical Failure Campaign+VM+Binding+actionの並行要求を単一Recovery Campaign Claim/Operationへ収束する |
 | AT-AVR-014 | EVACUATE planがVM別status/attempt/capacity failureを保持し、bounded concurrencyで実行する |
 | AT-AVR-015 | destinationのPool Policy compatibilityを含むdry/final admissionを再実行しsilent fallbackしない |
 | AT-AVR-016 | Fault/Recovery Eventがdurable outbox、correlation、policy version、redaction、再送contractを持つ |
@@ -135,6 +135,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-RCV-011 | Budget Policy変更後もstarted Operationを維持しnew leaseだけをnew generationへ従わせる |
 | AT-RCV-012 | DB/worker failover後にqueue authority、active budget consumption、公平なorderingを復元する |
 | AT-RCV-013 | dispatch transactionがRecovery Operationと全scope Budget Consumptionを不可分commitしterminal verification後だけreleaseする |
+| AT-RCV-014 | 全workerがversioned canonical BudgetScopeKey順でscope row/tokenをlockし、deadlock/serialization retryで部分Leaseを残さない |
+| AT-RCV-015 | FailureCampaign、Membership、Recovery Campaign Claimがduplicate/late correlationを一つのcurrent recovery decisionへ収束する |
 
 ## 9. API / Data / Operations
 
