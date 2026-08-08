@@ -40,6 +40,8 @@ flowchart LR
 - request body/headerの自己申告Host IDをauthorityに使わない。
 - 一つのHost identityとcredentialをInventory/Command/Resultで共有する。
 - closed capability setを通知し、未知Commandを拒否する。
+- hardware factsをobserved evidenceとして報告するが、自身でconfidence/trust/enrollment decisionを決めない。
+- challenge/request binding、collector/adapter version、observation generationをevidence envelopeへ含める。
 
 ## 3. Transport
 

@@ -50,6 +50,9 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HLC-015 | host-lifecycle-and-compliance-architecture | ADR-0013 | INV-HLC-010 | AT-HLC-014, FI-HLC-007 | Planned |
 | HLC-016 | host-lifecycle-and-compliance-architecture, security | ADR-0013 | INV-HLC-011 | AT-HLC-016, FI-HLC-001, FI-HLC-002 | Planned |
 | HLC-018 | host-lifecycle-and-compliance-architecture, security | ADR-0013 | INV-HLC-007 | AT-HLC-015 | Planned |
+| HLC-019 | host-lifecycle-and-compliance-architecture, security | ADR-0013 | INV-HLC-013, INV-HLC-014 | AT-HLC-017, AT-HLC-018, FI-HLC-009 | Planned |
+| HLC-020, HLC-021 | host-lifecycle-and-compliance-architecture, extensibility-architecture | ADR-0011, ADR-0013 | INV-HLC-015, INV-HLC-016 | AT-HLC-019, AT-HLC-020, FI-HLC-010, XCT-HLC-005, XCT-HLC-006 | Planned |
+| HLC-022 | host-lifecycle-and-compliance-architecture, responsibility-boundaries, security | ADR-0011, ADR-0013 | INV-HLC-017, INV-HLC-018 | AT-HLC-021, AT-HLC-022, FI-HLC-011, FI-HLC-012, XCT-HLC-007 | Planned |
 
 ## 6. Image / Flavor / Compute
 

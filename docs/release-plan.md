@@ -27,6 +27,7 @@
 - 12 failure classのFault Injection Matrix
 - NFV Dataplane Resource ModelとOVS-DPDK support boundary
 - Host Lifecycle、Enrollment、Baseline、Continuous Compliance、Decommission model
+- Hardware Identity Evidence policy、Evaluator Artifact rollout、External Remediation trust contract
 
 ### Exit criteria
 
@@ -50,6 +51,7 @@
 - 単一 Control Plane
 - Host Agent 登録と inventory
 - manual Enrollment approval、Host Profile/Baseline Assignment、read-only Compliance
+- provenance付きidentity evidence収集とEvaluator artifact/input digest付きResult
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
@@ -99,6 +101,7 @@
 - SR-IOV
 - disruptive dataplane maintenance operationとOVS/DPDK version certification
 - Baseline rollout、maintenance-required/external remediation、decommission workflow
+- Evaluator shadow/canary rolloutとExternal Remediation request/claim + KIM再観測
 - NFVO integration profile
 - ローリングアップグレード
 - offline bundle、SBOM、artifact signing

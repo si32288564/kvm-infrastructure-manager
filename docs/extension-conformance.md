@@ -111,6 +111,9 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-HLC-002 | unknown/stale/conflicting evidenceをCOMPLIANTへ丸めずUNKNOWNにする |
 | XCT-HLC-003 | remediation moduleがclosed Control/Commandだけを受け、generic configurationを実行しない |
 | XCT-HLC-004 | evaluator/module追加がControl version、evidence contract、support tierを宣言する |
+| XCT-HLC-005 | Evaluator Artifactがimmutable digest、build provenance、schema/control/evidence compatibilityと再現可能fixture resultを持つ |
+| XCT-HLC-006 | Evaluator revision更新が旧版とのshadow comparisonとcanary thresholdを通過するまでcurrent assignmentにならない |
+| XCT-HLC-007 | External remediation adapterがCore DB/Agent credential/Lease/authorityを持たず、completion claimをCompliance resultへ直接変換しない |
 
 ### C2
 

@@ -145,6 +145,8 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 
 Host lifecycle固有のbootstrap response loss、duplicate identity、Baseline conflict、Compliance evaluator failure、decommission partitionも同じ原則に従います。identity conflictはquarantine、stale evidenceはUNKNOWN、remediation結果不明はtyped read-backで解決します。
 
+identity evidenceの一部一致をHost同一性の証明へ格上げせず、source間conflictはEnrollmentを停止します。Evaluator revision間の判定差はrollout failureとして封じ込め、旧Resultを改変しません。外部remediation callbackの偽装/replay/expiryは拒否し、正当なcompletion claimでもKIMのfresh observationとcurrent Evaluatorが一致しなければNON_COMPLIANT/UNKNOWNとplacement blockを維持します。
+
 ### 5.8 libvirt / QEMU Failure
 
 例: synchronous error、daemon restart、QEMU crash、operation timeout。

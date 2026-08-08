@@ -50,6 +50,12 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HLC-014 | decommissionがdisarm、Lease fencing、resource drain、credential revocation、最終evidence保存後だけ完了する |
 | AT-HLC-015 | Host/Agentからのapproval/Profile/Baseline/Control policy変更要求を認可境界で拒否・監査する |
 | AT-HLC-016 | duplicate identity/hardware fingerprintを自動mergeせず、conflictをquarantineして明示解決を要求する |
+| AT-HLC-017 | Hardware Identity Evidenceをsource/issuer/collector/provenance/freshness/request binding/conflict付きで正規化し、policy decisionへbindする |
+| AT-HLC-018 | MAC/hostname/IP/単一serialまたはAgent自己申告だけではpolicy-auto enrollmentできない |
+| AT-HLC-019 | Control ResultがControl version、Evaluator Artifact digest、input evidence digest、Inventory/policy generationを保持する |
+| AT-HLC-020 | Evaluator更新をfixture CI、shadow comparison、canary、batchで進め、判定差とthreshold超過を可視化・停止する |
+| AT-HLC-021 | External Remediation Request/responseがservice identity、contract/generation、expiry、idempotency、integrity、correlationを検証する |
+| AT-HLC-022 | 外部COMPLETION_CLAIM後もfresh observationとassigned Evaluator再評価が一致するまでCompliance/READY/authorityを進めない |
 
 ## 5. API / Data / Operations
 

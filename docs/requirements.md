@@ -66,6 +66,10 @@
 | HLC-016 | duplicate Host identity/hardware conflictをquarantineし、自動mergeしない | Must |
 | HLC-017 | credential renewal、Agent reconnect、Gateway recovery、Baseline assignmentだけでHost authorityをarmしない | Must |
 | HLC-018 | Hostが自身のapproval、Profile、Baseline、Control policyを変更できない | Must |
+| HLC-019 | Hardware identityを複数sourceのprovenance/freshness/conflict付きevidenceとして評価し、単一の可変identifierだけでpolicy-auto enrollmentしない | Must |
+| HLC-020 | Compliance Evaluatorをimmutable artifact digest、contract/control/evidence compatibility、build/certification provenanceでversion管理する | Must |
+| HLC-021 | Evaluator更新をCI comparison、shadow、canary、batch、failure threshold付きrolloutで進め、過去Resultを改変しない | Must |
+| HLC-022 | External remediationの要求/応答を認証・generation・expiry・idempotency付きcontractで管理し、外部完了claimだけでCOMPLIANT/READY/armedへ遷移しない | Must |
 
 ### 2.4 Image、Flavor
 

@@ -41,11 +41,11 @@
 | Q-032 | DPDK HugePage ownership | Host-wide reserved poolとKIM allocation ledgerのauthority境界 | Phase 0 |
 | Q-033 | Dataplane disruption policy | ovs-vswitchd restartのimpact/drain/maintenance workflow | Technical Preview 前 |
 | Q-034 | Performance policy classes | queue/latency/throughput requirementをTenant APIへ公開する粒度 | Technical Preview 前 |
-| Q-035 | Enrollment trust evidence | bootstrap credential、hardware identity、attestationの初期必須範囲 | Phase 0 |
+| Q-035 | Enrollment trust evidence profile | provenance/conflict modelは確定。初期Validated環境で必須にする独立source class、attestation方式、manual fallbackを決定 | Phase 0 |
 | Q-036 | Policy-auto enrollment/arming | manual approvalなしで許可するSite/Host classとguardrail | Phase 0 |
 | Q-037 | Initial Host Profiles/Baselines | general-compute、nfv-sriov、nfv-ovs-dpdkのcontrol set | Developer Preview 前 |
 | Q-038 | Compliance evidence retention | Control Result/evidence/auditの保持期間と容量 | Technical Preview 前 |
-| Q-039 | External remediation integration | Configuration Managementへのevent/ticket/maintenance contract | Technical Preview 前 |
+| Q-039 | External remediation transport/profile | authority/evidence contractは確定。初期adapterのevent/API transport、IdP identity、evidence retention profileを決定 | Technical Preview 前 |
 | Q-040 | Decommission authority | credential revoke、drain exception、physical wipe境界のoperator policy | Product Beta 前 |
 
 ## 最初に確定すべき判断

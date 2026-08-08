@@ -116,9 +116,9 @@ flowchart TB
 
 ### Host Lifecycle and Compliance
 
-Host discovery、identity bootstrap、Enrollment approval/Policy Match、Profile/Baseline Assignment、Preflight、Typed Convergence、Verification、Continuous Compliance、Maintenance、Decommissionを一つのauthority modelで管理します。
+Host discovery、identity bootstrap、Enrollment approval/Policy Match、Profile/Baseline Assignment、Preflight、Typed Convergence、Verification、Continuous Compliance、Maintenance、Decommissionを一つのauthority modelで管理します。Hardware identityはprovenance付きの複数evidenceから判断し、Compliance Resultはimmutable Evaluator Artifactへbindします。
 
-credentialはidentityだけを証明します。mutation authorityはEnrollment、Baseline、current compliance/preflight、Agent capability、policyを検証した別generationとして発行します。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) を参照します。
+credentialはidentityだけを証明します。mutation authorityはEnrollment、Baseline、current compliance/preflight、Agent capability、policyを検証した別generationとして発行します。外部remediation完了claimはfresh Host observationとassigned Evaluator再評価までCompliance authorityを変更しません。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) を参照します。
 
 ### Host OS Portability Layer
 

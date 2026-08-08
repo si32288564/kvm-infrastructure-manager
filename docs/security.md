@@ -47,6 +47,9 @@ flowchart LR
 - Agent credentialはHost identityを証明するが操作authorityではない。Command Leaseにはarmed authority generationを必要とする。
 - Hostは自身のEnrollment approval、Profile、Baseline、Control severity/remediation policyを変更できない。
 - Baseline/Enrollment Policyはversion、digest、author/approver、auditを持ち、automatic arming/remediationのdecision evidenceを保存する。
+- Hardware Identity Evidenceはsource/issuer/collector、request binding、freshness、integrity/attestation state、payload digestを保持し、MAC/hostname/IP等の単一可変値をauto-enrollment authorityにしない。
+- raw serial/attestation payload/management credentialを通常log/eventへ出さず、access-controlled evidence referenceとdigestを使用する。
+- External remediation callbackはservice identity、request/generation binding、expiry、replay/idempotency、integrityを検証し、callbackだけでCompliance/READY/authorityを進めない。
 
 ## 5. Network と Tenant 分離
 

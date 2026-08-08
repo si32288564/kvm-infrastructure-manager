@@ -9,7 +9,7 @@
 |---|---|
 | Tenancy and Authorization | Tenant、Project、Membership、Role Binding、Policy、Quota |
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
-| Host Lifecycle and Compliance | Enrollment Policy、Host Profile、Baseline、Control、Assignment、Compliance、Maintenance |
+| Host Lifecycle and Compliance | Hardware Identity Evidence、Enrollment Policy、Host Profile、Baseline、Control、Evaluator、Assignment、Compliance、External Remediation、Maintenance |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
@@ -26,9 +26,12 @@ erDiagram
     SITE ||--o{ HOST : contains
     HOST_PROFILE ||--o{ HOST : classifies
     HOST_BASELINE ||--o{ BASELINE_CONTROL : contains
+    HOST ||--o{ HARDWARE_IDENTITY_EVIDENCE : identified_by
+    BASELINE_CONTROL ||--o{ EVALUATOR_ARTIFACT : evaluated_by
     HOST ||--o{ BASELINE_ASSIGNMENT : receives
     HOST_BASELINE ||--o{ BASELINE_ASSIGNMENT : assigns
     BASELINE_ASSIGNMENT ||--o{ COMPLIANCE_RESULT : evaluates
+    BASELINE_ASSIGNMENT ||--o{ EXTERNAL_REMEDIATION_REQUEST : requests
     TENANT ||--o{ PROJECT : contains
     PROJECT ||--o{ VM : owns
     PROJECT ||--o{ NETWORK : owns
@@ -156,6 +159,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - authenticatedだけのHostをenrolled/ready/armedとして扱わない。
 - Baseline versionとCompliance historyを上書きしない。
 - Critical NON_COMPLIANT/UNKNOWN HostまたはcapabilityをPlacement eligibleにしない。
+- Enrollment decisionはHardware Identity Evidence setとPolicy generationへbindし、単一可変identifierをauthorityにしない。
+- Compliance ResultはEvaluator Artifact/input evidence digestへbindし、外部completion claimをResultへ直接変換しない。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

@@ -56,6 +56,8 @@ KIM が所有するもの:
 
 KIM の typed remediation は schema、precondition、対象 resource、rollback/verification、authority generation を持つ閉じた操作です。任意 package 名、shell、argv、file path、設定内容を受け取りません。
 
+外部Configuration Managementとの連携では、KIMはControl requirement、対象Host、Baseline/Assignment generation、maintenance/fencing条件、必要evidenceを持つscoped requestを所有します。外部systemは実際の汎用Host変更を所有します。外部systemの完了通知はclaimであり、KIMがfresh observationを取得してCompliance Evaluatorで再判定するまでKIMのCompliance/READY/authorityを変更しません。
+
 ## 4. Network
 
 | KIM | External Network / WIM / Physical Infrastructure Manager |

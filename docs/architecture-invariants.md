@@ -113,6 +113,12 @@
 | INV-HLC-010 | decommissionはauthority/Leaseをfenceし、managed resourceをdrainし、credentialを失効するまで完了しない | AT-HLC-014 |
 | INV-HLC-011 | duplicate Host identity/hardware fingerprint conflictを自動mergeせずquarantineする | FI-HLC-002 |
 | INV-HLC-012 | Baseline rolloutは旧version/resultを改変せず、rollbackを自動的なHost state復元とみなさない | FI-HLC-006 |
+| INV-HLC-013 | 単一の可変hardware identifierまたはAgent自己申告だけでpolicy-auto enrollmentしない | AT-HLC-018 |
+| INV-HLC-014 | Enrollment decisionはsource/issuer/provenance/freshness/conflictを持つidentity evidence setとpolicy generationへbindする | AT-HLC-017 |
+| INV-HLC-015 | Compliance Resultはimmutable Evaluator Artifact digestとinput evidence digestへbindする | AT-HLC-019 |
+| INV-HLC-016 | Evaluator更新は旧Resultを改変せず、比較/canary/failure thresholdを通じて新Assignment generationとして適用する | FI-HLC-010 |
+| INV-HLC-017 | 外部remediationの完了claimだけではCOMPLIANT、READY、authority armed、maintenance exitへ遷移しない | FI-HLC-012 |
+| INV-HLC-018 | External remediation integrationはCore DB、Agent credential、Command Lease、Host Operation Authorityを取得しない | AT-HLC-021 |
 
 ## 10. Security, Audit, and Failure
 

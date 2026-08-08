@@ -16,6 +16,9 @@ KIMにはHost Inventory、Capability、Preflight、typed remediationがありま
 - remediationをobserve-only、auto-remediate-safe、maintenance-required、external-remediationへ分類する。
 - Critical違反/UNKNOWNをHostまたはcapability-scoped Placement Eligibilityへ反映する。
 - Compliance history/evidenceをappend-onlyに保持し、typed verificationで収束する。
+- Hardware identityはprovenance付きの複数evidence sourceからpolicy決定し、単一の可変identifierをEnrollment authorityにしない。
+- Compliance Resultをimmutable Evaluator Artifact digestとinput evidenceへbindし、Evaluator変更もshadow/canary/batch rolloutする。
+- 外部remediationの完了応答はclaimとして保存し、KIMによるfresh observationと再評価なしにCompliance/READY/authorityを進めない。
 - 汎用package/config/kernel/reboot managementをKIMへ持ち込まない。
 
 ## Consequences
@@ -24,4 +27,3 @@ KIMにはHost Inventory、Capability、Preflight、typed remediationがありま
 - Enrollment Policy、Baseline schema/evaluator、rollout、maintenance、decommissionの実装・試験が必要になります。
 - 外部Configuration Managementとの責任境界とevent/maintenance contractが必要になります。
 - 自動化速度よりtrust、evidence、failure containmentを優先する場面があります。
-

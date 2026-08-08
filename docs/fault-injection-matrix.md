@@ -52,6 +52,10 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-HLC-006 | canaryでfailure thresholdを超過させる | rollout health threshold breach | rollout pause、未対象Hostのassignment不変 | batch/result/threshold/decision audit | 全Host継続、旧result書換え、自動state rollback | authorized resume/abortと新assignment decision |
 | FI-HLC-007 | maintenance/decommission中にControl Plane-Agent通信をpartition | session/Lease loss | authority disarm、進行中stepをUNKNOWN/blocked | lifecycle step、Lease、resource/evidence snapshot | drain未確認で次step、credential先行再利用 | reconnect後のcurrent authority/resource再検証 |
 | FI-HLC-008 | disarmed Hostでreconnect、Gateway recovery、credential renewal、Baseline再assignmentを連続実行 | session/trust/assignment change | disarmed stateを維持、Command配送停止 | authority generation、events、audit | implicit arm/READY復帰 | 明示arm条件とcurrent preflight/complianceを満たす |
+| FI-HLC-009 | MAC/hostname/SMBIOS等の一部identity evidenceを複製・変更し、他sourceと矛盾させる | evidence conflict/confidence policy failure | policy-auto enrollment停止、candidate quarantine | source provenance、digest、conflict、decision generation | 単一一致値で既存Hostへmerge/authority継承 | independent evidenceと明示approvalで解決 |
+| FI-HLC-010 | 新Evaluatorが同じevidence corpusへ旧版と異なる判定を返しcanary thresholdを超過 | shadow/canary result delta | Evaluator rollout pause、未対象Assignment不変 | artifact/input digest、old/new result、threshold decision | 全Host切替、旧Result書換え | authorized fix/new revisionまたは明示rollout decision |
+| FI-HLC-011 | External remediation callbackを偽装・replay・expiry後に送信 | identity/binding/nonce/expiry failure | claim拒否、current request不変 | rejected digest、source、reason、audit | Compliance/maintenance/authority進行 | current authenticated requestに対するfresh response |
+| FI-HLC-012 | 外部systemが成功claimを返すがHost observationは未変更または取得不能 | claim/observation mismatch | Compliance NON_COMPLIANT/UNKNOWN、placement block維持 | external claim、fresh/failed observation、Evaluator result | COMPLIANT/READY/arm/maintenance exit | KIM-trusted observationとcurrent Evaluatorが一致 |
 | FI-LIBVIRT-001 | libvirt mutation後にtimeoutを返す | backend timeout | Attempt UNKNOWN、read-back | Command/Attempt/evidence | 即時反対mutation | Domain UUID/stateで解決 |
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
@@ -78,7 +82,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Internal Message | FI-BUS-001..002 |
 | Agent Gateway / Transport | FI-GATEWAY-001..002, FI-TRANSPORT-001..002 |
 | Agent | FI-AGENT-001..002 |
-| Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..008 |
+| Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |

@@ -29,6 +29,7 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 |---|---|---|
 | Host OS Integration | Ubuntu、RHEL-compatible、SUSE | discovery、preflight、bounded typed remediation |
 | Baseline Control Evaluator | CPU/DPDK/Security/Agent controls | pure applicability/evaluation、bounded evidence |
+| External Remediation Adapter | Ansible系、構成管理、ticket/workflow | scoped request/claim、authenticated correlation、no authority transfer |
 | Agent Operation Module | VM power、CPU placement、Volume attach | closed Command type、narrow backend interface、read-back |
 | Network Backend | OVN、将来のprovider adapter | plan/apply/observe capability、intent generation |
 | NFV Dataplane Module | OVS-DPDK discovery/operation | PMD/DPDK memory/Port/RxQ capability、closed typed operation |
@@ -55,7 +56,9 @@ Identity、Secret、Placementは高影響領域であり、Identity/Secret連携
 
 OVS-DPDK Host moduleはC1の静的登録moduleを基本とし、generic OVSDB/EAL/PCI操作を公開しません。Control Plane側のDataplane orchestrationはC0 Coreとしてallocation authorityを保持します。
 
-Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、authority armingを行いません。Remediation Moduleは別のclosed C1 CommandとしてExecution domainを通ります。外部Configuration Management連携はC2 serviceまたはC3 integrationで、KIM authorityを迂回しません。
+Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、authority armingを行いません。Evaluatorはimmutable artifact digest、build provenance、compatible Control/evidence schema、fixture certificationを宣言し、shadow/canary rollout前にcurrent assignmentへしません。Remediation Moduleは別のclosed C1 CommandとしてExecution domainを通ります。
+
+外部Configuration Management連携はC2 serviceまたはC3 integrationです。scoped External Remediation Requestとappend-only claimだけを交換し、Core DB、Agent credential、Command Lease、Host Operation Authorityを渡しません。外部completion claimはKIMのCompliance Resultではなく、fresh observationとC1 Evaluatorによる再評価をtriggerするだけです。
 
 ## 4. Contract Shape
 
