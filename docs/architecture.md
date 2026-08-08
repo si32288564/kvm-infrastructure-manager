@@ -211,6 +211,25 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 - Agentの実行Resultと、resourceの収束成功を分離する。
 - Execution outcomeのUNKNOWNをFAILEDと区別し、stale ResultをLease token、attempt、authority generationでfencingする。
 
+### 5.1 Cross-domain Semantic Registry
+
+同じ語を複数domainで使う場合も、以下の意味を変えません。識別子には必ずtypeとscopeを含め、異なるscopeの値を大小比較したり、相互の代替として使ったりしません。
+
+| 用語 | 共通意味 | 禁止事項 |
+|---|---|---|
+| `generation` | 一つのnamed authority scope内で単調増加するincarnation/fencing値 | Host authority generationとTrust Bundle generationなど、異なるscope間の比較 |
+| `revision` | policy、spec、decision等のimmutableな内容版 | 実行retry回数やsession incarnationとしての使用 |
+| `attempt` | 一つのCommand/Job executionにおける試行系列 | resource generationの上書き、過去Attemptの結果改変 |
+| `authority generation` | Host、Agent session、DB restore、trust等の特定authority incarnationをfenceするgeneration | credential所持だけからの生成、別authority scopeへの権限移送 |
+| `restore_epoch` | PITR後のdatabase authority incarnation | 旧Siteやbackend side effectの停止証明としての使用 |
+| `boot_id` | 一つのHost/Agent boot内でmonotonic continuityを証明する識別子 | 分散authority、Host identity、Lease tokenとしての使用 |
+| `Lease` | 一つのtyped purposeに限った、DB authority time基準の期限付きpermission | Command、Budget、Outbox等のLease同士の代用。expiryを未実行証明にすること |
+| `UNKNOWN` | typed domainで確定に必要なevidenceが不足している状態 | timeoutからSUCCESS/FAILEDへの推測、別domainのUNKNOWNとの無条件集約 |
+| `Observation` | provenance、generation、受理時刻を持つ実世界evidence | Observation単独によるownership/adoption、future source timeによるfreshness延長 |
+| `Claim / Binding` | PostgreSQLが所有するlogical authorityまたは関係の固定 | backendの実効果・停止・absenceが確認済みだという推定 |
+
+Lease expiry、credential validity、transport接続、backend observationはいずれも単独ではmutation authorityを構成しません。Domain固有文書はこのregistryを具体化できますが、意味を変更する場合はADRと本registryを同じchange setで更新します。
+
 ## 6. Compute
 
 - libvirt Domain は KIM の VM に一対一で対応する。

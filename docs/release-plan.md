@@ -37,13 +37,16 @@
 - Release Manifest、Compatibility Decision、N/N-1 mixed-version、Upgrade Campaign/Wave/Feature Gate、rollback boundary model
 - Wall/DB/monotonic/source time分離、Clock Health、Lease expiry、Agent local deadline、retention/correlation time model
 - Root/Intermediate、Trust Domain/Profile/Binding、bootstrap/renewal/revocation、compromise/rollover/offline/DR trust model
+- Phase 0 Exit Review、authority owner matrix、cross-domain semantic consistency audit
 
 ### Exit criteria
 
 - Must 要件に owner と検証方法がある。
 - 主要な未決事項が ADR または open question として追跡される。
 - VM create/delete、Host loss、Control Plane loss の設計レビューが完了する。
-- 少なくとも2系統の Linux ディストリビューションで同じ Control Plane build を用いた preflight と VM lifecycle を検証する。
+- Phase 0 Decision Gateを担うADRがAcceptedである。
+- Phase 0期限のOpen QuestionがClosed、またはownerと次のtarget gateを持つ明示的Deferredである。
+- Phase 0 Exit Reviewに未解消のCritical/High contradictionまたはauthority conflictがない。
 - Identity、Host configuration、Network、NFVO/VNFM/WIMのauthority境界がADRで承認される。
 - placement競合、lease expiry、stale result、outcome unknown、DB failover/restoreのfailure scenarioがテスト設計に落ちる。
 - 各failure classにDetect/Contain/Fence/Observe/Recover/Reconcile/Escalateと禁止操作が割り当てられる。
@@ -61,6 +64,8 @@
 - bootstrap replay、issuance response loss、revocation partial、stale session、Host/Control Plane/CA compromise、offline/DR trustがtest matrixへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
+
+Phase 0では検証契約を`Planned`以上にすることを求めます。実装済みproduct buildを使うsystem test evidenceはPhase 1以降のexit evidenceであり、Architecture Baselineの承認条件とは分離します。
 
 ## Phase 1: Developer Preview
 
@@ -89,6 +94,7 @@
 ### Exit criteria
 
 - 2 Host で API から VM を繰り返し作成・削除できる。
+- 少なくとも2系統のLinuxディストリビューションで同じControl Plane buildを用いたpreflightとVM lifecycleを検証する。
 - API 再送と Agent 再起動で重複 VM が作られない。
 - Host 切断時に新規配置されず、復旧後に状態が収束する。
 - clean install と uninstall 手順が自動試験される。

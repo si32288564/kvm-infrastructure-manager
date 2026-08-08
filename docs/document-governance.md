@@ -17,6 +17,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 | Architecture文書 | Accepted ADRとRequirementsを統合した現在の構造、contract、failure model |
 | Open Questions / Proposed ADR | 未確定事項。実装authorityではない |
 | Release Plan | exit criteriaと品質gate |
+| Phase 0 Exit Review | 特定commitを対象にした横断監査とgate判定。参照先の正本を置き換えない |
 | Release Manifest / Compatibility Matrix | 出荷artifact、upgrade path、contract range、support/rollback boundaryのrelease正本 |
 | Architecture Invariants / Traceability | 実装禁止条件とRequirement-to-Test coverage |
 | Fault Injection / Conformance Contract | 検証可能なfailure/extension test authority |
@@ -42,7 +43,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 7. Upgrade path、mixed-version、rollback boundary、support matrixへの影響
 8. Lease、freshness、retention、credential、calendar/correlationのtime semanticsへの影響
 9. Trust Domain、Certificate Profile、revocation、rollover、offline/DR trustへの影響
-7. Architecture InvariantとFault/Conformance test ID
+10. Architecture InvariantとFault/Conformance test ID
 
 ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureまたは専用contract文書へリンクします。
 
@@ -67,3 +68,8 @@ ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureま�
 - persistent data classification、retention/GC、schema evolution、Outbox/Inbox、PITR restore authority boundary
 - Storage Backend/Class、Volume Attachment Claim/Generation、single-writer、compute/storage fencing boundary
 - Network/IPAM/Segment/Port Binding、OVN layered realization、Gateway/NAT/Security authority boundary
+- Release Manifest、mixed-version edge、Feature Gate、rollback/finalization boundary
+- DB authority time、monotonic deadline、freshness、expiryとUNKNOWNのtime semantics
+- Trust Domain、Credential Binding、session/authority generation、revocation、CA rollover/compromise boundary
+
+Phase 0の正式exitには、上記判断を担うADRがAcceptedであること、Phase 0期限のOpen QuestionがClosedまたはownerと次のtarget gateを持つ明示的Deferredであること、Phase 0 Exit Reviewに未解消のCritical/High contradictionがないことを要求します。Exit ReviewはADRを自動承認せず、Open Questionを暗黙に閉じません。
