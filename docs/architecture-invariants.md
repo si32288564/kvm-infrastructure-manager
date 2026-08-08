@@ -300,3 +300,31 @@
 | INV-UPG-016 | destructive contract後またはoutcome UNKNOWN時にblind rollback/PITR/逆操作を開始しない | FI-UPG-011 |
 | INV-UPG-017 | offline/緊急upgradeでもartifact verification、authorization、audit、compatibility gateを省略しない | FI-UPG-013 |
 | INV-UPG-018 | release publish/start/switch/contract/activation/rollback/overrideを分離した権限と監査で保護する | FI-UPG-014 |
+| INV-UPG-019 | QEMU/libvirt/default変更だけで既存VMのmachine type/CPU model/firmware/device ABI bindingを変更しない | FI-UPG-016 |
+| INV-UPG-020 | Event/evidence payload referenceまたはlegal hold中にrequired decoder artifactをfinalize/GCしない | FI-UPG-017 |
+| INV-UPG-021 | Feature Gate dependency graphのcycle/未充足/conflictを拒否しdependency-aware orderを迂回しない | FI-UPG-018 |
+
+## 18. Time and Clock Semantics
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-TIM-001 | wall clock、DB time、monotonic clock、source/received timestampを同じauthorityとして扱わない | AT-TIM-001 |
+| INV-TIM-002 | timestampだけでresource/execution/delivery/observation orderingやfencingを決めない | FI-TIME-001 |
+| INV-TIM-003 | Clock Health Decisionをcurrent evidence、uncertainty、policy generationへbindしUNKNOWNをHEALTHYへ丸めない | AT-TIM-004 |
+| INV-TIM-004 | Control Plane Lease/deadline/retention decisionをapplication node clockではなくcurrent DB authority time/generationで行う | AT-TIM-005 |
+| INV-TIM-005 | DB clock step/failover/restoreでexpiredまたはold-generation Lease/session/claimをreviveしない | FI-TIME-002 |
+| INV-TIM-006 | Lease expiryを期限前side effectの未実行/失敗証明にしない | FI-TIME-003 |
+| INV-TIM-007 | expired/revoked Leaseを同じtokenの時刻変更でrenew/reviveしない | AT-TIM-008 |
+| INV-TIM-008 | Agentは受信時刻+TTLやlocal wall clockだけでCommand start deadlineを決めない | FI-TIME-004 |
+| INV-TIM-009 | Agent clock uncertainty/RTT/monotonic continuityがpolicy外なら新Commandを開始しない | FI-TIME-005 |
+| INV-TIM-010 | process/Host reboot後にpre-reboot monotonic deadline/cached Commandを使用しない | FI-TIME-006 |
+| INV-TIM-011 | sourceの未来timestampでObservation/Evidenceのfreshnessを延長しない | FI-TIME-007 |
+| INV-TIM-012 | credentialが時間上有効なことをEnrollment/Role/Host/Command authorityとして使用しない | AT-TIM-014 |
+| INV-TIM-013 | clock UNKNOWN/UNTRUSTED時に新規privileged authentication/credential/Commandをfail openしない | FI-TIME-008 |
+| INV-TIM-014 | calendar window開始/終了だけでdrain/fencing/mutation/catch-up authorityを得ない | FI-TIME-009 |
+| INV-TIM-015 | clock jumpでqueue/rate creditを二重付与し、grace/deadlineから破壊操作を即時実行しない | FI-TIME-010 |
+| INV-TIM-016 | clock anomalyまたはreference/hold/backup guard未確認時にretention GC/partition detachを実行しない | FI-TIME-011 |
+| INV-TIM-017 | replay/DR/archive reference期間より前にidempotency/Receipt/decoder evidenceを削除しない | AT-TIM-019 |
+| INV-TIM-018 | event timestamp近接だけでFailure Epochを同一Campaignへmergeしない | FI-TIME-012 |
+| INV-TIM-019 | clock anomalyだけで既存VM/dataplaneを停止・移動・再構成しない | AT-TIM-022 |
+| INV-TIM-020 | clock復旧だけでHost/Agent/Lease/credential authorityを自動再armしない | FI-TIME-013 |

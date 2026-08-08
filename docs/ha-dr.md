@@ -13,6 +13,8 @@ data class、backup manifest、restore epoch、schema/retention contractの詳�
 
 Control Plane mixed-version、rolling replacement、serving/quorum budget、rollback boundaryは [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) に従います。HA failoverはupgradeを成功扱いせず、new ownerはdurable Campaign/Lease/Receiptとartifact observationから再開します。
 
+DB failover、process/Host reboot、PITR時のclock discontinuity、timer再構築、old Lease/session fencingは [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従います。
+
 Volume/Attachmentのrestore classification、single-writer、backend adoption、fencingは [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
 
 Network Claim/Intent/Bindingのrestore classification、identity/segment reuse、OVN adoptionは [Network Resource Architecture](network-resource-architecture.md) に従います。

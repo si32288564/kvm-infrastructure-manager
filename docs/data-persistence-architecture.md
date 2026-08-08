@@ -66,6 +66,7 @@ authority-bearing schemaは最低限次を使用します。
 - mutable authority rowは単調増加`generation`とAPI用ETagを持つ。
 - immutable revision/evidenceは`revision_id`またはevent ID、schema version、payload digest、provenanceを持つ。
 - `created_at/observed_at`は診断とbounded freshnessに使うが、単独でordering/fencing authorityにしない。
+- source observed time、KIM received/verified time、Database Authority Time、process/Agent monotonic timeの意味は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従う。
 - state transitionは許可された遷移とpreconditionをDB/Application双方で検証する。
 - ownership、active uniqueness、allocation、single-writer、Lease token等は可能な限りunique/check/foreign-key constraintで保護する。
 - logical deleteはtombstone state/generationを発行し、active referenceと非同期backend cleanup完了を確認してからphysical GC候補にする。

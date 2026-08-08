@@ -61,6 +61,8 @@ flowchart LR
 - Release publish、Upgrade Campaign start、schema/feature switch、destructive contract、rollback、support overrideを個別permissionへ分離し、不可逆stepへ追加approvalを要求できるようにする。
 - Control Plane/Agent/extensionはversion自己申告だけでなくartifact digestとdeployment/build provenanceをRelease Manifestへ照合し、不一致artifactをquarantineする。
 - upgrade coordinatorはrelease signing key、通常domain mutation、Command Lease、Host authorityを取得せず、artifact取得/検証/stage/activation identityも分離する。
+- credential/token validityはverified Control Plane clock qualityとuncertaintyで評価するが、時間上有効なcredentialだけでEnrollment、Role、Host authority、Command Leaseを成立させない。
+- clockがUNKNOWN/UNTRUSTEDなscopeでは新規privileged authentication、credential rotation、time-sensitive Commandをfail closedにし、既存VMをclock failureだけで停止しない。
 
 ## 5. Network と Tenant 分離
 

@@ -85,6 +85,11 @@
 | Q-076 | Agent delivery and rollback profile | deb/rpm/self-contained Agentのstage/atomic activation/supervisor/local receipt/rollback方式を決定 | Technical Preview 前 |
 | Q-077 | Release Manifest and support matrix format | manifest schema、signing/provenance source、artifact registry/offline bundle、compatibility evaluatorを決定 | Developer Preview 前 |
 | Q-078 | Rollback retention/finalization | old artifact/decoder/schema保持期間、destructive contract approval、forward repair runbookを決定 | Technical Preview 前 |
+| Q-079 | Initial clock source and health profile | DB/Control Plane/Hostのtime source、independent source数、offset/uncertainty/RTT threshold、leap handlingを決定 | Developer Preview 前 |
+| Q-080 | Lease and deadline profile | Command/Budget/publisher/GC/Upgrade別maximum lifetime、renewal、transport margin、long-running behaviorを決定 | Developer Preview 前 |
+| Q-081 | Agent local deadline protocol | Gateway exchange sample、uncertainty calculation、stream/long-poll時のresync、journal fieldを決定 | Developer Preview 前 |
+| Q-082 | Calendar and DST policy | timezone入力、DST gap/overlap、missed maintenance window、approval/catch-up禁止のinitial policyを決定 | Technical Preview 前 |
+| Q-083 | Time retention/correlation profile | idempotency/Event decoder horizon、offline interval、clock anomaly GC safety horizon、failure correlation uncertaintyを決定 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -109,3 +114,4 @@
 19. Ceph RBD fencing、Local LVM、Storage force operationのinitial support profile
 20. Storage encryption/degraded/durabilityとNetwork IPAM/OVN/Gateway/Securityのinitial profile
 21. Gateway failure-domain/WIM/IPAM pressureとUpgrade compatibility/rollout/rollbackのinitial profile
+22. Clock source/uncertainty、Lease/Agent deadline、calendar/retention/correlationのinitial time profile

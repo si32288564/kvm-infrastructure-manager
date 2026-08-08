@@ -300,6 +300,8 @@ WAITING_PLANNING
 
 Queue/Budget LeaseはPostgreSQL transactionで発行し、複数workerが同じslotを消費しません。in-memory semaphoreやMessage Bus deliveryをbudget authorityにしません。
 
+queue aging、rate window、Budget Lease expiry、backoff/deadlineはDatabase Authority Timeとdurable policy/windowへbindし、clock jumpでtokenを二重補充したりEntryを即時失効させません。詳細は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従います。
+
 Budget Leaseはplanning/dispatch開始許可であり、次を代替しません。
 
 - source fencing proof

@@ -315,9 +315,42 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-023 | offline bundleがonline releaseと同じManifest/artifact/SBOM/migration/support/verification setを持つ |
 | AT-UPG-024 | publish/start/switch/contract/feature activation/rollback/overrideを別権限、approval、auditで実行する |
 | AT-UPG-025 | mixed-version期限、oldest component、schema/feature gate、rollback eligibility、blocked/UNKNOWN targetを観測できる |
+| AT-UPG-026 | QEMU/libvirt upgrade後も既存VM machine type/CPU model/firmware/device ABI bindingを維持し新規defaultを別判定する |
+| AT-UPG-027 | Event/evidence payload retention/holdとdecoder artifact referenceをManifestで追跡し参照中GCを拒否する |
+| AT-UPG-028 | Feature Gate DAGのcycle/conflictを拒否しtopological activationとdependency closure逆順rollbackを行う |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 
-## 16. Performance Tests
+## 16. Time and Clock Semantics
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-TIM-001 | Wall/DB/Process Monotonic/Agent Deadline/Observed/Received timeを型・用途・禁止用途付きで区別する |
+| AT-TIM-002 | timestamp evidenceがsource、clock/boot ID、received/committed time、uncertainty/quality、generationを持つ |
+| AT-TIM-003 | resource/Attempt/Event/Observation/restore orderingがgeneration/token/sequence/epochで安定する |
+| AT-TIM-004 | Clock Observation/HealthがHEALTHY/DEGRADED/UNTRUSTED/UNKNOWNを用途別policyで評価する |
+| AT-TIM-005 | Lease/not-before/expiry/retention snapshotをcurrent DB authority time/generation内でcommitする |
+| AT-TIM-006 | DB clock anomaly時にnew Lease/renewal/GC/finalizationをpauseしnew generationから安全に再開する |
+| AT-TIM-007 | Leaseがowner/purpose/scope、token/generation、not-before/expiry、maximum lifetime、renew/revoke evidenceを持つ |
+| AT-TIM-008 | renewalがcurrent owner/token/generation/未失効条件を不可分検証しexpired tokenを復活させない |
+| AT-TIM-009 | expiry後Resultをstale/duplicate accepted/UNKNOWNへ既存Execution契約どおり分類する |
+| AT-TIM-010 | Gateway exchangeのserver sample、request send/receive monotonic、uncertainty marginからconservative Agent deadlineを導出する |
+| AT-TIM-011 | Agentがdeadline derivationとboot/session/Lease generationをjournalしstart直前に再検証する |
+| AT-TIM-012 | source observed、KIM received、verified timeとclock qualityを分離してfreshnessを評価する |
+| AT-TIM-013 | stale/future/conflicting timestampをUNKNOWN/DEGRADEDへ分類しcritical decisionをfail closedにする |
+| AT-TIM-014 | certificate/tokenの時間有効性とEnrollment/Role/Host/Command authorityを別gateとして評価する |
+| AT-TIM-015 | timezone/DST policyからmaintenance/rollout UTC intervalをversion/generation付きでmaterializeする |
+| AT-TIM-016 | missed/ended calendar windowで進行中operationを推測rollbackせずsafe pause/read-backへ送る |
+| AT-TIM-017 | queue aging/rate/grace/deadlineをdurable DB window/token/Consumptionから再構築する |
+| AT-TIM-018 | retention Candidate SnapshotがDB time、safety horizon、reference/hold/archive/backup guardを固定する |
+| AT-TIM-019 | idempotency/Inbox/Receipt/decoder retentionがclient/Event replay、DR RPO、offline interval、legal holdを満たす |
+| AT-TIM-020 | failure correlationがsource/received interval、uncertainty、topology、independent evidenceを要求する |
+| AT-TIM-021 | process restart、DB failover、Host reboot、PITR後にold timer/Lease/sessionをgenerationでfenceする |
+| AT-TIM-022 | clock anomaly中も既存VM/dataplaneを維持し影響するnew mutationだけをscope別にblockする |
+| AT-TIM-023 | APIがUTC/offset、timestamp種別、freshness/expiry、bounded clock quality、server-side remaining durationを返す |
+| AT-TIM-024 | metrics/alarmがoffset/uncertainty、clock step、Lease expiry unresolved、freshness、blocked scopeを公開する |
+| AT-TIM-025 | clock正常化後もcurrent enrollment/preflight/Lease/credential generationなしにauthorityを再armしない |
+
+## 17. Performance Tests
 
 | ID | Performance Contract |
 |---|---|

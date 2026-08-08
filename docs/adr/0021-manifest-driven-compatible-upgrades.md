@@ -19,6 +19,9 @@ KIMはControl Plane、PostgreSQL schema、Agent/Gateway protocol、typed Command
 - destructive schema contract、old decoder/artifact GCを別のfinalization approvalとし、それ以前/以後のrollback可否を明示する。
 - failed/UNKNOWN upgradeをblind retry、PITR、backend cleanup、既存workload mutationで自動rollbackしない。
 - offline bundleにもonline releaseと同一のManifest、artifact verification、SBOM、migration、compatibility gateを要求する。
+- QEMU/libvirt upgradeやdefault変更だけで既存VMのmachine type/CPU model/device ABI bindingを変更しない。
+- Event/evidence decoderをpayload Retention Policy/holdへbindし、参照中にfinalize/GCしない。
+- Feature Gate dependencyをacyclic graphとして検証し、dependency orderでactivation/rollbackする。
 
 ## Consequences
 

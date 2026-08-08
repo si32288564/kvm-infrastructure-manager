@@ -9,6 +9,8 @@
 
 横断的な検出・封じ込め・復旧規則は [System-wide Failure Model](failure-model.md) に従います。
 
+Leaseの`not_before/expires_at`、Database Authority Time、Agent-local monotonic start deadline、clock anomaly時の共通契約は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従います。expiryは新規開始authorityを終了しますが、期限前side effectの不在を証明しません。
+
 ```mermaid
 flowchart LR
     Operation --> Job

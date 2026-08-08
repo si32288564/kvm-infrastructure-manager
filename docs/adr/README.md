@@ -36,3 +36,4 @@
 - [ADR-0019: Volume Attachment authorityと実世界fencingを分離する](0019-storage-attachment-authority-and-fencing.md)
 - [ADR-0020: KIM network intentとOVN/dataplane realizationを分離する](0020-kim-network-intent-and-layered-realization.md)
 - [ADR-0021: Manifest駆動の互換性gateで製品upgradeを行う](0021-manifest-driven-compatible-upgrades.md)
+- [ADR-0022: 分散clockを区別し時間切れを未実行証明にしない](0022-explicit-distributed-time-semantics.md)

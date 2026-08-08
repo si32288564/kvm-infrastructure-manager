@@ -58,6 +58,8 @@ flowchart LR
 
 Agent sessionはAgent artifact digest、protocol envelope range、supported Command/Result schema、module/capability generationをbindします。Gatewayは共通versionを明示negotiationし、未知/互換外schemaを接続成功や別Commandへの変換で隠しません。mixed-version、Agent drain/update、再armingの詳細は [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) に従います。
 
+AgentはDB absolute expiryをlocal wall clockだけで解釈せず、Gateway request/responseのserver sample、local monotonic send/receive、uncertainty marginから保守的なstart deadlineを導出します。RTT/uncertainty超過、boot ID/monotonic continuity変更時は未開始Commandを拒否します。詳細は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従います。
+
 ## 4. Trust and Authorization
 
 Agent credentialはHost identityを証明しますが、操作許可そのものではありません。Command leaseには以下がすべて必要です。

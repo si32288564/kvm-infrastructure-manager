@@ -82,6 +82,8 @@ ReleaseManifest
 ├─ backend and Host support matrix
 ├─ migration and verification artifact digests
 ├─ feature activation requirements
+├─ Feature Gate dependency graph / rollback closure
+├─ retained event/evidence decoder dependencies
 ├─ rollback target and last reversible phase
 ├─ required approvals / maintenance policy
 └─ certification evidence / known deny rules
@@ -139,6 +141,8 @@ UpgradeCampaign
 - `RollbackBoundary`: reversible phase、required retained artifact/schema/decoder、不可逆条件を固定します。
 
 すべてのtransition、decision、approval、Attempt、Result、Observationはappend-only evidenceを残します。summaryは更新できますが過去の失敗/UNKNOWNを改変しません。
+
+複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 ## 7. Upgrade State Machine
 
@@ -233,6 +237,7 @@ Agent upgrade中はHostをdispatch drainし、新規mutationを停止します�
 - idempotency scope、resource ID、ETag/generation、Operation/Event correlationはcompatible upgradeで安定させる。
 - Event payloadは発行時schema/digestのimmutable recordであり、upgrade後のresourceから再生成しない。
 - Outbox再送とarchive replayに必要なdecoder/schema catalogをretention期間中保持する。
+- Release Manifestは各Event/evidence schemaを参照するonline/archive Retention Policy、legal hold、decoder artifactへbindし、payload referenceが残る間はdecoderをfinalize/GCしない。
 - consumer incompatibilityはdelivery failureとして隔離し、domain authorityやAvailability responsibilityを変更しない。
 
 ## 12. Extension, Evaluator, and Adapter Upgrade
@@ -260,6 +265,8 @@ release support matrixは少なくとも次を組合せとして管理します�
 backend/Host versionはinventory/typed probeからprovenance付きで観測します。名前やversion prefixだけでcapabilityを推測しません。
 
 - target releaseで既存VMを維持できても、新規create/migration/recoveryには追加capabilityが必要な場合を区別する。
+- 既存VMのmachine type、CPU model、firmware、device ABIをimmutable Runtime Compatibility Bindingとして保持し、QEMU/libvirt upgradeや新規default変更だけで書き換えない。
+- 新規VMのdefault machine type/CPU modelと既存VMのruntime compatibilityを別判定し、既存binding変更はexplicit compatibility-checked migration/rebuild operationを要求する。
 - incompatible destinationはPlacement/Recovery eligibilityから除外する。
 - current workloadが将来非対応になる場合、upgrade前にimpact inventoryとexplicit remediation/exceptionを要求する。
 - backend upgrade中のhealth/feature UNKNOWNをhealthyへ丸めず、対象side effectを停止する。
@@ -331,10 +338,13 @@ Tenantには内部artifact、Host、backend topologyを公開せず、service av
 - schema expand、concurrent backfill、switch、contract、rollback boundary。
 - old/new Gateway-Agent negotiationとCommand/Result schema matrix。
 - API backward compatibility、Event replay、old/new consumer matrix。
+- Event/evidence Retention Policyとdecoder artifact reference、legal hold中decoder GC拒否。
 - canary threshold、wave pause、coordinator crash/failover、resume。
 - Agent update response loss、local activation failure、read-back、Host rearming gate。
 - extension/adapter/evaluator shadow/canary、ownership fencing、rollback。
 - backend/Host version drift、unsupported recovery destination、existing workload continuity。
+- QEMU/libvirt upgrade後の既存machine type/CPU model/device ABI維持と新規default分離。
+- Feature Gate DAGのcycle拒否、topological activation、dependency-aware rollback。
 - offline bundleのdigest/signature/SBOM/migration completeness。
 - destructive finalization後のrollback拒否とforward repair。
 
@@ -348,4 +358,7 @@ Tenantには内部artifact、Host、backend topologyを公開せず、service av
 - Agent reconnectやupgrade完了claimだけでHost authorityをarmする。
 - failed/UNKNOWN upgradeをPITR、blind reinstall、backend cleanupで自動的に巻き戻す。
 - support matrix変更だけで既存resourceを暗黙mutationする。
+- QEMU/libvirt upgradeやdefault変更だけで既存VMのmachine type/CPU model/device ABIを更新する。
+- payload retention中にrequired Event/evidence decoderを削除する。
+- dependency未充足またはcycleを持つFeature Gateをactivateする。
 - offline/緊急upgradeを理由にartifact verification、authorization、auditを省略する。

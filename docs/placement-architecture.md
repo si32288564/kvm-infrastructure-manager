@@ -73,6 +73,8 @@ OVS-DPDK要求を持つshapeは [NFV Dataplane Resource Architecture](nfv-datapl
 
 Baseline blocking Controlはscoreではなくeligibilityで評価します。Host-wide violationは全候補用途を除外し、capability-scoped violationは該当workload requirementだけを除外します。Final AdmissionでCompliance generationとevidence freshnessを再検証します。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) に従います。
 
+Clock Health/evidence freshnessがrequested operationのpolicyを満たさないHostは該当scopeでeligibility=falseとします。Host source timestampの新しさだけでeligibleにせず、received/verified time、uncertainty、clock/boot generationを [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従って評価します。
+
 HostGroupはcandidate scopeとfailure-domain ruleを提供しますが、Host固有eligibilityを上書きしません。materialized membership/policy/hierarchy generationをFinal Admissionで再検証し、stale/conflict時は部分予約を残さずreselectionします。Group aggregate capacityは表示用の導出値で、reservation authorityではありません。詳細は [Host Grouping Architecture](host-grouping-architecture.md) に従います。
 
 Availability Policy欠損/stale/conflictのHostはplacement不適格です。Final Admissionはeffective Policyを再解決し、VM/AllocationへAvailability Binding revisionを同じtransactionで保存します。Host failure recoveryはbound Policy/failure-domain constraintをPlacement Requestへ含め、current destination PoolのPolicy compatibilityも再評価します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従います。

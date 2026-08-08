@@ -371,6 +371,8 @@ Drift検出後のaction:
 
 短期telemetry変動だけでBaseline違反にせず、Controlごとにwindow/hysteresis/evidence contractを定義します。
 
+Host time synchronization、offset/uncertainty、source health、boot/monotonic continuityはBaseline Control/Clock Observationとして評価します。Agentの`observed_at`だけでfreshnessを延長せず、time-sensitive Commandやcapability scopeへの影響は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従います。
+
 ## 11. Baseline Rollout
 
 Baseline version rolloutはHost単位のAssignment Operationです。

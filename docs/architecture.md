@@ -316,7 +316,13 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 
 mixed-versionは明示的に対応したN/N-1へ限定し、全active writer/consumerが理解できるsemanticsだけをFeature Gate前に使用します。schema変更はData and Persistence Architectureの`expand -> migrate -> switch -> contract`へ従い、destructive contractと旧decoder/artifact削除をrollback window後の別承認にします。詳細は [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) を参照します。
 
-## 15. 参照資料
+## 15. Time and Clock Semantics
+
+wall clock、PostgreSQL上のDatabase Authority Time、process/Agent monotonic clock、source observed timestampを区別します。timestampだけでresource順序やauthorityを決めず、generation、token、sequence、restore/boot epochを使用します。
+
+Leaseやcredentialの失効は今後の使用を止めますが、期限前にside effectが起きなかった証明にはしません。AgentはGateway exchangeとuncertaintyから保守的なlocal monotonic deadlineを導出し、DB/Host clock anomaly時は既存VMを維持したまま影響scopeの新規mutationだけを停止します。詳細は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) を参照します。
+
+## 16. 参照資料
 
 - [責任境界](responsibility-boundaries.md)
 - [Placement Architecture](placement-architecture.md)
@@ -327,6 +333,7 @@ mixed-versionは明示的に対応したN/N-1へ限定し、全active writer/con
 - [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md)
 - [Network Resource Architecture](network-resource-architecture.md)
 - [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md)
+- [Time and Clock Semantics Architecture](time-and-clock-semantics.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)

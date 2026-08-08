@@ -231,6 +231,17 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 - Reconcile: source/target/observed artifactとcurrent compatibilityを再評価し、過去Attempt/UNKNOWNを改変しない。
 - Prohibited: version文字列だけのready、unknown Command down-convert、destructive contract後の旧binary復帰、automatic PITR、既存VM mutation。
 
+### 5.14 Time / Clock Failure
+
+例: DB/Control Plane/Host clockのstep/skew/source loss、monotonic reset、未来timestamp、DST ambiguity、PITR time travel。
+
+- Detect: Clock Observation/Health、offset/uncertainty、boot/authority generation、source/received timestamp conflict。
+- Contain: new Lease/renewal、time-sensitive Command、privileged auth、GC/finalization、ambiguous schedule/correlationをscope別停止する。
+- Fence: DB/restore/Host boot/session/Lease generationでpre-event timerとauthorityを失効する。
+- Observe: independent time source、DB sample、Agent monotonic exchange、journal、received/verified timeを収集する。
+- Recover: current healthy clock decisionとnew generationからtimer/Leaseを再導出し、既存expiryをreviveしない。
+- Prohibited: timestamp-only ordering、expiryから未実行推測、clock jumpによるmass GC/catch-up、同時刻だけのcampaign merge。
+
 ## 6. Failure Matrix
 
 | Scope | Existing workload | New mutation | Automatic recovery | Escalation condition |
@@ -249,6 +260,7 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 | Network/dataplane backend loss | compute継続、connectivity degradedの可能性 | 対象network/dataplane停止 | intent/typed resolver | external object、PMD/PCI ownership不明 |
 | Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
 | Upgrade/compatibility failure | 既存workloadとserving old replicaを維持 | later wave/feature/affected dispatch停止 | reversibleなら新Planでrollback、それ以外forward repair | artifact/schema/protocol/rollback outcome不明 |
+| Time/clock failure | 既存workload/dataplane維持 | auth/placement/dispatch/GC等をscope別停止 | healthy clock+new generationから再評価 | offset/uncertainty/continuityまたはside effect不明 |
 
 ## 7. Verification and Fault Injection
 

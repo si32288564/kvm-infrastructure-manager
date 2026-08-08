@@ -15,6 +15,7 @@
 | Workload Resilience | Resilience Group、Member Slot、Failure Domain Constraint、Domain Claim |
 | Data and Persistence | Schema Catalog、Retention Policy、Outbox、Inbox/Receipt、GC Snapshot/Lease/Receipt、Migration、Backup Manifest、Restore Epoch |
 | Upgrade and Compatibility | Release Manifest、Compatibility Decision、Upgrade Campaign/Plan/Wave/Target、Feature Gate、Rollback Boundary |
+| Time and Clock Semantics | Clock Observation/Health Policy/Decision、Time Envelope、Calendar Window Materialization |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet/IP Pool、IP/MAC Claim、Segment Pool/Claim、Port/Binding/Handoff、Router/Gateway、Floating IP/NAT、DHCP、Security Policy |
@@ -39,6 +40,7 @@ erDiagram
     AVAILABILITY_POLICY ||--o{ AVAILABILITY_POLICY_BINDING : referenced_by
     AVAILABILITY_POLICY ||--o{ AVAILABILITY_BINDING : resolves_to
     VM ||--o{ AVAILABILITY_BINDING : governed_by
+    VM ||--o| RUNTIME_COMPATIBILITY_BINDING : preserves
     HOST ||--o{ HOST_FAILURE_EPOCH : fails_in
     HOST_FAILURE_EPOCH ||--o{ VM_RECOVERY_OPERATION : plans
     VM ||--o{ VM_RECOVERY_OPERATION : recovers
@@ -109,6 +111,9 @@ erDiagram
     UPGRADE_WAVE ||--o{ UPGRADE_TARGET : upgrades
     UPGRADE_CAMPAIGN ||--o{ COMPATIBILITY_DECISION : gates
     UPGRADE_CAMPAIGN ||--o{ FEATURE_GATE : activates
+    SITE ||--o{ CLOCK_OBSERVATION : observes
+    HOST ||--o{ CLOCK_OBSERVATION : observes
+    CLOCK_HEALTH_POLICY ||--o{ CLOCK_HEALTH_DECISION : evaluates
 ```
 
 ## 3. 識別子と共通属性

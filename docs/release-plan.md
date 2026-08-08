@@ -24,7 +24,7 @@
 - System-wide Failure Modelとfault injection matrix
 - Extensibility Architecture、Core invariant、extension conformance contract
 - Architecture InvariantsとRequirement-to-Test Traceability Matrix
-- 13 failure classのFault Injection Matrix
+- 14 failure classのFault Injection Matrix
 - NFV Dataplane Resource ModelとOVS-DPDK support boundary
 - Host Lifecycle、Enrollment、Baseline、Continuous Compliance、Decommission model
 - Hardware Identity Evidence policy、Evaluator Artifact rollout、External Remediation trust contract
@@ -35,6 +35,7 @@
 - Storage Backend/Class、Volume Binding、Attachment Claim/Observation、single-writer/fencing/handoff model
 - IPAM/Segment Claim、Port Binding/Handoff、OVN layered realization、Gateway/NAT/Security model
 - Release Manifest、Compatibility Decision、N/N-1 mixed-version、Upgrade Campaign/Wave/Feature Gate、rollback boundary model
+- Wall/DB/monotonic/source time分離、Clock Health、Lease expiry、Agent local deadline、retention/correlation time model
 
 ### Exit criteria
 
@@ -55,6 +56,7 @@
 - attach/detach UNKNOWN、stale watcher/lock、Host recovery、Local LVM locality、Ceph client fencingがtest matrixへtraceされる。
 - IP/MAC/VLAN/VNI conflict、OVN response loss/SB lag、Port recovery、Gateway/NAT/Security UNKNOWNがtest matrixへtraceされる。
 - Manifest/artifact mismatch、mixed writer semantics、canary pause、Agent update UNKNOWN、schema finalization/rollback boundaryがtest matrixへtraceされる。
+- clock step/skew、Agent reboot、DB failover/PITR、deadline delay、DST、retention/correlation anomalyがtest matrixへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -79,6 +81,7 @@
 - Operation API、監査、基本メトリクス
 - transactional Outbox/Inboxとschema generation/readiness
 - Release Manifest検証、Compatibility Decision表示、schema expandと単一target canaryのread-only campaign model
+- Clock Observation/Health表示とDB-time Lease/Agent monotonic deadlineのtest fixture
 
 ### Exit criteria
 
@@ -99,6 +102,7 @@
 - attach/detach response lossでClaimを誤解放せず、Local LVMを別Host recoveryしないことを検証する。
 - duplicate IP/VLANをcommitせず、OVN NB成功だけでPort ACTIVEにしないことを検証する。
 - N-1/N reader/writer fixture、artifact digest mismatch、Feature Gate前のnew-only write拒否を検証する。
+- future Host timestampがfreshnessを延長せず、reboot後cached Commandを開始しないことを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -145,6 +149,7 @@
 - NFVO integration profile
 - ローリングアップグレード
 - durable Upgrade Campaign、canary/batch、Agent drain/update、API/Event/extension/backend compatibility matrix
+- multi-node clock fault injection、DST/calendar、retention/idempotency/correlation time verification
 - offline bundle、SBOM、artifact signing
 - 運用 UI とアラーム管理
 
@@ -153,6 +158,7 @@
 - 100 Host、5,000 VM の性能・耐久試験を完了する。
 - N-1 から N のアップグレードとロールバック演習を完了する。
 - coordinator failover、canary threshold、Agent response loss、rollback不能点のfault injectionを完了する。
+- DB/Host clock stepとtime source lossで既存VMを維持しscope別mutationだけを停止する試験を完了する。
 - 外部セキュリティ評価の重大指摘が解消される。
 - サポート診断と既知問題の運用フローが確立する。
 

@@ -231,6 +231,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-OPS-001, NFR-OPS-003, NFR-OPS-004, NFR-OPS-005, NFR-OPS-006 | architecture, release-plan, extensibility-architecture | ADR-0003, ADR-0004, ADR-0011 | INV-AGT-006, INV-EXT-006 | AT-OFFLINE-001, XCT-CAP-001 | Planned |
 | NFR-OPS-002, NFR-OPS-007, NFR-OPS-008, NFR-OPS-009, NFR-OPS-010, NFR-OPS-011, NFR-OPS-012 | upgrade-and-compatibility-architecture, data-persistence-architecture, release-plan | ADR-0018, ADR-0021 | INV-UPG-001, INV-UPG-004, INV-UPG-005, INV-UPG-006, INV-UPG-007, INV-UPG-016, INV-UPG-017 | AT-UPG-001, AT-UPG-008, AT-UPG-010, AT-UPG-019, AT-UPG-023, FI-UPG-005, FI-UPG-010, FI-UPG-011, FI-UPG-013, FI-UPG-015 | Planned |
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
+| NFR-ROB-007, NFR-ROB-008 | time-and-clock-semantics, failure-model | ADR-0010, ADR-0022 | INV-TIM-002, INV-TIM-005, INV-TIM-006, INV-TIM-019 | FI-TIME-001, FI-TIME-002, FI-TIME-003, FI-TIME-006, FI-TIME-015, AT-TIM-022 | Planned |
 | NFR-EXT-001, NFR-EXT-002, NFR-EXT-003, NFR-EXT-004, NFR-EXT-005, NFR-EXT-006 | extensibility-architecture | ADR-0011 | INV-EXT-001, INV-EXT-002, INV-EXT-003, INV-EXT-004, INV-EXT-005, INV-EXT-006 | XCT-CONTRACT-001, XCT-BOUNDARY-001, XCT-BOUNDARY-002, XCT-BOUNDARY-003, XCT-FAIL-001, XCT-CAP-001, XCT-LIFE-001 | Planned |
 
 ## 16. Upgrade and Compatibility
@@ -251,8 +252,31 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | UPG-022 | upgrade-and-compatibility-architecture, execution-architecture | ADR-0007, ADR-0021 | INV-UPG-003 | AT-UPG-022, FI-UPG-010 | Planned |
 | UPG-023 | upgrade-and-compatibility-architecture, release-plan | ADR-0003, ADR-0021 | INV-UPG-017 | AT-UPG-023, FI-UPG-013 | Planned |
 | UPG-024 | upgrade-and-compatibility-architecture, security | ADR-0005, ADR-0021 | INV-UPG-018 | AT-UPG-024, FI-UPG-014 | Planned |
+| UPG-025 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-019 | AT-UPG-026, FI-UPG-016 | Planned |
+| UPG-026 | upgrade-and-compatibility-architecture, data-persistence-architecture | ADR-0018, ADR-0021 | INV-UPG-020 | AT-UPG-027, FI-UPG-017 | Planned |
+| UPG-027 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-021 | AT-UPG-028, FI-UPG-018 | Planned |
 
-## 17. Coverage Gate
+## 17. Time and Clock Semantics
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| TIM-001, TIM-002, TIM-003 | time-and-clock-semantics, data-persistence-architecture | ADR-0010, ADR-0022 | INV-TIM-001, INV-TIM-002 | AT-TIM-001, AT-TIM-002, AT-TIM-003, FI-TIME-001 | Planned |
+| TIM-004, TIM-005, TIM-006 | time-and-clock-semantics, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0022 | INV-TIM-003 | AT-TIM-004, FI-TIME-005, FI-TIME-016 | Planned |
+| TIM-007, TIM-008 | time-and-clock-semantics, data-persistence-architecture, ha-dr | ADR-0009, ADR-0018, ADR-0022 | INV-TIM-004, INV-TIM-005 | AT-TIM-005, AT-TIM-006, FI-TIME-002 | Planned |
+| TIM-009, TIM-010, TIM-011 | time-and-clock-semantics, execution-architecture | ADR-0007, ADR-0010, ADR-0022 | INV-TIM-006, INV-TIM-007 | AT-TIM-007, AT-TIM-008, AT-TIM-009, FI-TIME-003 | Planned |
+| TIM-012, TIM-013, TIM-014 | time-and-clock-semantics, agent-protocol | ADR-0008, ADR-0022 | INV-TIM-008, INV-TIM-009, INV-TIM-010 | AT-TIM-010, AT-TIM-011, FI-TIME-004, FI-TIME-005, FI-TIME-006 | Planned |
+| TIM-015, TIM-016 | time-and-clock-semantics, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0022 | INV-TIM-011 | AT-TIM-012, AT-TIM-013, FI-TIME-007 | Planned |
+| TIM-017, TIM-018 | time-and-clock-semantics, security, agent-protocol | ADR-0005, ADR-0008, ADR-0022 | INV-TIM-012, INV-TIM-013 | AT-TIM-014, FI-TIME-008, FI-TIME-014 | Planned |
+| TIM-019, TIM-020 | time-and-clock-semantics, host-grouping-architecture | ADR-0014, ADR-0022 | INV-TIM-014 | AT-TIM-015, AT-TIM-016, FI-TIME-009 | Planned |
+| TIM-021 | time-and-clock-semantics, availability-responsibility-architecture | ADR-0017, ADR-0022 | INV-TIM-015 | AT-TIM-017, FI-TIME-010 | Planned |
+| TIM-022, TIM-023 | time-and-clock-semantics, data-persistence-architecture, upgrade-and-compatibility-architecture | ADR-0018, ADR-0021, ADR-0022 | INV-TIM-016, INV-TIM-017, INV-UPG-020 | AT-TIM-018, AT-TIM-019, FI-TIME-011, FI-UPG-017 | Planned |
+| TIM-024 | time-and-clock-semantics, availability-responsibility-architecture | ADR-0017, ADR-0022 | INV-TIM-018 | AT-TIM-020, FI-TIME-012 | Planned |
+| TIM-025 | time-and-clock-semantics, ha-dr, data-persistence-architecture | ADR-0009, ADR-0018, ADR-0022 | INV-TIM-005, INV-TIM-010 | AT-TIM-021, FI-TIME-006, FI-TIME-015 | Planned |
+| TIM-026 | time-and-clock-semantics, api-principles | ADR-0002, ADR-0022 | INV-TIM-001 | AT-TIM-023 | Planned |
+| TIM-027 | time-and-clock-semantics, failure-model | ADR-0010, ADR-0022 | INV-TIM-019, INV-TIM-020 | AT-TIM-022, AT-TIM-025, FI-TIME-013, FI-TIME-016 | Planned |
+| TIM-028 | time-and-clock-semantics, fault-injection-matrix | ADR-0022 | INV-TIM-002, INV-TIM-005, INV-TIM-006, INV-TIM-011, INV-TIM-014, INV-TIM-016, INV-TIM-018 | FI-TIME-001, FI-TIME-002, FI-TIME-003, FI-TIME-007, FI-TIME-009, FI-TIME-011, FI-TIME-012, FI-TIME-015 | Planned |
+
+## 18. Coverage Gate
 
 Phase 0完了条件:
 

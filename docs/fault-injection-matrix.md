@@ -169,6 +169,25 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-UPG-013 | offline bundleからartifact/SBOM/migration/manifestの一部を欠損・改ざんする | bundle completeness/integrity failure | install/upgrade開始拒否 | bundle manifest/checksum/signature/audit | bypass install、部分stage | complete verified bundleを再投入 |
 | FI-UPG-014 | unauthorized actorがschema contract/feature activation/rollback/overrideを要求 | permission/approval failure | transition拒否、campaign state不変 | actor/action/approval/decision audit | destructive step、権限昇格 | authorized scoped approval |
 | FI-UPG-015 | Control Plane wave中にreplica loss/DB failoverとmax unavailable超過を注入 | HA/readiness budget violation | rollout pause、remaining serving replica維持 | replica/version/schema/quorum/wave evidence | quorum喪失、全replica同時停止 | HA回復+current compatibility再評価 |
+| FI-UPG-016 | QEMU/libvirt upgrade後に既存VMのmachine type/CPU modelをnew defaultへ書換える候補を提示 | runtime binding/default conflict | implicit update拒否、existing VM維持 | old/current binding、support decision、audit | VM ABI変更、再起動時boot failure | explicit compatibility-checked migration/rebuild |
+| FI-UPG-017 | archive/legal hold中Eventのdecoder artifactをfinalization/GC対象化 | retention/reference guard | decoder GC拒否、campaign finalization pause | payload/schema/decoder/retention refs | replay不能、payload再生成 | retention/hold/reference解消後のnew snapshot |
+| FI-UPG-018 | Feature Gate graphへcycle/conflictまたは未active dependencyを注入 | DAG publish/activation validation | publish/activation拒否、current gates不変 | graph revision、cycle/path、decision | out-of-order semantics、partial rollback | acyclic compatible graphをnew revisionでpublish |
+| FI-TIME-001 | timestamp順とresource/Attempt generation順を逆転させる | causal/generation mismatch | current generationだけauthorityへ反映 | timestamps、generations、tokens、audit | newest timestamp採用、stale result進行 | current sequence/generationで収束 |
+| FI-TIME-002 | DB primary clockをbackward/forward stepさせfailoverを重ねる | clock continuity/authority generation anomaly | new Lease/renewal/GC/finalization停止、old Lease fence | DB term、clock samples、Lease generations | Lease延長/復活、mass expiry/GC | healthy clock+new generation+current re-evaluation |
+| FI-TIME-003 | Command side effect開始後にLeaseをexpireさせResultを遅延 | expiry + execution uncertainty | Attempt UNKNOWN、opposite/retry停止 | journal、Lease/token、Attempt、backend observation | 未実行扱い、blind retry/rollback | typed read-backまたはaccepted receipt |
+| FI-TIME-004 | Gateway responseをLease remaining time以上遅延してAgentへ配送 | transport/deadline uncertainty | Agent start拒否、journal evidence | request send/receive monotonic、server sample、margin | receive time+TTLで期限外実行 | fresh exchange/new Lease |
+| FI-TIME-005 | Agent-Gateway RTT/uncertaintyをpolicy上限超過へ揺らす | time uncertainty threshold | time-sensitive Command/Host scope block | RTT samples、uncertainty、Clock Health | unsafe local deadline、silent margin縮小 | bounded exchangeとcurrent Clock Health |
+| FI-TIME-006 | cached Command受信後にAgent process/Hostをrebootしwall clockを元へ戻す | boot ID/monotonic discontinuity | cached/unstarted Command破棄、full resync | old/new boot/session/Lease、journal | pre-reboot deadline再利用 | new session/current Lease/Command |
+| FI-TIME-007 | Agent/backend observed_atを未来または大幅過去へ改ざん | source/received timestamp conflict | freshness延長禁止、evidence DEGRADED/UNKNOWN | source/received/verified、clock quality、digest | future evidenceでCOMPLIANT/eligible | trusted fresh observation |
+| FI-TIME-008 | Control Plane clockをcertificate/token境界外またはUNKNOWNへする | trust time uncertainty | new privileged auth/rotation/Command fail closed | clock/trust generation、token interval、audit | expiry bypass、clock-only authority | verified clock+current trust/role/Lease |
+| FI-TIME-009 | DST gap/overlap、timezone変更、maintenance window飛越しを注入 | calendar materialization ambiguity | ambiguous schedule拒否、destructive catch-up禁止 | timezone/policy/UTC interval、decision | 二重実行、missed step即時実行 | explicit policy/new approved window |
+| FI-TIME-010 | Recovery queue/rate window中にDB clockをforward/backward step | durable window/token anomaly | scheduling pause、credit/age再評価 | policy/window/Consumption/clock generation | token二重補充、全Entry即時expire | current DB time/generationからwindow再構築 |
+| FI-TIME-011 | retention horizon直前にDB clockをforward stepし大量partitionをeligible化 | GC clock/safety guard | Candidate/GC Lease拒否、mass delete停止 | clock health、snapshot、refs/holds/backups | evidence/decoder/tombstone大量削除 | stable horizonでbounded new snapshot |
+| FI-TIME-012 | 異clock sourceのHost failure eventを同じtimestampへ揃える | correlation uncertainty/topology mismatch | automatic campaign merge/dispatch停止 | source/received intervals、uncertainty、topology | timestamp-only merge、double/incorrect recovery | independent evidence+current campaign decision |
+| FI-TIME-013 | Host clock正常化だけを通知し旧session/Lease/credentialを再送 | stale authority generation | rearm/renew/result拒否 | clock/Host/session/Lease generations | clock recoveryだけでarm | enrollment/preflight/Compliance+new authority |
+| FI-TIME-014 | credential expiry境界で認証responseをdropし同tokenをreplay | expiry/replay/receipt uncertainty | nonce/session/idempotencyでduplicate拒否/同Receipt | token interval、nonce、session、audit | expiryだけに依存した再受付 | current credential/new request binding |
+| FI-TIME-015 | PITRで未失効に見えるLease/token/maintenance scheduleを復元 | restore epoch/time travel | pre-restore timer/session/Lease fence | restore/DB/Lease/schedule generations | restored token再利用、catch-up mutation | DR clock healthy+current epoch reissue |
+| FI-TIME-016 | DB/Control Plane/Host time sourceを同時喪失させclock evidenceをstale化 | source unavailable/freshness expiry | affected auth/dispatch/GC block、existing VM維持 | scope health、last evidence、alarms | fail-open mutation、既存VM停止 | independent source recovery+new Clock Decision |
 | FI-SPLIT-001 | old leader/authority generationからLease/Result送信 | generation/token mismatch | stale actor拒否 | conflict audit、current generation | Job/Desired進行 | current authorityから再同期 |
 | FI-IDENTITY-001 | JWKS/certificate revocation state unavailable | trust validation unavailable | privileged mutation fail closed | bounded auth error、audit | stale/unknown trustで新mutation | trust generation復旧 |
 | FI-AUDIT-001 | durable audit outbox writeを失敗させる | audit unavailable | 管理mutation transaction rollback | failure metric、request correlation | 監査なしmutation | audit durability復旧後に再受付 |
@@ -191,13 +210,14 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..018, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..017 |
-| Upgrade / Compatibility | FI-UPG-001..015 |
+| Upgrade / Compatibility | FI-UPG-001..018 |
+| Time / Clock Semantics | FI-TIME-001..016 |
 | Split-brain / Stale Authority | FI-SPLIT-001 |
 | Identity / Audit | FI-IDENTITY-001, FI-AUDIT-001 |
 
 ## 5. Release Gate
 
 - Developer Preview: Client、Execution、Agent、DB failoverのcritical pathsをImplemented。
-- Technical Preview: 全13classで最低1 testをImplementedし、multi-node環境で証拠保存。
+- Technical Preview: 全14classで最低1 testをImplementedし、multi-node環境で証拠保存。
 - Product Beta: network/storage partition、Host fencing、DR restoreを含む全matrixを自動または承認済みrunbookで実行。
 - GA: release candidateごとにcritical subset、定期chaos campaignでfull setを実行。

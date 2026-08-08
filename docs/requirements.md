@@ -361,6 +361,42 @@
 | UPG-022 | coordinator failover後にdurable Campaign/Lease/Receiptとartifact observationから再開しin-memory progressをauthorityにしない | Must |
 | UPG-023 | online/offline bundleへ同じManifest、artifact verification、SBOM、migration、support matrix、verification evidenceを要求する | Must |
 | UPG-024 | publish/start/switch/contract/feature activation/rollback/overrideを分離したpermission、approval、auditで保護する | Must |
+| UPG-025 | QEMU/libvirt upgrade時に既存VMのmachine type/CPU model/firmware/device ABI bindingを維持し新規VM defaultと分離する | Must |
+| UPG-026 | Event/evidence decoder artifactを参照payloadのRetention Policy、archive、legal holdとbindし参照中に削除しない | Must |
+| UPG-027 | 複数Feature Gateをrequires/conflicts/rollback dependencyのacyclic graphとして管理し順序付きactivation/rollbackを行う | Must |
+
+### 2.18 Time and Clock Semantics
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| TIM-001 | Wall Clock、Database Authority Time、Process Monotonic、Agent-local Deadline、Observed、Received/Committed timestampを区別する | Must |
+| TIM-002 | 重要timestampへsource、clock/boot identity、received/committed time、uncertainty/quality、generationを関連付ける | Must |
+| TIM-003 | resource/execution/delivery/observation/HAのorderingとfencingをtimestampだけで決めずgeneration/token/sequence/epochを使用する | Must |
+| TIM-004 | DB、Control Plane、HostのClock Observationをoffset、uncertainty、sync、monotonic continuity、step/leap、provenance付きで収集する | Must |
+| TIM-005 | Clock HealthをHEALTHY、DEGRADED、UNTRUSTED、UNKNOWNへ分類し用途別policyへbindする | Must |
+| TIM-006 | 一般VM、Command、credential、correlation、NFV telemetryで異なるclock quality thresholdを適用できる | Should |
+| TIM-007 | Control Plane Lease、deadline、freshness ingest、retention decisionをcurrent PostgreSQL authority time/generationで計算・比較する | Must |
+| TIM-008 | DB clock step/conflict時にnew Lease、renewal、GC、finalizationをpauseしclock復旧だけで旧Leaseをreviveしない | Must |
+| TIM-009 | Leaseへowner/purpose/scope、token、authority generation、not-before/expiry、maximum lifetime、renew/revoke decisionを保持する | Must |
+| TIM-010 | Lease/credential/deadline expiryを今後のauthority終了として扱い、期限前side effectの未実行証明にしない | Must |
+| TIM-011 | Lease renewalをcurrent owner/token/generation/未失効条件のDB transactionとしexpired tokenの時刻変更で復活させない | Must |
+| TIM-012 | AgentがGateway exchangeとDB expiry/uncertaintyから保守的なlocal monotonic start deadlineを導出する | Must |
+| TIM-013 | Agent protocolのRTT/uncertaintyがCommand policy上限を超える場合にCommandを開始しない | Must |
+| TIM-014 | Agent process/Host reboot/boot IDまたはmonotonic continuity変更後にcached/unstarted Commandを開始しない | Must |
+| TIM-015 | source_observed_atとKIM received_at/verified_atを分離しfreshnessをtrusted ingest time、generation、challenge bindingで評価する | Must |
+| TIM-016 | Agent/backendの未来timestampやclock rollbackでevidence freshnessを延長しない | Must |
+| TIM-017 | certificate/token/bootstrap/remediation expiryをControl Plane clock quality/uncertaintyとnonce/session/generationで検証する | Must |
+| TIM-018 | 時間上有効なcredentialだけではEnrollment、Role Binding、Host authority、Command Leaseを成立させない | Must |
+| TIM-019 | maintenance/rollout calendarへtimezone ID、DST ambiguity policy、versioned UTC interval materializationを要求する | Should |
+| TIM-020 | calendar window開始/終了やmissed windowだけでdrain/fencing/mutation/destructive catch-upを実行しない | Must |
+| TIM-021 | queue aging、rate window、grace/deadlineをdurable policyとDB timeへbindしclock jumpで二重creditや即時破壊操作を生まない | Must |
+| TIM-022 | retention/GCをDB time、minimum safety horizon、Candidate Snapshot、reference/hold/backup guardで判定しclock anomaly時に停止する | Must |
+| TIM-023 | idempotency/Inbox/Receipt/decoder retentionを最大replay、Event retry、DR RPO、offline interval、legal holdへbindする | Must |
+| TIM-024 | failure correlationをsource/received time、uncertainty interval、topology、independent evidenceで評価し同時刻だけでmergeしない | Must |
+| TIM-025 | DB failover、Host reboot、PITRでauthority/boot/restore generationによりpre-event timer/Lease/sessionをfenceする | Must |
+| TIM-026 | APIでtimestamp種別、UTC/offset、freshness/expiry、bounded clock quality/uncertainty、server-evaluated remaining durationを表現する | Should |
+| TIM-027 | clock anomaly時も既存VM/dataplaneを維持し影響するnew auth/placement/dispatch/GC/finalizationだけをfail closedにする | Must |
+| TIM-028 | clock step/slew/source loss、delay/reorder、reboot/failover/PITR、DST、retention、correlationをfault injectionする | Must |
 
 ## 3. 非機能要件
 
@@ -421,6 +457,8 @@
 | NFR-ROB-004 | stale identity、generation、Lease、Result、observationがcurrent authorityを進めない |
 | NFR-ROB-005 | recovery不能時はresourceをblocked/quarantinedに保ち、推測ベースの破壊操作を行わない |
 | NFR-ROB-006 | commit応答喪失、partition、process crash、Host loss、backend timeout、stale authorityをfault injectionで検証する |
+| NFR-ROB-007 | clock skew、step、slew、uncertainty、reboot/failover/PITRをauthority failureとして安全に処理する |
+| NFR-ROB-008 | timestampや期限だけでordering、fencing、side effect不在を推測しない |
 
 ### Extensibility
 
