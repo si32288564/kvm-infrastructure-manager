@@ -45,6 +45,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 - Placement PoolごとにKIM managed HA、NF/workload managed HA、manual recoveryの責任境界を明示できる。
 - NFVO/VNFMのactive/standby等をrack/powerの複数Failure Domainへhard分離し、大規模障害時のmanaged recoveryをbounded rateで実行できる。
 - authority、履歴evidence、delivery journal、projectionを分離し、upgrade、retention、PITR後も安全なownership判断を維持できる。
+- Release Manifestとcurrent compatibility evidenceに基づくN/N-1 rolling upgradeを行い、rollback boundaryを越える変更を暗黙実行しない。
 - Volume AttachmentのDB authorityと実世界I/O fencingを分離し、Host障害やmigrationでもsingle-writerを維持できる。
 - IP/VLAN/VNI/Port BindingのDB authorityとOVN/Host dataplane realizationを分離し、部分収束時にもidentityとsecurity policyを誤認しない。
 - オフライン環境にインストールし、アップグレードとロールバックを管理できる。

@@ -77,6 +77,14 @@
 | Q-068 | OVN realization profile | NB/SB/Host/dataplane verification、probe、timeout、DEGRADED/UNKNOWN thresholdを決定 | Technical Preview 前 |
 | Q-069 | Gateway/NAT/MTU profile | gateway HA chassis、external network/WIM contract、SNAT/FIP、MTU capabilityを決定 | Technical Preview 前 |
 | Q-070 | Security policy profile | default policy、stateful/stateless、remote selector、anti-spoof、rule scaleを決定 | Technical Preview 前 |
+| Q-071 | Gateway failure-domain profile | Gateway chassisをrack/power-path/siteへ分散するhard constraint、minimum ready、failover budgetを決定 | Technical Preview 前 |
+| Q-072 | External network/WIM status contract | `KIM_REALIZED`と`END_TO_END_REACHABLE`の分離、UNKNOWN propagation、WIM evidence/SLOを決定 | Technical Preview 前 |
+| Q-073 | IPAM fragmentation and pressure | contiguous range、reserved/excluded range、reuse quarantineを含むcapacity/pressure thresholdとadmission policyを決定 | Product Beta 前 |
+| Q-074 | Initial upgrade compatibility window | N/N-1 windowの期間、source/target edge、mixed-version deadline、N-2 handlingを決定 | Developer Preview 前 |
+| Q-075 | Component upgrade order and budget | Control Plane/Gateway/worker/Agent/extensionのwave順序、max unavailable、canary/failure thresholdを決定 | Developer Preview 前 |
+| Q-076 | Agent delivery and rollback profile | deb/rpm/self-contained Agentのstage/atomic activation/supervisor/local receipt/rollback方式を決定 | Technical Preview 前 |
+| Q-077 | Release Manifest and support matrix format | manifest schema、signing/provenance source、artifact registry/offline bundle、compatibility evaluatorを決定 | Developer Preview 前 |
+| Q-078 | Rollback retention/finalization | old artifact/decoder/schema保持期間、destructive contract approval、forward repair runbookを決定 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -100,3 +108,4 @@
 18. Data retention、schema compatibility、backup/PITRのinitial product profile
 19. Ceph RBD fencing、Local LVM、Storage force operationのinitial support profile
 20. Storage encryption/degraded/durabilityとNetwork IPAM/OVN/Gateway/Securityのinitial profile
+21. Gateway failure-domain/WIM/IPAM pressureとUpgrade compatibility/rollout/rollbackのinitial profile

@@ -310,7 +310,13 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 
 初期候補は Ubuntu/Debian 系、RHEL-compatible 系、SUSE 系です。具体的な version はリリースごとのサポートマトリクスで固定します。
 
-## 14. 参照資料
+## 14. Upgrade and Compatibility
+
+製品upgradeはbinary配布の成否ではなく、署名済みRelease Manifest、observed artifact digest、database/API/Agent/Event/extension contract、Host/backend support matrixからcompatibilityを判定するdurable Upgrade Campaignとして扱います。
+
+mixed-versionは明示的に対応したN/N-1へ限定し、全active writer/consumerが理解できるsemanticsだけをFeature Gate前に使用します。schema変更はData and Persistence Architectureの`expand -> migrate -> switch -> contract`へ従い、destructive contractと旧decoder/artifact削除をrollback window後の別承認にします。詳細は [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) を参照します。
+
+## 15. 参照資料
 
 - [責任境界](responsibility-boundaries.md)
 - [Placement Architecture](placement-architecture.md)
@@ -320,6 +326,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [Data and Persistence Architecture](data-persistence-architecture.md)
 - [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md)
 - [Network Resource Architecture](network-resource-architecture.md)
+- [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)

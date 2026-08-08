@@ -24,7 +24,7 @@
 - System-wide Failure Modelとfault injection matrix
 - Extensibility Architecture、Core invariant、extension conformance contract
 - Architecture InvariantsとRequirement-to-Test Traceability Matrix
-- 12 failure classのFault Injection Matrix
+- 13 failure classのFault Injection Matrix
 - NFV Dataplane Resource ModelとOVS-DPDK support boundary
 - Host Lifecycle、Enrollment、Baseline、Continuous Compliance、Decommission model
 - Hardware Identity Evidence policy、Evaluator Artifact rollout、External Remediation trust contract
@@ -34,6 +34,7 @@
 - Data classification、Outbox/Inbox、retention/GC、schema migration、partition、PITR restore model
 - Storage Backend/Class、Volume Binding、Attachment Claim/Observation、single-writer/fencing/handoff model
 - IPAM/Segment Claim、Port Binding/Handoff、OVN layered realization、Gateway/NAT/Security model
+- Release Manifest、Compatibility Decision、N/N-1 mixed-version、Upgrade Campaign/Wave/Feature Gate、rollback boundary model
 
 ### Exit criteria
 
@@ -53,6 +54,7 @@
 - authority/history分離、Outbox/Inbox atomicity、schema migration、GC、PITR restore epochがfailure/test matrixへtraceされる。
 - attach/detach UNKNOWN、stale watcher/lock、Host recovery、Local LVM locality、Ceph client fencingがtest matrixへtraceされる。
 - IP/MAC/VLAN/VNI conflict、OVN response loss/SB lag、Port recovery、Gateway/NAT/Security UNKNOWNがtest matrixへtraceされる。
+- Manifest/artifact mismatch、mixed writer semantics、canary pause、Agent update UNKNOWN、schema finalization/rollback boundaryがtest matrixへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -76,6 +78,7 @@
 - Local LVM Volume/Attachment generationとsingle-writer Claim
 - Operation API、監査、基本メトリクス
 - transactional Outbox/Inboxとschema generation/readiness
+- Release Manifest検証、Compatibility Decision表示、schema expandと単一target canaryのread-only campaign model
 
 ### Exit criteria
 
@@ -95,6 +98,7 @@
 - domain mutation/OutboxとInbox/domain decisionの不可分性、N/N-1 expand migrationを検証する。
 - attach/detach response lossでClaimを誤解放せず、Local LVMを別Host recoveryしないことを検証する。
 - duplicate IP/VLANをcommitせず、OVN NB成功だけでPort ACTIVEにしないことを検証する。
+- N-1/N reader/writer fixture、artifact digest mismatch、Feature Gate前のnew-only write拒否を検証する。
 
 ## Phase 2: Technical Preview
 
@@ -140,6 +144,7 @@
 - correlated failure storm、backend circuit breaker、priority/fair-share recovery campaign
 - NFVO integration profile
 - ローリングアップグレード
+- durable Upgrade Campaign、canary/batch、Agent drain/update、API/Event/extension/backend compatibility matrix
 - offline bundle、SBOM、artifact signing
 - 運用 UI とアラーム管理
 
@@ -147,6 +152,7 @@
 
 - 100 Host、5,000 VM の性能・耐久試験を完了する。
 - N-1 から N のアップグレードとロールバック演習を完了する。
+- coordinator failover、canary threshold、Agent response loss、rollback不能点のfault injectionを完了する。
 - 外部セキュリティ評価の重大指摘が解消される。
 - サポート診断と既知問題の運用フローが確立する。
 
@@ -174,6 +180,7 @@
 - unit、integration、contract、system、upgrade test
 - API backward compatibility check
 - migration forward/backward test
+- Release Manifest/compatibility graph、mixed-version writer、Feature Gate、rollback boundary test
 - vulnerability、license、secret scan
 - Architecture invariant/traceability coverage check
 - critical Fault Injection subsetとExtension Conformance suite

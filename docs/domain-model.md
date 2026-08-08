@@ -14,6 +14,7 @@
 | Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Budget Queue/Lease/Consumption、Manual Recovery Decision |
 | Workload Resilience | Resilience Group、Member Slot、Failure Domain Constraint、Domain Claim |
 | Data and Persistence | Schema Catalog、Retention Policy、Outbox、Inbox/Receipt、GC Snapshot/Lease/Receipt、Migration、Backup Manifest、Restore Epoch |
+| Upgrade and Compatibility | Release Manifest、Compatibility Decision、Upgrade Campaign/Plan/Wave/Target、Feature Gate、Rollback Boundary |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet/IP Pool、IP/MAC Claim、Segment Pool/Claim、Port/Binding/Handoff、Router/Gateway、Floating IP/NAT、DHCP、Security Policy |
@@ -102,6 +103,12 @@ erDiagram
     OPERATION ||--o{ OUTBOX_RECORD : emits
     INBOX_RECORD ||--o| DELIVERY_RECEIPT : returns
     BACKUP_MANIFEST ||--o{ RESTORE_EPOCH : restores
+    RELEASE_MANIFEST ||--o{ UPGRADE_CAMPAIGN : targets
+    UPGRADE_CAMPAIGN ||--o{ UPGRADE_PLAN : plans
+    UPGRADE_PLAN ||--o{ UPGRADE_WAVE : batches
+    UPGRADE_WAVE ||--o{ UPGRADE_TARGET : upgrades
+    UPGRADE_CAMPAIGN ||--o{ COMPATIBILITY_DECISION : gates
+    UPGRADE_CAMPAIGN ||--o{ FEATURE_GATE : activates
 ```
 
 ## 3. 識別子と共通属性

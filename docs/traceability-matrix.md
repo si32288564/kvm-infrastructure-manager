@@ -228,11 +228,31 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-AVL-005, NFR-AVL-006 | ha-dr | ADR-0009 | INV-DR-001, INV-AUTH-005 | FI-DR-001 | Planned |
 | NFR-PERF-001, NFR-PERF-002, NFR-PERF-003, NFR-PERF-004 | architecture, release-plan | ADR-0003 | - | PT-SCALE-001, PT-API-001, PT-OPS-001 | Planned |
 | NFR-SEC-001, NFR-SEC-002, NFR-SEC-003, NFR-SEC-004, NFR-SEC-005 | security, agent-protocol | ADR-0005, ADR-0008 | INV-SEC-001, INV-SEC-002, INV-AGT-002 | AT-SEC-001, AT-SEC-002, AT-SEC-003, AT-AGT-002 | Planned |
-| NFR-OPS-001, NFR-OPS-002, NFR-OPS-003, NFR-OPS-004, NFR-OPS-005, NFR-OPS-006 | architecture, release-plan, extensibility-architecture | ADR-0003, ADR-0004, ADR-0011 | INV-AGT-006, INV-EXT-006 | AT-UPG-001, AT-OFFLINE-001, XCT-CAP-001 | Planned |
+| NFR-OPS-001, NFR-OPS-003, NFR-OPS-004, NFR-OPS-005, NFR-OPS-006 | architecture, release-plan, extensibility-architecture | ADR-0003, ADR-0004, ADR-0011 | INV-AGT-006, INV-EXT-006 | AT-OFFLINE-001, XCT-CAP-001 | Planned |
+| NFR-OPS-002, NFR-OPS-007, NFR-OPS-008, NFR-OPS-009, NFR-OPS-010, NFR-OPS-011, NFR-OPS-012 | upgrade-and-compatibility-architecture, data-persistence-architecture, release-plan | ADR-0018, ADR-0021 | INV-UPG-001, INV-UPG-004, INV-UPG-005, INV-UPG-006, INV-UPG-007, INV-UPG-016, INV-UPG-017 | AT-UPG-001, AT-UPG-008, AT-UPG-010, AT-UPG-019, AT-UPG-023, FI-UPG-005, FI-UPG-010, FI-UPG-011, FI-UPG-013, FI-UPG-015 | Planned |
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
 | NFR-EXT-001, NFR-EXT-002, NFR-EXT-003, NFR-EXT-004, NFR-EXT-005, NFR-EXT-006 | extensibility-architecture | ADR-0011 | INV-EXT-001, INV-EXT-002, INV-EXT-003, INV-EXT-004, INV-EXT-005, INV-EXT-006 | XCT-CONTRACT-001, XCT-BOUNDARY-001, XCT-BOUNDARY-002, XCT-BOUNDARY-003, XCT-FAIL-001, XCT-CAP-001, XCT-LIFE-001 | Planned |
 
-## 16. Coverage Gate
+## 16. Upgrade and Compatibility
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| UPG-001, UPG-002, UPG-003 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-001, INV-UPG-002 | AT-UPG-002, AT-UPG-003, AT-UPG-004, FI-UPG-001 | Planned |
+| UPG-004, UPG-005 | upgrade-and-compatibility-architecture, data-persistence-architecture | ADR-0018, ADR-0021 | INV-UPG-003 | AT-UPG-005, AT-UPG-006, FI-UPG-010 | Planned |
+| UPG-006, UPG-007 | upgrade-and-compatibility-architecture, host-grouping-architecture | ADR-0014, ADR-0021 | INV-UPG-007 | AT-UPG-007, FI-UPG-005, FI-UPG-015 | Planned |
+| UPG-008, UPG-009 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-004, INV-UPG-005 | AT-UPG-008, FI-UPG-002, FI-UPG-003 | Planned |
+| UPG-010 | upgrade-and-compatibility-architecture, data-persistence-architecture | ADR-0018, ADR-0021 | INV-DATA-011, INV-UPG-006 | AT-UPG-010, FI-DATA-007, FI-UPG-004 | Planned |
+| UPG-011 | upgrade-and-compatibility-architecture, ha-dr | ADR-0009, ADR-0021 | INV-HA-001, INV-UPG-007 | AT-UPG-001, FI-UPG-015 | Planned |
+| UPG-012, UPG-013, UPG-014 | upgrade-and-compatibility-architecture, agent-protocol, host-lifecycle-and-compliance-architecture | ADR-0004, ADR-0008, ADR-0013, ADR-0021 | INV-UPG-009, INV-UPG-010 | AT-UPG-011, AT-UPG-012, FI-UPG-006, FI-UPG-007 | Planned |
+| UPG-015, UPG-016 | upgrade-and-compatibility-architecture, api-principles, data-persistence-architecture | ADR-0002, ADR-0018, ADR-0021 | INV-UPG-011 | AT-UPG-013, AT-UPG-014, FI-UPG-012 | Planned |
+| UPG-017 | upgrade-and-compatibility-architecture, extensibility-architecture | ADR-0011, ADR-0021 | INV-UPG-012 | AT-UPG-015, FI-UPG-008, XCT-LIFE-001, XCT-UPGRADE-001 | Planned |
+| UPG-018, UPG-019 | upgrade-and-compatibility-architecture, placement-architecture | ADR-0004, ADR-0006, ADR-0021 | INV-UPG-013, INV-UPG-014 | AT-UPG-016, AT-UPG-017, AT-UPG-018, FI-UPG-009 | Planned |
+| UPG-020, UPG-021 | upgrade-and-compatibility-architecture, data-persistence-architecture | ADR-0018, ADR-0021 | INV-UPG-015, INV-UPG-016 | AT-UPG-019, AT-UPG-020, AT-UPG-021, FI-UPG-011 | Planned |
+| UPG-022 | upgrade-and-compatibility-architecture, execution-architecture | ADR-0007, ADR-0021 | INV-UPG-003 | AT-UPG-022, FI-UPG-010 | Planned |
+| UPG-023 | upgrade-and-compatibility-architecture, release-plan | ADR-0003, ADR-0021 | INV-UPG-017 | AT-UPG-023, FI-UPG-013 | Planned |
+| UPG-024 | upgrade-and-compatibility-architecture, security | ADR-0005, ADR-0021 | INV-UPG-018 | AT-UPG-024, FI-UPG-014 | Planned |
+
+## 17. Coverage Gate
 
 Phase 0完了条件:
 

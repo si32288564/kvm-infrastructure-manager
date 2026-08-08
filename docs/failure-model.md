@@ -18,6 +18,7 @@ KIM全体で障害を同じ意味論により扱います。目的は障害を�
 7. 認証・認可・audit authorityが不明なmutationはfail closedとする。
 8. Control Plane障害中も既存workload/dataplaneを不用意に変更しない。
 9. recoveryはDetect、Contain、Fence、Observe、Recover、Reconcile、Escalateの順序と証拠を保持する。
+10. upgrade/rollback中も同じauthority、UNKNOWN、stale generation、禁止操作を維持する。
 
 ## 3. Failure Handling Lifecycle
 
@@ -218,6 +219,18 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 - Recover:last-known-good trustは明示された期限内の既存sessionにだけ使用する。
 - Escalate:audit durabilityを確保できない管理操作は受付けない。
 
+### 5.13 Upgrade / Compatibility Failure
+
+例: Manifest/artifact不一致、mixed-version contract違反、canary failure、schema/feature switch interruption、Agent update response loss、rollback境界違反。
+
+- Detect: Release Manifest/digest/provenance、Compatibility Decision、schema/protocol/Command/Event range、wave threshold、artifact observation。
+- Contain: later wave、Feature Gate、schema contract、影響scopeのdispatchを停止し、serving old replicaと既存workloadを維持する。
+- Fence: Upgrade Lease、target/feature generation、adapter writer ownership、old session/Command eligibility。
+- Observe: DB Campaign/Attempt/Receipt、deployed artifact、service readiness、Agent journal、schema/backfill、backend/Host capabilityをread-backする。
+- Recover: reversible boundary内だけ新Plan/Attemptでrollbackし、それ以外はforward repairする。
+- Reconcile: source/target/observed artifactとcurrent compatibilityを再評価し、過去Attempt/UNKNOWNを改変しない。
+- Prohibited: version文字列だけのready、unknown Command down-convert、destructive contract後の旧binary復帰、automatic PITR、既存VM mutation。
+
 ## 6. Failure Matrix
 
 | Scope | Existing workload | New mutation | Automatic recovery | Escalation condition |
@@ -235,6 +248,7 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 | HostGroup membership/hierarchy failure | 既存workloadを維持 | affected placement/snapshot作成停止 | source再取得/再materialize | Group推測選択、snapshot改変、暗黙migration |
 | Network/dataplane backend loss | compute継続、connectivity degradedの可能性 | 対象network/dataplane停止 | intent/typed resolver | external object、PMD/PCI ownership不明 |
 | Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
+| Upgrade/compatibility failure | 既存workloadとserving old replicaを維持 | later wave/feature/affected dispatch停止 | reversibleなら新Planでrollback、それ以外forward repair | artifact/schema/protocol/rollback outcome不明 |
 
 ## 7. Verification and Fault Injection
 

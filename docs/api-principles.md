@@ -113,6 +113,8 @@ RFC 9457 Problem Details を基礎に、安定した製品 error code を追加�
 - 最低2回の minor release または12か月の長い方を廃止猶予の初期案とする。
 - API contract test と保存済み互換性 fixture を CI で実行する。
 
+API versionはRelease Manifestのread/write rangeとFeature Gateへbindし、mixed-version中にold server/clientが意味を誤解するfield/enum/authority semanticsを有効化しません。Event/Agent/extensionを含む製品全体のcompatibilityとdeprecation/rollout gateは [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) に従います。
+
 ## 10. 認証・認可
 
 - OAuth 2.0/OIDC access token を使用する。

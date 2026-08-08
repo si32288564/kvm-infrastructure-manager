@@ -58,6 +58,9 @@ flowchart LR
 - Recovery priorityは公開bounded classからmapし、Tenant指定の任意数値で他Projectをstarveさせない。Budget LeaseはCore serviceだけが発行する。
 - persistent data classごとにTenant scope、PII/secret classification、retention/legal hold、archive/restore permissionをschema catalogへ宣言する。
 - Outbox/Inbox/archive/backupへsecret valueや不要なraw identityを保存せず、restore/GC/migration operatorを通常resource operatorから権限分離する。
+- Release publish、Upgrade Campaign start、schema/feature switch、destructive contract、rollback、support overrideを個別permissionへ分離し、不可逆stepへ追加approvalを要求できるようにする。
+- Control Plane/Agent/extensionはversion自己申告だけでなくartifact digestとdeployment/build provenanceをRelease Manifestへ照合し、不一致artifactをquarantineする。
+- upgrade coordinatorはrelease signing key、通常domain mutation、Command Lease、Host authorityを取得せず、artifact取得/検証/stage/activation identityも分離する。
 
 ## 5. Network と Tenant 分離
 
@@ -113,6 +116,8 @@ flowchart LR
 - dependency、container、OS package の脆弱性を継続スキャンする。
 - build provenance を保存し、再現可能 build を目標とする。
 - Critical/High 脆弱性の公開・修正ポリシーを GA 前に定義する。
+- Release Manifestへartifact digest、SBOM/provenance、supported upgrade path、contract/support range、migration、rollback boundaryをimmutableにbindする。
+- offline bundleにもonline releaseと同一のintegrity、authorization、compatibility gateを適用する。
 
 ## 10. Security Verification
 

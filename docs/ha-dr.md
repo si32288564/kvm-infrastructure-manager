@@ -11,6 +11,8 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 
 data class、backup manifest、restore epoch、schema/retention contractの詳細は [Data and Persistence Architecture](data-persistence-architecture.md) に従います。
 
+Control Plane mixed-version、rolling replacement、serving/quorum budget、rollback boundaryは [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) に従います。HA failoverはupgradeを成功扱いせず、new ownerはdurable Campaign/Lease/Receiptとartifact observationから再開します。
+
 Volume/Attachmentのrestore classification、single-writer、backend adoption、fencingは [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
 
 Network Claim/Intent/Bindingのrestore classification、identity/segment reuse、OVN adoptionは [Network Resource Architecture](network-resource-architecture.md) に従います。

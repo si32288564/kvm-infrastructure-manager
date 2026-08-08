@@ -165,6 +165,8 @@ partitioningは主にOutbox/Inbox delivery history、Observation、Attempt/Resul
 
 schema変更は`expand -> migrate/backfill -> switch -> contract`で進めます。
 
+本節はdatabase schema evolutionの正本です。Control Plane/Agent/API/Event/extension/backendを含む製品release順序、Release Manifest、mixed-version、Feature Gate、rollback decisionは [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) を正本とします。
+
 1. **Expand**: nullable/new table/index等、N/N-1 reader/writerに後方互換なschemaを追加する。
 2. **Migrate**: immutable migration artifact digestとschema generationを記録し、idempotent/checkpointed backfillを小さいbatchで実行する。
 3. **Switch**: feature/read-write capability gateを、全required replicaとbackfill verification後に切り替える。

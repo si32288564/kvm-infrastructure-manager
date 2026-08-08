@@ -290,7 +290,31 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | ID | Acceptance Contract |
 |---|---|
 | AT-HA-001 | 単一Control Plane node lossでAPIを継続しcommitted authorityを失わない |
-| AT-UPG-001 | N-1→N upgrade/rollback中にAPI/Agent contractと既存VMを維持する |
+| AT-UPG-001 | N-1→N rolling upgrade中にControl Plane quorum/serving capacity、committed authority、既存VMを維持する |
+| AT-UPG-002 | Release Manifestがartifact digest、provenance/SBOM、dependency、contract/support range、migration、rollback boundaryをimmutableに保持する |
+| AT-UPG-003 | Compatibility Decisionがsource/target Manifestとcurrent schema/protocol/backend/Host evidence generationへbindする |
+| AT-UPG-004 | VALIDATED/COMPATIBLE/INCOMPATIBLE/UNKNOWNを区別しversion prefixやprocess aliveだけで昇格しない |
+| AT-UPG-005 | preflightがupgrade path、artifact、quorum、schema、API/protocol/event、extension、backend/Host、rollback readinessを検証する |
+| AT-UPG-006 | Upgrade Campaign/Plan/Wave/Target/Feature Gate/Rollback Boundaryのtransitionとapprovalを永続化する |
+| AT-UPG-007 | canary/batchがimmutable target snapshot、max unavailable、failure threshold、pause/abort条件を強制する |
+| AT-UPG-008 | N/N-1 mixed-version中のread/write/idempotency/generation/Lease semanticsとdeadlineを検証する |
+| AT-UPG-009 | upgrade coordinatorだけではdomain Operation、Command Lease、Placement/Attachment/Binding authorityを取得できない |
+| AT-UPG-010 | schema expand/migrate/switch/contractとrollback windowがData Architectureのmigration evidenceへ一致する |
+| AT-UPG-011 | Gateway/AgentがprotocolとCommand/Result schemaをnegotiationし互換Commandだけをdispatchする |
+| AT-UPG-012 | Agent updateがsigned artifact、drain、atomic activation、local receipt/read-back、preflight/Compliance再arming gateを通る |
+| AT-UPG-013 | public API minor/major/deprecationとidempotency/ETag/resource/Operation identityを保存済みfixtureで検証する |
+| AT-UPG-014 | old/new Event consumerがimmutable payloadをdecode/replayしretention中のschema catalogを維持する |
+| AT-UPG-015 | extension/adapter/evaluator upgradeがcontract/certification、drain、shadow/canary、ownership fencingを満たす |
+| AT-UPG-016 | Host/backend support matrixを実version/capability/provenanceで評価しunsupported targetをscope別にblockする |
+| AT-UPG-017 | target releaseでexisting-workload continuityとnew create/migration/recovery capabilityを別判定する |
+| AT-UPG-018 | support matrix/compatibility変更だけでは既存VM/Port/Volumeを停止、移動、再構成しない |
+| AT-UPG-019 | rollback eligibilityがexplicit edge、last reversible phase、retained artifact/schema/decoder、current observationを要求する |
+| AT-UPG-020 | rollback/abortを新Plan/Attemptとして記録し過去のTarget/Attempt/UNKNOWN evidenceを保持する |
+| AT-UPG-021 | destructive finalization後のrollbackを拒否しforward repairへ遷移する |
+| AT-UPG-022 | coordinator failover後にCampaign/Lease/Receipt/artifact observationから同じstepへ収束する |
+| AT-UPG-023 | offline bundleがonline releaseと同じManifest/artifact/SBOM/migration/support/verification setを持つ |
+| AT-UPG-024 | publish/start/switch/contract/feature activation/rollback/overrideを別権限、approval、auditで実行する |
+| AT-UPG-025 | mixed-version期限、oldest component、schema/feature gate、rollback eligibility、blocked/UNKNOWN targetを観測できる |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 
 ## 16. Performance Tests

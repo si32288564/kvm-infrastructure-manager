@@ -35,3 +35,4 @@
 - [ADR-0018: 永続データをclassifyし安全なschema evolutionとrestoreを行う](0018-classified-persistence-and-safe-evolution.md)
 - [ADR-0019: Volume Attachment authorityと実世界fencingを分離する](0019-storage-attachment-authority-and-fencing.md)
 - [ADR-0020: KIM network intentとOVN/dataplane realizationを分離する](0020-kim-network-intent-and-layered-realization.md)
+- [ADR-0021: Manifest駆動の互換性gateで製品upgradeを行う](0021-manifest-driven-compatible-upgrades.md)

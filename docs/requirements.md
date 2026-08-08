@@ -333,6 +333,35 @@
 | AUD-001 | すべての認証、認可、変更操作を改ざん検知可能な監査ログへ記録する | Must |
 | AUD-002 | 秘密情報を除外した診断バンドルを生成できる | Must |
 
+### 2.17 Upgrade and Compatibility
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| UPG-001 | artifact digest、provenance/SBOM、dependency、contract range、support matrix、migration、rollback boundaryをimmutable Release Manifestで管理する | Must |
+| UPG-002 | source/target release、schema/protocol/backend/Host evidenceをbindしたCompatibility Decisionをgeneration/digest付きで保持する | Must |
+| UPG-003 | compatibilityをversion文字列だけで推測せずVALIDATED、COMPATIBLE、INCOMPATIBLE、UNKNOWNへ明示判定する | Must |
+| UPG-004 | Upgrade Campaign、Plan、Wave、Target、Feature Gate、Rollback BoundaryをPostgreSQL authorityとして永続化する | Must |
+| UPG-005 | upgrade preflightでManifest/artifact、upgrade path、quorum、schema、API/protocol/event、extension、backend/Host、rollback readinessを検証する | Must |
+| UPG-006 | canary/batch、max unavailable、failure threshold、pause/abort条件を持つwaveでrolloutする | Must |
+| UPG-007 | wave開始時のimmutable target snapshotへ対象をbindし、途中のselector/group driftで暗黙追加しない | Must |
+| UPG-008 | mixed-versionを明示compatibility edgeを持つN/N-1に限定し、N-2/unmanaged/digest不明componentをserving/dispatchへ参加させない | Must |
+| UPG-009 | 全active writer/consumerが解釈できるschema/field/enum/authority semanticsだけをFeature Gate前にwriteする | Must |
+| UPG-010 | schema変更をexpand/migrate/switch/contractへ従わせ、destructive contractをrollback window後の別承認にする | Must |
+| UPG-011 | Control Plane rolling upgrade中もHA quorum、serving capacity、committed authority、既存VM稼働を維持する | Must |
+| UPG-012 | Gateway/Agentがprotocol envelopeとCommand/Result schemaをnegotiationし、互換外Commandをdispatchしない | Must |
+| UPG-013 | Agent upgrade中はHost dispatchをdrainし、再接続/version一致だけでHost authorityを再armしない | Must |
+| UPG-014 | KIM所有Agent artifact更新とHost OS/kernel/libvirt/QEMU等のexternal remediationを責任分離する | Must |
+| UPG-015 | public API compatible変更、major version/deprecation、idempotency/ETag/Operation identityの安定性を検証する | Must |
+| UPG-016 | Eventを発行時schema/digestのimmutable payloadとして保持し、retention期間のdecode/replay compatibilityを維持する | Must |
+| UPG-017 | extension/adapter/evaluator upgradeにcontract range、certification、drain、shadow/canary、ownership fencingを要求する | Must |
+| UPG-018 | Host/backend support matrixをobserved version/capability/provenanceで評価し、互換外scopeのPlacement/Recovery/dispatchを拒否する | Must |
+| UPG-019 | support matrix変更だけで既存VM/Port/Volumeを暗黙停止、移動、再構成しない | Must |
+| UPG-020 | rollbackを新しいPlan/Attemptとして記録し、明示rollback edge、schema/decoder/artifact保持、current observationを要求する | Must |
+| UPG-021 | destructive contract後、rollback outcome UNKNOWN、互換外sourceへのrollbackを拒否しforward repairへ送る | Must |
+| UPG-022 | coordinator failover後にdurable Campaign/Lease/Receiptとartifact observationから再開しin-memory progressをauthorityにしない | Must |
+| UPG-023 | online/offline bundleへ同じManifest、artifact verification、SBOM、migration、support matrix、verification evidenceを要求する | Must |
+| UPG-024 | publish/start/switch/contract/feature activation/rollback/overrideを分離したpermission、approval、auditで保護する | Must |
+
 ## 3. 非機能要件
 
 ### Availability and Recovery
@@ -375,6 +404,12 @@
 | NFR-OPS-004 | 対応 OS、KVM/libvirt、OVN、Ceph の組合せをリリースごとに公開する |
 | NFR-OPS-005 | 新しい Linux ディストリビューション対応に Control Plane の OS 条件分岐を必要としない |
 | NFR-OPS-006 | deb、rpm、および検証用の自己完結型配布方式を用意する |
+| NFR-OPS-007 | mixed-version期間を明示N/N-1 compatibility windowへ限定する |
+| NFR-OPS-008 | upgrade中に既存VMを停止せず、Control Planeのserving capacityとauthority semanticsを維持する |
+| NFR-OPS-009 | rollback可能点と不可逆なschema/artifact finalizationをreleaseごとに公開する |
+| NFR-OPS-010 | API、Agent protocol、Command/Event、extension、backend/Hostのcompatibility matrixをreleaseごとに検証する |
+| NFR-OPS-011 | canary failure、coordinator crash、response loss、rollback failureをfault injectionする |
+| NFR-OPS-012 | offline upgradeでもartifact provenance、SBOM、signature、互換性検証を弱めない |
 
 ### Robustness and Failure Semantics
 

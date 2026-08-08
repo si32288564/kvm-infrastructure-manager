@@ -17,6 +17,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 | Architecture文書 | Accepted ADRとRequirementsを統合した現在の構造、contract、failure model |
 | Open Questions / Proposed ADR | 未確定事項。実装authorityではない |
 | Release Plan | exit criteriaと品質gate |
+| Release Manifest / Compatibility Matrix | 出荷artifact、upgrade path、contract range、support/rollback boundaryのrelease正本 |
 | Architecture Invariants / Traceability | 実装禁止条件とRequirement-to-Test coverage |
 | Fault Injection / Conformance Contract | 検証可能なfailure/extension test authority |
 
@@ -38,6 +39,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 4. Threat model / failure scenario
 5. Open QuestionsとRelease gate
 6. Contract/acceptance testへのtraceability
+7. Upgrade path、mixed-version、rollback boundary、support matrixへの影響
 7. Architecture InvariantとFault/Conformance test ID
 
 ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureまたは専用contract文書へリンクします。

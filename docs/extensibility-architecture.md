@@ -169,6 +169,8 @@ extensionの接続復旧だけでReadyへ戻さず、capability generationとpre
 
 Validated製品サポートへ含めるには、contract conformanceに加えて対象version組合せのrelease certificationを必要とします。
 
+Core releaseとのmixed-version、old/new writer ownership、Upgrade Campaignのdrain/shadow/canary/rollback gateは [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md) に従います。extension lifecycleの正本は本書ですが、製品release全体の順序とcompatibility decisionはUpgrade Architectureが所有します。
+
 ## 10. 禁止される拡張
 
 - generic shell/argv/script executor

@@ -277,3 +277,26 @@
 |---|---|---|
 | INV-DOC-001 | Requirements、Accepted ADR、Architectureの矛盾を暗黙解釈せず、実装を停止して解消する | AT-DOC-001 |
 | INV-DOC-002 | 重要判断の変更はADR、Requirements、Architecture、test traceを同じchange setで更新する | AT-DOC-002 |
+
+## 17. Upgrade and Compatibility
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-UPG-001 | Release Manifestはimmutable artifact digest、contract/support range、migration、rollback boundaryへbindする | AT-UPG-002 |
+| INV-UPG-002 | version文字列やprocess aliveだけでcompatibility/readinessを確定せずcurrent evidenceへbindしたDecisionを要求する | FI-UPG-001 |
+| INV-UPG-003 | Upgrade Campaign/Plan/Wave/Target/Feature Gate authorityをPostgreSQLへ永続化しin-memory progressをauthorityにしない | FI-UPG-010 |
+| INV-UPG-004 | mixed-versionは明示edgeを持つN/N-1だけとしN-2/unmanaged/digest不明componentをserving/dispatchへ参加させない | FI-UPG-002 |
+| INV-UPG-005 | 全active writer/consumerが理解するsemanticsだけをFeature Gate前にwriteする | FI-UPG-003 |
+| INV-UPG-006 | schema contract/old decoder/artifact GCをrollback window終了とrequired participant absenceの証明前に行わない | FI-UPG-004 |
+| INV-UPG-007 | 各waveはimmutable target snapshot、current compatibility、availability budget、failure thresholdを満たす | AT-UPG-007 |
+| INV-UPG-008 | upgrade coordinatorはdomain mutation、Placement、Command、Attachment、Network Binding等のauthorityを代替しない | AT-UPG-009 |
+| INV-UPG-009 | unsupported protocol/Command/Result schemaをdispatch/down-convert/silent fallbackしない | FI-UPG-006 |
+| INV-UPG-010 | Agent upgrade/reconnect/version一致だけでHost authorityを再armしない | FI-UPG-007 |
+| INV-UPG-011 | Event payloadをupgrade後resourceから再生成せず発行時schema/digestとretention decoderを保持する | AT-UPG-014 |
+| INV-UPG-012 | extension/adapter upgradeはdrainとownership fencingなしにold/new writerを同時activeにしない | FI-UPG-008 |
+| INV-UPG-013 | support matrix変更だけで既存VM/Port/Volumeを暗黙mutationしない | AT-UPG-018 |
+| INV-UPG-014 | incompatible/UNKNOWN Host/backendを新規Placement/Recovery/dispatchに使用しない | FI-UPG-009 |
+| INV-UPG-015 | rollbackを新Plan/Attemptとして記録し過去Target/Attempt/evidenceを改変しない | AT-UPG-020 |
+| INV-UPG-016 | destructive contract後またはoutcome UNKNOWN時にblind rollback/PITR/逆操作を開始しない | FI-UPG-011 |
+| INV-UPG-017 | offline/緊急upgradeでもartifact verification、authorization、audit、compatibility gateを省略しない | FI-UPG-013 |
+| INV-UPG-018 | release publish/start/switch/contract/activation/rollback/overrideを分離した権限と監査で保護する | FI-UPG-014 |

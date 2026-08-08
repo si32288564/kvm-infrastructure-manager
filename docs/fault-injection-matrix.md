@@ -154,6 +154,21 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-STORAGE-015 | unauthorized actorがforce detach/client fence/lock break/deleteを要求 | permission/approval failure | request拒否、no Command、security audit | actor/action/target/decision | destructive backend side effect | authorized scoped approvalとpost-verification |
 | FI-STORAGE-016 | Storage adapterがsecret/raw device pathをerror/Eventへ返し、またはside effect後timeoutをFAILED化 | conformance/redaction/UNKNOWN violation | adapter quarantine、affected new mutations停止 | payload digest、manifest/version、test evidence | secret leak、blind retry/silent fallback | patched certified adapterとread-back reconciliation |
 | FI-STORAGE-017 | concurrent Volume create中にCeph/LVM observed freeをstale化しthin metadata圧迫/外部使用量を注入 | ledger conflict、health/freshness threshold | claim上限内だけcommit、stale/pressure scope ineligible | capacity generations、claims、backend observations | over-allocation、UNKNOWN freeの楽観利用、delete中capacity再利用 | fresh healthy capacityとbackend absence後にclaim/release再評価 |
+| FI-UPG-001 | Manifest versionと実artifact digest/provenanceを不一致にする | artifact/manifest mismatch | target quarantine、campaign開始/継続停止 | manifest/artifact/evaluator digests、decision | version文字列だけでready | verified artifactへ置換または新Manifest |
+| FI-UPG-002 | N/N-1混在中にN-2またはunmanaged replica/Agentを接続する | unsupported compatibility edge | serving/dispatch poolから除外 | component/session/schema ranges、bounded reason | N-2 writer/Command処理 | supported revisionへ更新し再評価 |
+| FI-UPG-003 | old writerが理解できないenum/authority fieldをFeature Gate前にnew writerから送る | mixed writer contract violation | write/feature activation拒否、campaign pause | writer/schema/feature generations、payload digest | old readerの誤解釈、部分authority進行 | 全required writer対応後にgate switch |
+| FI-UPG-004 | rollback window中にschema contractまたはold event decoder/artifact GCを要求する | retained participant/reference guard | finalization拒否 | active versions、decoder/archive refs、approval | rollback path喪失、event replay不能 | deadline+old participant不在+明示承認 |
+| FI-UPG-005 | canaryでreadiness/error/invariant thresholdを超過させる | canary/failure threshold | later wave停止、serving old replica維持 | target Attempts、health、threshold decision | batch継続、quorum喪失 | approved rollbackまたはforward fix再canary |
+| FI-UPG-006 | old Agentへ未知Command schemaをdispatchしGateway responseをdropする | negotiation/dispatch incompatibility | Command未lease、session/target block | protocol/command ranges、Lease absence、audit | down-convert、blind retry、別operation fallback | compatible Agent/moduleとfresh session |
+| FI-UPG-007 | Agent artifact activation後response loss/reconnectを注入する | update outcome UNKNOWN | Host drained/unarmed、artifact/service/journal read-back | old/new digest、local receipt、session generation | reconnectだけでarm、再install | current artifact+preflight+Compliance確認 |
+| FI-UPG-008 | old/new adapterを同じexternal object writerとして同時activeにする | ownership/Lease conflict | one writerだけactive、他方drain/quarantine | adapter digests、ownership token、Operation | duplicate backend mutation | old writer absence+new ownership verification |
+| FI-UPG-009 | rollout中にHost/backend capability/versionを非互換またはstaleへ変更 | compatibility drift | scope別Placement/Recovery/dispatch停止 | observed generations、support decision | incompatible destination使用、既存resource暗黙mutation | fresh compatible evidenceまたは明示exception |
+| FI-UPG-010 | wave/target適用中にupgrade coordinatorをkill/failover | coordinator Lease loss | new ownerがDB/receipt/artifact read-back | Campaign/Lease/Attempt/observation | in-memory stepから二重適用 | current stateへidempotent resume |
+| FI-UPG-011 | rollback artifact activation後response loss、またはdestructive contract後rollback要求 | rollback outcome/boundary violation | target UNKNOWN/BLOCKED、blind reverse/PITR禁止 | boundary、Attempts、artifact/schema observations | repeated reinstall、DB restore、履歴改変 | read-back後forward repairまたは許可済みrollback |
+| FI-UPG-012 | Event replayへ旧decoder未対応payloadまたは削除済みschemaを注入 | consumer/schema incompatibility | delivery隔離、domain authority不変 | event schema/digest、consumer range、Receipt | payload再生成、Event drop、責任変更 | compatible decoder/consumerで再送 |
+| FI-UPG-013 | offline bundleからartifact/SBOM/migration/manifestの一部を欠損・改ざんする | bundle completeness/integrity failure | install/upgrade開始拒否 | bundle manifest/checksum/signature/audit | bypass install、部分stage | complete verified bundleを再投入 |
+| FI-UPG-014 | unauthorized actorがschema contract/feature activation/rollback/overrideを要求 | permission/approval failure | transition拒否、campaign state不変 | actor/action/approval/decision audit | destructive step、権限昇格 | authorized scoped approval |
+| FI-UPG-015 | Control Plane wave中にreplica loss/DB failoverとmax unavailable超過を注入 | HA/readiness budget violation | rollout pause、remaining serving replica維持 | replica/version/schema/quorum/wave evidence | quorum喪失、全replica同時停止 | HA回復+current compatibility再評価 |
 | FI-SPLIT-001 | old leader/authority generationからLease/Result送信 | generation/token mismatch | stale actor拒否 | conflict audit、current generation | Job/Desired進行 | current authorityから再同期 |
 | FI-IDENTITY-001 | JWKS/certificate revocation state unavailable | trust validation unavailable | privileged mutation fail closed | bounded auth error、audit | stale/unknown trustで新mutation | trust generation復旧 |
 | FI-AUDIT-001 | durable audit outbox writeを失敗させる | audit unavailable | 管理mutation transaction rollback | failure metric、request correlation | 監査なしmutation | audit durability復旧後に再受付 |
@@ -176,12 +191,13 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..018, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..017 |
+| Upgrade / Compatibility | FI-UPG-001..015 |
 | Split-brain / Stale Authority | FI-SPLIT-001 |
 | Identity / Audit | FI-IDENTITY-001, FI-AUDIT-001 |
 
 ## 5. Release Gate
 
 - Developer Preview: Client、Execution、Agent、DB failoverのcritical pathsをImplemented。
-- Technical Preview: 全12classで最低1 testをImplementedし、multi-node環境で証拠保存。
+- Technical Preview: 全13classで最低1 testをImplementedし、multi-node環境で証拠保存。
 - Product Beta: network/storage partition、Host fencing、DR restoreを含む全matrixを自動または承認済みrunbookで実行。
 - GA: release candidateごとにcritical subset、定期chaos campaignでfull setを実行。
