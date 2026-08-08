@@ -16,7 +16,7 @@
 | Data and Persistence | Schema Catalog、Retention Policy、Outbox、Inbox/Receipt、GC Snapshot/Lease/Receipt、Migration、Backup Manifest、Restore Epoch |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
-| Network | Network、Subnet、Port、Router、Security Group |
+| Network | Network、Subnet/IP Pool、IP/MAC Claim、Segment Pool/Claim、Port/Binding/Handoff、Router/Gateway、Floating IP/NAT、DHCP、Security Policy |
 | NFV Dataplane | Dataplane Runtime、PMD Core、DPDK Memory、Dataplane Port、Rx Queue、VM Dataplane Binding |
 | Storage | Storage Backend/Class、Volume、Backend Binding、Snapshot/Clone、Attachment Intent/Claim/Observation、Fencing Proof、Handoff |
 | Operations | Operation、Step、Event、Notification |
@@ -71,6 +71,14 @@ erDiagram
     VM ||--o{ PORT : attaches
     NETWORK ||--o{ SUBNET : contains
     NETWORK ||--o{ PORT : contains
+    NETWORK ||--o| SEGMENT_CLAIM : segments
+    SUBNET ||--o{ IP_POOL : allocates
+    PORT ||--o{ NETWORK_IDENTITY_CLAIM : identifies
+    PORT ||--o{ PORT_BINDING : binds
+    PORT_BINDING ||--o{ PORT_BINDING_OBSERVATION : observes
+    ROUTER ||--o{ ROUTER_INTERFACE : connects
+    ROUTER ||--o{ GATEWAY_BINDING : exits
+    FLOATING_IP ||--o| NAT_BINDING : translates
     HOST ||--o{ DATAPLANE_RUNTIME : runs
     DATAPLANE_RUNTIME ||--o{ PMD_CORE_ALLOCATION : owns
     DATAPLANE_RUNTIME ||--o{ DPDK_SOCKET_MEMORY : reserves
@@ -192,6 +200,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - Port および Volume Attachment は Project 境界を越えない。
 - SINGLE_WRITER Volumeはcurrent active Attachment Claimを最大一つだけ持ち、Claim release前に実世界I/O停止を検証する。
 - watcher/lock/device observationだけでAttachment authorityを作成・譲渡・解放しない。
+- IP/MAC/VLAN/VNI/Floating IP Claimはscope内で一意で、network-side UNKNOWN中に再利用しない。
+- OVN NB/SB/Host/dataplane observationだけでPort Binding/ownership authorityを作成・解放しない。
 - Quota 消費と Allocation claim は VM dispatch より前に確定する。
 - Host が maintenance または disabled の場合、新規 Allocation を作らない。
 - authenticatedだけのHostをenrolled/ready/armedとして扱わない。

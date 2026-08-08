@@ -97,6 +97,24 @@
 |---|---|---|
 | INV-NET-001 | KIMはvirtual network/provider bindingを所有し、WAN/inter-PoP/physical switch authorityを暗黙取得しない | AT-NET-001 |
 | INV-NET-002 | 未知または外部所有network objectを自動削除しない | FI-NET-001 |
+| INV-NET-003 | active IP/MAC Claimは定義scopeで一意で、Port/Identity allocationと不可分commitする | FI-NET-003 |
+| INV-NET-004 | Port/NAT/DHCP/binding/dataplane absenceとquarantine完了前にIP/MACを再利用しない | FI-NET-004 |
+| INV-NET-005 | VLAN/VNI Claimをscope内で一意にし、reference/dataplane absence前に再利用しない | FI-NET-005 |
+| INV-NET-006 | KIM authority、Intent Revision、OVN NB、OVN SB、Host/dataplane observationを別generation/stateで保持する | AT-NET-007 |
+| INV-NET-007 | Port ACTIVEはcurrent DB Bindingとbinding-type別NB/SB/Host/dataplane verification後だけ確定する | FI-NET-007 |
+| INV-NET-008 | 一般Portのactive Binding Claimは最大一つで、handoffは二つの通常active authorityを作らない | FI-NET-008 |
+| INV-NET-009 | Network adapterはCore DB/claimへwriteせずtyped plan/apply/observeだけを実行する | XCT-NET-001 |
+| INV-NET-010 | network-side UNKNOWNでidentity/segment再利用、反対操作、blind rebind、security緩和を行わない | FI-NET-006 |
+| INV-NET-011 | DHCP lease/runtime observationをIP Allocation authorityにしない | AT-NET-012 |
+| INV-NET-012 | Floating IP/NAT/Gateway Claimとdependencyをtransactionalに確定し、UNKNOWN中に再利用しない | FI-NET-011 |
+| INV-NET-013 | Security Policy realization不明時にdefault allowへfallbackしない | FI-NET-013 |
+| INV-NET-014 | required MTUを満たさない、またはpath capability UNKNOWNのHost/segment/gatewayをeligibleにしない | FI-NET-014 |
+| INV-NET-015 | SR-IOV/DPDK Port claimをPCI/PMD/RxQ/NUMAと不可分commitしbinding typeをsilent fallbackしない | AT-NET-020 |
+| INV-NET-016 | Host recovery/migrationはold Binding/Host/device authorityをfenceしnew generationを検証する | FI-NET-009 |
+| INV-NET-017 | active dependency/UNKNOWN中のNetwork resourceを削除せず、DB GCとOVN/Host cleanupを分離する | FI-NET-015 |
+| INV-NET-018 | backend-only/foreign OVN object、unknown interface/chassisを自動adopt/delete/unbindしない | FI-NET-016 |
+| INV-NET-019 | Provider mappingはphysical/WIM capability referenceでありswitch/WAN authorityをKIMへ移さない | AT-NET-015 |
+| INV-NET-020 | provider pool/gateway/force operation/Adoptionは個別permission/approval/auditを要求しraw topology/credentialをredactする | FI-NET-017 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

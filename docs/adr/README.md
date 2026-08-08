@@ -34,3 +34,4 @@
 - [ADR-0017: Recovery stormをdurable budgetとqueueで制御する](0017-bounded-recovery-storm-control.md)
 - [ADR-0018: 永続データをclassifyし安全なschema evolutionとrestoreを行う](0018-classified-persistence-and-safe-evolution.md)
 - [ADR-0019: Volume Attachment authorityと実世界fencingを分離する](0019-storage-attachment-authority-and-fencing.md)
+- [ADR-0020: KIM network intentとOVN/dataplane realizationを分離する](0020-kim-network-intent-and-layered-realization.md)

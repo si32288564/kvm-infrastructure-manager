@@ -207,7 +207,29 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-FLV-001 | FlavorのCPU/RAM/disk/NUMA/HugePages/pinning要求をplacementへ完全伝播する |
 | AT-NET-001 | KIM virtual network操作がWAN/physical switch authorityを変更しない |
 | AT-NET-002 | VLAN/Geneve/DHCP/security group/L3 intentがgeneration付きで収束する |
+| AT-NET-003 | IP/MAC Claimをscope内で一意に確保しreserved/excluded/explicit/automatic policyを強制する |
+| AT-NET-004 | overlapping CIDRをisolated Networkで許可し同一routing/attachment scope conflictを拒否する |
+| AT-NET-005 | Port delete/unbind後も全reference/dataplane absenceとquarantine完了までIP/MACを再利用しない |
 | AT-NET-006 | SR-IOV Port assignmentをPCI/device/network eligibilityと不可分に扱う |
+| AT-NET-007 | KIM authority、Intent Revision、OVN NB/SB、Host/dataplaneを別generation/layer statusで照会する |
+| AT-NET-008 | VLAN/VNI Segment Pool/Claimをscope内で一意に確保しprovider/overlay mappingを検証する |
+| AT-NET-009 | Port Bindingをtype/Host/chassis/device/segment/generation付きresourceとして管理する |
+| AT-NET-010 | ACTIVEをbinding-type別NB/SB/Host/dataplane verification後だけ表示する |
+| AT-NET-011 | typed Network plan/apply/observeがstable KIM ID/generation/digestで冪等に収束する |
+| AT-NET-012 | DHCP desired option/IP bindingとguest lease/runtime observationを分離する |
+| AT-NET-013 | Router Interfaceがownership/IP Claim/route overlapをtransactionalに検証する |
+| AT-NET-014 | Gateway Binding/Floating IP/NATがprovider/chassis/HA/dependency generationを保持する |
+| AT-NET-015 | Provider mappingがexternal physical/WIM capabilityだけを参照しfabric configurationを行わない |
+| AT-NET-016 | Gateway failoverがold authority/NAT generationをfenceしnew binding/dataplaneを検証する |
+| AT-NET-017 | Security Policy/Port membership/anti-spoofingをgeneration付きで適用しfail closedにする |
+| AT-NET-018 | effective MTUをoverlay overhead/Host/gateway/path capabilityから計算してPlacementへ反映する |
+| AT-NET-019 | Host recovery/migrationがPortBindingHandoffとold/new generationでsingle binding authorityを維持する |
+| AT-NET-020 | SR-IOV/DPDK/vhost BindingをPCI/PMD/RxQ/NUMA/identity/segment claimと不可分commitする |
+| AT-NET-021 | delete guard、typed OVN/Host cleanup、absence verification、identity/segment release、DB GC分離を強制する |
+| AT-NET-022 | backend-only/foreign OVN object/interfaceをquarantineしexplicit Adoption/repairを要求する |
+| AT-NET-023 | provider pool/gateway/force operation/Adoptionを個別permission/approval/auditで保護する |
+| AT-NET-024 | Network Event/APIがlayer/binding/intent generationを保持しraw OVN/Host/physical identityをredactする |
+| AT-NET-025 | Network adapterがtyped intent、UNKNOWN/read-back、ownership、secret/redaction contractへ適合する |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |

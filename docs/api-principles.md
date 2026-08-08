@@ -29,6 +29,9 @@
 /api/v1/networks
 /api/v1/subnets
 /api/v1/ports
+/api/v1/routers
+/api/v1/floating-ips
+/api/v1/security-policies
 /api/v1/volumes
 /api/v1/volume-attachments
 /api/v1/volume-snapshots

@@ -70,6 +70,13 @@
 | Q-061 | Ceph RBD fencing profile | supported Ceph/libvirt/QEMU version、exclusive-lock/blocklist/watcher evidence、client identity、timeoutを決定 | Technical Preview 前 |
 | Q-062 | Local LVM support profile | thin/thick、persistent/ephemeral、VG discovery、failure/loss表示、copy/replication非対応境界を決定 | Developer Preview 前 |
 | Q-063 | Storage force operation policy | force detach、client fence、lock break、delete/adoptionのapproval、break-glass、runbookを決定 | Technical Preview 前 |
+| Q-064 | Volume encryption lifecycle | key rotation、Secret version、snapshot/clone inheritance、restore/recovery availabilityを決定 | Technical Preview 前 |
+| Q-065 | Storage degraded admission | Ceph HEALTH_WARN/ERR、thin data/metadata pressure、external usage時のcreate/attach gateを決定 | Technical Preview 前 |
+| Q-066 | Storage durability classes | replication/durability expectation、failure domain、support claim、tenant-visible classを決定 | Product Beta 前 |
+| Q-067 | Initial IPAM/Segment profile | IPv4/IPv6、allocation/reuse quarantine、VLAN/VNI ranges、external IPAM連携範囲を決定 | Developer Preview 前 |
+| Q-068 | OVN realization profile | NB/SB/Host/dataplane verification、probe、timeout、DEGRADED/UNKNOWN thresholdを決定 | Technical Preview 前 |
+| Q-069 | Gateway/NAT/MTU profile | gateway HA chassis、external network/WIM contract、SNAT/FIP、MTU capabilityを決定 | Technical Preview 前 |
+| Q-070 | Security policy profile | default policy、stateful/stateless、remote selector、anti-spoof、rule scaleを決定 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -92,3 +99,4 @@
 17. Failure Campaign correlation profileとcanonical BudgetScopeKey schema
 18. Data retention、schema compatibility、backup/PITRのinitial product profile
 19. Ceph RBD fencing、Local LVM、Storage force operationのinitial support profile
+20. Storage encryption/degraded/durabilityとNetwork IPAM/OVN/Gateway/Securityのinitial profile

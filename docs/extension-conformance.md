@@ -146,6 +146,12 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-STO-004 | side effect後timeoutをstable identity/device/client/lock read-backで解決し、不能ならUNKNOWNにする |
 | XCT-STO-005 | secret value、raw client/device identity、生backend errorをmetadata/Event/logへ含めない |
 | XCT-STO-006 | unsupported access mode/fencing/snapshot/migration capabilityへsilent fallbackしない |
+| XCT-NET-001 | adapter planがpureでstable KIM ID/generation/digestを持つbounded OVN proposalだけを返しCore DBへwriteしない |
+| XCT-NET-002 | applyがclosed typed object/field contractだけを受け任意OVN command/object/columnを操作しない |
+| XCT-NET-003 | apply response lossをNB stable marker/digest read-backで解決し、不能ならUNKNOWNにする |
+| XCT-NET-004 | NB、SB/chassis、Host/dataplane observationを別generation/freshnessで返しNB successをACTIVEへ丸めない |
+| XCT-NET-005 | unknown/foreign object、stale binding、external mappingをowned/eligibleへ変換せずquarantine/conflictとして返す |
+| XCT-NET-006 | credential/raw topologyをmetadata/Event/logへ含めずunsupported binding/MTU/gateway/securityへsilent fallbackしない |
 
 ### C3
 

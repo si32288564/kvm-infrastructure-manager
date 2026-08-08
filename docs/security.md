@@ -69,6 +69,10 @@ flowchart LR
 - OVS-DPDK操作はHost-local typed adapterに限定し、arbitrary OVSDB key、EAL argument、`ovs-appctl` mutation、PCI bind commandを受け付けない。
 - Tenantはqueue/performance policyを要求できても、物理core ID、PMD mask、PCI BDF、vhost socket pathを直接指定できない。
 - VFIO、hugetlbfs、vhost-user socketは専用service identityと最小権限でアクセスする。
+- IP/MAC/VLAN/VNI/Floating IP allocationをProject/Network/physical scopeのDB Claimで一意化し、UNKNOWN Binding/NAT中に再利用しない。
+- Security Policy/Port membership/anti-spoofing realizationがUNKNOWNならnew exposureを停止し、default allowへfallbackしない。
+- provider/segment pool、Gateway、external IP Pool、force unbind/delete、Adoptionへ個別permission/approvalを要求する。
+- Network adapter credential、raw OVN object/chassis/tunnel IP、Host interface/physical topologyをTenant API/Event/diagnosticからredactする。
 
 ## 6. Storage と秘密情報
 

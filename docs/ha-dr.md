@@ -13,6 +13,8 @@ data class、backup manifest、restore epoch、schema/retention contractの詳�
 
 Volume/Attachmentのrestore classification、single-writer、backend adoption、fencingは [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
 
+Network Claim/Intent/Bindingのrestore classification、identity/segment reuse、OVN adoptionは [Network Resource Architecture](network-resource-architecture.md) に従います。
+
 本書のControl Plane HA/DRと、Host failure時のmanaged VM recoveryは別問題です。VM recovery責任と動作は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従い、Control Plane failoverだけでVM restart/evacuateを開始しません。
 
 ## 2. Authority Data
@@ -24,6 +26,7 @@ Volume/Attachmentのrestore classification、single-writer、backend adoption、
 - placement allocation、reservation、PCI/Volume Attachment Claim/Generation、Storage Fencing Proof/Handoff authority
 - PMD CPU、DPDK memory、Dataplane Port/RxQ、VM Dataplane Binding authority
 - logical network intent とprovider binding
+- IP/MAC/Segment/Floating IP Claim、Port Binding/Handoff、Gateway/NAT/Security revision
 - Operation、Job、Command、Lease、Attempt、idempotency
 - Host Operation Authority と監査outbox
 - Hardware Identity Evidence、Enrollment Policy、Host Profile/Baseline、Evaluator Artifact/Assignment、Compliance evidence/summary、External Remediation Request/Claim

@@ -138,3 +138,5 @@ Recovery idempotencyはcanonical Failure Campaign、VM、Availability Binding re
 相関rack/power/site/backend障害は、個別`HostFailureEpoch`を改変せずversioned `FailureCampaign`へ関連付けます。Queue/Operation/ConsumptionはVM単位のunique Recovery Campaign Claimへbindし、duplicate signalやlate Campaign mergeから新しいRecoveryを重複dispatchしません。merge前に開始済みのOperationは取消し推測をせず、current Campaign generationの下でread-back/reconciliationします。
 
 Volume attach/detach、client fencing、snapshot/clone/expand/delete、Attachment Handoffも同じCommand/Lease/Attempt/UNKNOWN/read-back modelを使用します。detach Command/ResultだけでAttachment Claimをreleaseせず、DB Claim、libvirt/QEMU device、backend client/watcher/lock/holder evidenceがcurrent generationで一致してからterminalへ進めます。Storage固有契約は [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
+
+OVN intent apply、Port bind/unbind、Gateway/NAT/Security apply、PortBindingHandoffも同じUNKNOWN/read-back modelを使用します。NB apply ResultだけでACTIVE/UNBOUNDを確定せず、KIM Claim、NB/SB、Host/dataplane observationがcurrent generationで一致してからterminalへ進めます。Network固有契約は [Network Resource Architecture](network-resource-architecture.md) に従います。

@@ -190,7 +190,7 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 | VM desired state | PostgreSQL | API が更新 |
 | VM runtime state | libvirt/QEMU | Agent が observed state として同期 |
 | Placement allocation | PostgreSQL | Scheduler が世代管理 |
-| Logical network intent | PostgreSQL | Network Controller が OVN へ反映 |
+| Network/Subnet/Port、IP/MAC/Segment/Binding/Gateway/NAT/Security Claim/Intent | PostgreSQL | Network ControllerがOVNへmaterialize |
 | Network dataplane state | OVN/OVS | observed state を収集 |
 | Volume/Backend Binding/Attachment Claim/Fencing decision | PostgreSQL | 実体とclient/device stateはbackend/libvirtのobserved state |
 | Operation history | PostgreSQL | 長期監査とは分離 |
@@ -226,9 +226,11 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 - Provider VLAN: 物理ネットワークへ直接接続するワークロード向け。
 - OVN Geneve overlay: Tenant ごとに重複可能なアドレス空間と論理 L2/L3 を提供。
 
-KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し、各ホストの `ovn-controller` と OVS が dataplane を構成します。OVN は論理 L2/L3、overlay、security group に相当する抽象化を提供します。
+KIMのPostgreSQL authorityでIP/MAC、VLAN/VNI、Port Binding、Gateway/NAT/Security Claimを確定し、immutable Network Intent RevisionをNetwork Controller AdapterがOVN Northbound DBへ反映します。OVN SB/chassisと各Hostの`ovn-controller`/OVS/dataplaneは別のobserved realizationとして検証します。
 
 KIMのauthorityはNFVI-PoP内のvirtual network resource、provider network binding、virtual router、tenant overlay、VM connectivityまでです。WAN path、transport network、inter-PoP connectivity、物理switch lifecycleはWIMまたは外部Network/PIMの責務です。
+
+IP/MAC/VLAN/VNIはPort/Network delete要求だけで再利用せず、binding/NAT/DHCP/Security referenceとOVN/Host absenceを確認します。OVN NB apply成功だけでPort/GatewayをACTIVEにせず、network-side UNKNOWNでは反対操作、blind rebind、identity reuse、default-allow fallbackを禁止します。詳細は [Network Resource Architecture](network-resource-architecture.md) を参照します。
 
 ### NFV Dataplane
 
@@ -317,6 +319,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [HA / DR Architecture](ha-dr.md)
 - [Data and Persistence Architecture](data-persistence-architecture.md)
 - [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md)
+- [Network Resource Architecture](network-resource-architecture.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)

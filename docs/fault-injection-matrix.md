@@ -115,6 +115,22 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
 | FI-NET-002 | ovn-controller lagでDB intentとdataplaneを乖離 | binding/dataplane lag | Portをprovisioning/degradedに維持 | intent+observed generations | Port ready誤表示 | chassis/dataplane verification |
+| FI-NET-003 | 同一Subnet/Networkへ同じIP/MACを複数workerが同時claim | unique/allocation conflict | 一Claimだけcommit、他方rollback | pool/identity/Port generations、transactions | duplicate IP/MAC、partial Port | winning Portまたはrelease後に再評価 |
+| FI-NET-004 | Port/OVN delete適用後responseをdropしstale SB/Host bindingを残す | deletion/binding outcome unknown | Identity Claim RELEASE_PENDING/QUARANTINED維持 | Port/intent/binding/absence observations | IP/MAC即時再利用、反対create | 全layer absence+reuse policy完了 |
+| FI-NET-005 | 同一physnet VLANまたはoverlay VNIを並行allocateし、delete中segmentを再要求 | Segment Claim conflict/reference guard | 一Claimだけcommit、delete中ID再利用停止 | pool/network/segment generations/references | duplicate VLAN/VNI、early reuse | old reference/dataplane absence後にfree |
+| FI-NET-006 | OVN NB transaction commit後responseをdrop | apply outcome unknown | same intent ID/generation/digest read-back | KIM intent、NB external IDs/digest | opposite create/delete、duplicate objects | matching NB object setと後続realization確認 |
+| FI-NET-007 | NB object適用後にSB/controller/Host programmingを停止 | layered convergence gap | Port PROVISIONING/DEGRADED/UNKNOWN、ACTIVE禁止 | NB/SB/chassis/Host generations | NB successだけでACTIVE | required SB/Host/dataplane verification |
+| FI-NET-008 | migrationでsource/destination Bindingを並行active化しworkerをkill | Binding Claim/handoff conflict | 一logical binding authority、両側read-back | Handoff/Lease、old/new Binding、Host evidence | 二通常active Binding、両側cleanup | verified source/destination handoff state |
+| FI-NET-009 | recovery先Binding後にold Host/Agent/OVN Resultを遅延 | old binding/authority generation | stale result拒否、new Bindingだけcurrent | Recovery/Port/Handoff correlation、old/new generations | old Binding復活、identity release | destination binding/dataplane verification |
+| FI-NET-010 | DHCP intent適用中にservice/controllerを停止しguest leaseを欠損 | DHCP/runtime observation gap | IP Claim維持、delivery DEGRADED | DHCP options、IP claim、lease observation | IP再割当、ACTIVE誤表示 | desired configとdelivery observation収束 |
+| FI-NET-011 | Floating IP/NAT apply後responseをdropしGateway healthをUNKNOWN化 | NAT/Gateway outcome unknown | Claim/Binding active-unknown、再利用/反対NAT停止 | FIP/NAT/Gateway/OVN generations | duplicate NAT/FIP、blind delete | NB/SB/gateway/dataplane read-back一致 |
+| FI-NET-012 | Gateway failover中にold chassis/sessionを復帰させstale NAT Resultを送信 | gateway authority generation conflict | old authority/result拒否、一current Binding | old/new gateway/NAT generations、fencing evidence | 二active gateway authority | new gateway/chassis/dataplane verification |
+| FI-NET-013 | Security Policy NB apply成功後SB/Host ACL programmingを失敗 | policy realization gap | new exposure/Port ACTIVE停止、default deny維持 | policy/PortGroup/NB/SB/Host generations | default allow、policy ready誤表示 | matching ACL/dataplane observation |
+| FI-NET-014 | Host/provider/gateway MTUを要求未満またはUNKNOWNに変更 | path capability generation mismatch | candidate/binding ineligible、existing DEGRADED | requested/effective MTU、path observations | silent fragmentation/tunnel fallback | current path capabilityがrequirementを満たす |
+| FI-NET-015 | active Port/Router/NAT/Security/UNKNOWN referenceを持つNetwork/Subnetをdelete | dependency/reference guard | delete拒否、OVN/claims維持 | dependency graph、states、audit | orphan Port/identity/segment、backend cleanup | dependencies解消+typed absence verification |
+| FI-NET-016 | backend-only/foreign OVN object、unknown chassis/interfaceを提示 | ownership/marker/generation mismatch | quarantine、affected scope mutation停止 | raw/normalized IDs、provenance、observations | auto adopt/delete/unbind | explicit Adoption/repairまたはexternal ownership確定 |
+| FI-NET-017 | unauthorized actorがSegment Pool/Gateway/force unbind/delete/Adoptionを要求しadapterがcredential/raw topologyをerrorへ返す | permission/redaction/conformance failure | request拒否、adapter quarantine/security alert | actor/action/payload digest/audit | backend mutation、credential/topology leak | authorized actionまたはpatched certified adapter |
+| FI-NET-018 | dry/final間にprovider mapping/physnet/SR-IOV/DPDK capability generationを変更 | final admission generation conflict | transaction rollback/reselection | snapshot/current mapping/device generations | unreachable Port、binding type fallback、partial claims | current compatible Host/mappingで全claim commit |
 | FI-DPDK-001 | active PortのPMD threadを停止/消失させる | PMD/runtime observation | affected Port/Hostへの新規dataplane placement停止 | runtime/Port alarm、generation | ready継続、silent fallback | PMD復旧+RxQ polling verification |
 | FI-DPDK-002 | RxQをunpolledまたは不正PMD coreへdriftさせる | RxQ/PMD assignment mismatch | bindingをdegraded/blocked | desired/observed mapping evidence | compliant/ready誤表示 | policy準拠mappingをobservationで確認 |
 | FI-DPDK-003 | ovs-vswitchd restart適用後にResult responseをdrop | Command timeout/runtime gap | Attempt UNKNOWN、新規disruptive op停止 | journal、runtime generation、Port evidence | blind restart/rollback | full runtime/PMD/Port/RxQ observation |
@@ -158,7 +174,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Workload Resilience Intent | FI-WRI-001..009 |
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
-| Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
+| Network / NFV Dataplane | FI-NET-001..018, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..017 |
 | Split-brain / Stale Authority | FI-SPLIT-001 |
 | Identity / Audit | FI-IDENTITY-001, FI-AUDIT-001 |

@@ -189,6 +189,7 @@ Faultを`ACTION_REQUIRED`として保持し、自動VM mutationを開始しま�
 - old/new Attachment generation、compute source fencing、storage client fencing、attachment authority fencingがStorage Policyを満たす。
 - VM migration capabilityが候補Hostに対して`restart-on-other-host`である。
 - image、secret、network、storage backendがdestinationで利用可能。
+- old/new Port Binding generation、Host/device authority、physnet/overlay/MTU/Gateway/Security realizationがNetwork Policyを満たす。
 - PCI/SR-IOV/DPDK/local resourceの代替またはPolicy上の不使用が証明される。
 - Placement Pool membership、Availability Policy compatibility、Compliance、capacityがcurrentである。
 - failure-domain constraintsを満たす。

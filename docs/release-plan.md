@@ -33,6 +33,7 @@
 - Workload Resilience Intent/Domain Claimとdurable Recovery Budget/Queue model
 - Data classification、Outbox/Inbox、retention/GC、schema migration、partition、PITR restore model
 - Storage Backend/Class、Volume Binding、Attachment Claim/Observation、single-writer/fencing/handoff model
+- IPAM/Segment Claim、Port Binding/Handoff、OVN layered realization、Gateway/NAT/Security model
 
 ### Exit criteria
 
@@ -51,6 +52,7 @@
 - NF側HA domain separationとRecovery storm budget/fairnessがtransaction/failover testへtraceされる。
 - authority/history分離、Outbox/Inbox atomicity、schema migration、GC、PITR restore epochがfailure/test matrixへtraceされる。
 - attach/detach UNKNOWN、stale watcher/lock、Host recovery、Local LVM locality、Ceph client fencingがtest matrixへtraceされる。
+- IP/MAC/VLAN/VNI conflict、OVN response loss/SB lag、Port recovery、Gateway/NAT/Security UNKNOWNがtest matrixへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -68,6 +70,7 @@
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
+- transactional IPAM/VLAN Claim、Port Binding、OVN NB/SB/Host layer status
 - OVS-DPDK capability discoveryとread-only dataplane observation
 - local storage
 - Local LVM Volume/Attachment generationとsingle-writer Claim
@@ -91,6 +94,7 @@
 - concurrent resilience memberを同一hard domainへcommitせず、Budget Lease二重取得を防ぐことを検証する。
 - domain mutation/OutboxとInbox/domain decisionの不可分性、N/N-1 expand migrationを検証する。
 - attach/detach response lossでClaimを誤解放せず、Local LVMを別Host recoveryしないことを検証する。
+- duplicate IP/VLANをcommitせず、OVN NB成功だけでPort ACTIVEにしないことを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -103,6 +107,7 @@
 - Host Failure Epoch、WORKLOAD_MANAGED event、MANUAL decision workflow
 - NFVO Resilience Intent mapping、multi-dimension Domain Claim、durable Recovery Queue/fair budget
 - OVN overlay、Subnet、Port、Security Group
+- Router/Gateway、Floating IP/NAT、DHCP、PortBindingHandoff、network-side UNKNOWN resolver
 - Ceph RBD、Volume、Snapshot
 - Ceph RBD client/watcher/lock observation、typed fencing、Attachment Handoff
 - NUMA、HugePages、CPU Pinning
@@ -118,6 +123,7 @@
 - DB restore 後に backend state と収束できる。
 - restore epochが旧Lease/session/claimをfenceし、backend-only resourceをquarantineする。
 - Ceph shared Volume recoveryでcompute/storage/attachment fencingをすべて検証する。
+- OVN controller/gateway failoverでidentity/segmentを再利用せずlayered realizationへ収束する。
 
 ## Phase 3: Product Beta
 

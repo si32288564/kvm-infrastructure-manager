@@ -69,10 +69,13 @@ CMDB/asset systemはHostGroup selector/assertionのsourceになれますが、KI
 | Tenant overlay と virtual router | Inter-PoP connectivity |
 | Provider network binding | Physical switch lifecycle/configuration |
 | DHCP、Security Group、Floating IP | Carrier/WAN resource orchestration |
+| IP/MAC、VLAN/VNI、Port Binding、Gateway/NAT Claim | external IPAM/segment/transport authority（連携時） |
 | VM connectivity と NFVI-PoP gateway attachment | 外部ネットワーク容量 authority |
 | OVS-DPDK PMD/DPDK memory/Port/RxQのHost内allocation | NIC firmware、physical fabric、外部DPDK application lifecycle |
 
 KIM は provider network、gateway、external connectivity の参照とbindingを保持できますが、外部物理ネットワークを暗黙に構成しません。外部資源変更は別authorityとの明示的な契約を必要とします。
+
+OVN NB/SB/Host dataplaneはKIM network intentのmaterialization/observationであり、KIMのProject ownershipやallocation authorityそのものではありません。external IPAM/WIMを利用する場合も、そのreservation/connectivity claimをversioned contractでKIM resourceへbindします。
 
 ## 5. NFV MANO
 

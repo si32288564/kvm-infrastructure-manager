@@ -60,6 +60,8 @@ Identity、Secret、Placementは高影響領域であり、Identity/Secret連携
 
 Storage adapterもhigh-impact C2 boundaryとして、stable backend identity、typed side effect/read-back、scoped secret、fencing evidenceだけを提供します。Attachment Claim/Generation、single-writer decision、Recovery authority、Core DBを所有しません。Host-local LVM/libvirt operation moduleはC1のclosed Command境界に従います。
 
+Network adapterはC2のtyped `plan/apply/observe` boundaryとして、stable KIM marker付きOVN intentとlayered observationだけを扱います。IP/MAC/VLAN/VNI/Binding/Gateway/NAT authorityやCore DBを所有せず、physical/WIM resourceを暗黙構成しません。Host-local OVS/SR-IOV operationはC1 closed Command境界に従います。
+
 OVS-DPDK Host moduleはC1の静的登録moduleを基本とし、generic OVSDB/EAL/PCI操作を公開しません。Control Plane側のDataplane orchestrationはC0 Coreとしてallocation authorityを保持します。
 
 Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、authority armingを行いません。Evaluatorはimmutable artifact digest、build provenance、compatible Control/evidence schema、fixture certificationを宣言し、shadow/canary rollout前にcurrent assignmentへしません。Remediation Moduleは別のclosed C1 CommandとしてExecution domainを通ります。

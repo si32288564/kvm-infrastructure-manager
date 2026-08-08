@@ -227,6 +227,34 @@
 | NET-005 | Floating IP と north-south gateway を管理できる | Should |
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
+| NET-008 | KIM network authority、Network Intent Revision、OVN NB desired、OVN SB realization、Host/dataplane observationを別generation/stateで管理する | Must |
+| NET-009 | IP/MACをNetwork/Subnet scopeのtransactional Network Identity Claimとして一意に確保する | Must |
+| NET-010 | isolated Network間のoverlapping CIDRを許可し、同一routing/attachment scopeの曖昧なoverlapを拒否する | Must |
+| NET-011 | IP Poolのgateway/DHCP/infrastructure reservation、exclusion、explicit/automatic allocation policyを管理する | Must |
+| NET-012 | Port/NAT/DHCP/binding/dataplane absence確認とquarantine期間完了までIP/MAC Claimを再利用しない | Must |
+| NET-013 | VLAN/VNI Segment PoolとClaimをphysical network/overlay domain scopeで一意に管理する | Must |
+| NET-014 | Network referenceとOVN/Host dataplane absence確認までVLAN/VNI Segment Claimを再利用しない | Must |
+| NET-015 | Provider network mappingを外部physical network capability/referenceとして扱い、switch/fabric authorityを暗黙取得しない | Must |
+| NET-016 | Port BindingをHost/chassis/device、binding type、segment mapping、generation付き第一級resourceとして管理する | Must |
+| NET-017 | 一般Portのactive Binding Claimを最大一つにし、migration/recoveryの一時状態をPortBindingHandoffで表現する | Must |
+| NET-018 | Port ACTIVEをDB Binding、OVN NB、OVN SB、Host/device/dataplaneのbinding-type別verification後だけ確定する | Must |
+| NET-019 | KIM authorityからimmutable Network Intent Revisionを生成し、typed plan/apply/observe contractでOVNへ適用する | Must |
+| NET-020 | OVN apply response lossをstable KIM ID、intent generation、digestのread-backで解決する | Must |
+| NET-021 | network binding/NAT/gateway/security outcomeがUNKNOWNならidentity/segment再利用、反対操作、blind rebind、policy緩和を行わない | Must |
+| NET-022 | DHCP desired options/IP bindingとguest lease/runtime observationを分離し、delivery failureでIPを再割当しない | Must |
+| NET-023 | Router InterfaceをSubnet/Router ownership、IP Claim、route overlapと不可分に管理する | Must |
+| NET-024 | Gateway Bindingをprovider mapping、gateway group/chassis、HA policy、health generation付きで管理する | Must |
+| NET-025 | Floating IP Claimとfixed Port/IP NAT Binding、Router/Gateway dependencyを不可分commitする | Must |
+| NET-026 | Gateway failoverでold gateway/chassis/NAT generationをfenceし、physical/WAN reachability UNKNOWNを区別する | Must |
+| NET-027 | Security Policy/Rule、Port membership、anti-spoofingをversioned intentとして管理しUNKNOWN時にdefault allowへfallbackしない | Must |
+| NET-028 | effective MTUをprovider/overlay overhead、Host/dataplane/gateway/path capabilityから評価し不足・UNKNOWN候補を拒否する | Must |
+| NET-029 | SR-IOV PortのNetwork Identity/Segment ClaimとPCI VF/device/physical mappingをFinal Admissionで不可分commitする | Must |
+| NET-030 | OVS-DPDK/vhost bindingをPMD/RxQ/NUMA claimと不可分にし、binding typeをsilent fallbackしない | Must |
+| NET-031 | Host recovery/migrationでold/new Port Binding generation、Host/device authority、destination reachability/securityを再評価する | Must |
+| NET-032 | active/pending Binding、IP/MAC/Segment/NAT/DHCP/Security、Recovery/Migration/UNKNOWN中のNetwork resource deleteを拒否する | Must |
+| NET-033 | backend-only/foreign OVN object、unknown Host interface/chassis bindingを自動adopt/delete/unbindしない | Must |
+| NET-034 | Network adapter credential、raw topologyを秘匿し、provider pool/gateway/force operation/Adoptionを個別permission/approvalで保護する | Must |
+| NET-035 | Network Event/APIでintent/binding/layer generationとbounded reasonを公開しraw OVN/Host/physical identityをredactする | Must |
 
 ### 2.13 NFV Dataplane
 
