@@ -46,6 +46,8 @@ flowchart TB
     API --> Workflow["Workflow / Operation Service"]
     Workflow --> Bus[("Internal Durable Message Bus")]
     Scheduler["Placement Scheduler"] --> DB
+    Grouping["Host Grouping / Scope Service"] --> DB
+    Grouping --> Scheduler
     Reconciler["Resource Reconcilers"] --> DB
     Reconciler --> Bus
     Inventory["Inventory and Capacity"] --> DB
@@ -119,6 +121,12 @@ flowchart TB
 Host discovery、identity bootstrap、Enrollment approval/Policy Match、Profile/Baseline Assignment、Preflight、Typed Convergence、Verification、Continuous Compliance、Maintenance、Decommissionを一つのauthority modelで管理します。Hardware identityはprovenance付きの複数evidenceから判断し、Compliance Resultはimmutable Evaluator Artifactへbindします。
 
 credentialはidentityだけを証明します。mutation authorityはEnrollment、Baseline、current compliance/preflight、Agent capability、policyを検証した別generationとして発行します。外部remediation完了claimはfresh Host observationとassigned Evaluator再評価までCompliance authorityを変更しません。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) を参照します。
+
+### Host Grouping
+
+HostGroupをSystem scopeの第一級resourceとして管理し、Placement Pool、Failure Domain、Operational Cohortを型分離します。membershipはgeneration付きでPostgreSQLへmaterializeし、Placement final admissionで再検証します。Baseline rolloutとMaintenance waveは開始時のimmutable membership snapshotへbindします。
+
+HostGroupはHost capability、Compliance、resource capacityを上書きせず、Group変更だけで既存workloadを暗黙変更しません。Tenantにはexposure policy付きPlacement Scopeだけを公開します。詳細は [Host Grouping Architecture](host-grouping-architecture.md) を参照します。
 
 ### Host OS Portability Layer
 
@@ -285,6 +293,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)
 - [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md)
+- [Host Grouping Architecture](host-grouping-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

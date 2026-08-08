@@ -21,6 +21,7 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 - Operation、Job、Command、Lease、Attempt、idempotency
 - Host Operation Authority と監査outbox
 - Hardware Identity Evidence、Enrollment Policy、Host Profile/Baseline、Evaluator Artifact/Assignment、Compliance evidence/summary、External Remediation Request/Claim
+- HostGroup、Dimension、materialized Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope
 
 backend observationだけでこれらを無条件に復元しません。
 

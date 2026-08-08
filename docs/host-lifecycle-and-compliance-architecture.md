@@ -375,6 +375,8 @@ Drift検出後のaction:
 
 Baseline version rolloutはHost単位のAssignment Operationです。
 
+HostGroupをtargetにする場合、rollout開始時のimmutable Group Membership Snapshotへbindします。実行中のGroup加入を自動追加せず、離脱Hostも履歴から除去しません。scope変更は新snapshot/new rollout generationを必要とします。詳細は [Host Grouping Architecture](host-grouping-architecture.md) に従います。
+
 - canary、batch、max unavailable、failure threshold
 - dry compliance impact analysis
 - workload/maintenance impact set
@@ -394,6 +396,8 @@ Maintenance entry:
 5. disruptive typed remediationを実行。
 6. Host再接続、full inventory、compliance verification。
 7. READY条件確認後にplacement再開。
+
+Group maintenanceは開始時snapshotとfailure-domain concurrency/minimum-ready policyへbindし、Group変更だけで追加Hostへmaintenance authorityを発行しません。
 
 rebootやOS package upgradeそのものをKIMが汎用実行しません。external-remediationの場合、KIMはmaintenance/fencing/evidence boundaryを管理します。
 

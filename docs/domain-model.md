@@ -10,6 +10,7 @@
 | Tenancy and Authorization | Tenant、Project、Membership、Role Binding、Policy、Quota |
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
 | Host Lifecycle and Compliance | Hardware Identity Evidence、Enrollment Policy、Host Profile、Baseline、Control、Evaluator、Assignment、Compliance、External Remediation、Maintenance |
+| Host Grouping | Host Group、Dimension、Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
@@ -24,6 +25,12 @@
 ```mermaid
 erDiagram
     SITE ||--o{ HOST : contains
+    HOST_GROUP ||--o{ HOST_GROUP_MEMBERSHIP : contains
+    HOST_GROUP ||--o{ HOST_GROUP_RELATION : relates
+    HOST ||--o{ HOST_GROUP_MEMBERSHIP : joins
+    HOST_GROUP ||--o{ GROUP_POLICY_BINDING : binds
+    HOST_GROUP ||--o{ GROUP_MEMBERSHIP_SNAPSHOT : snapshots
+    HOST_GROUP ||--o| PLACEMENT_SCOPE : exposes
     HOST_PROFILE ||--o{ HOST : classifies
     HOST_BASELINE ||--o{ BASELINE_CONTROL : contains
     HOST ||--o{ HARDWARE_IDENTITY_EVIDENCE : identified_by
@@ -161,6 +168,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - Critical NON_COMPLIANT/UNKNOWN HostまたはcapabilityをPlacement eligibleにしない。
 - Enrollment decisionはHardware Identity Evidence setとPolicy generationへbindし、単一可変identifierをauthorityにしない。
 - Compliance ResultはEvaluator Artifact/input evidence digestへbindし、外部completion claimをResultへ直接変換しない。
+- HostGroup membershipはgeneration付きPostgreSQL authorityで、GroupはHost eligibility/capacity authorityを上書きしない。
+- rollout/maintenanceはimmutable Group Membership Snapshotへbindし、Group変更だけで既存workloadを変更しない。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

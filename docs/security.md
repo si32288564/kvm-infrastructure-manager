@@ -50,6 +50,8 @@ flowchart LR
 - Hardware Identity Evidenceはsource/issuer/collector、request binding、freshness、integrity/attestation state、payload digestを保持し、MAC/hostname/IP等の単一可変値をauto-enrollment authorityにしない。
 - raw serial/attestation payload/management credentialを通常log/eventへ出さず、access-controlled evidence referenceとdigestを使用する。
 - External remediation callbackはservice identity、request/generation binding、expiry、replay/idempotency、integrityを検証し、callbackだけでCompliance/READY/authorityを進めない。
+- HostGroup/membership/hierarchy/policy binding/exposureはSystem scope permissionで分離し、Agent/Tenant/未認証external assertionによる変更を許可しない。
+- Tenantには許可されたPlacement Scopeだけを公開し、raw Host membership、rack/power topology、operator/owner cohortを秘匿する。
 
 ## 5. Network と Tenant 分離
 

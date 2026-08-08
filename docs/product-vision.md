@@ -41,6 +41,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 - 小規模なエッジから 100 ホスト規模まで、同一の運用モデルを適用できる。
 - KVM/libvirt を利用できる一般的な Linux ディストリビューションを、Control Plane を変更せずに採用できる。
 - Host参加からBaseline適用、Continuous Compliance、maintenance、decommissionまでを一つのlifecycleで管理できる。
+- HostGroupによりPlacement scope、Failure Domain、Baseline rollout、Maintenance waveを一貫したmembership generationで管理できる。
 - オフライン環境にインストールし、アップグレードとロールバックを管理できる。
 
 ## 4. 製品境界

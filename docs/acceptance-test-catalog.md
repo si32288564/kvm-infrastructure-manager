@@ -23,7 +23,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 |---|---|
 | AT-HST-001 | Agent register/approve/disable/deleteとHost state transitionを認可・監査付きで行う |
 | AT-HST-002 | CPU/NUMA/memory/HugePages/NIC/storage/libvirt inventoryとgenerationを正規化する |
-| AT-HST-003 | aggregate/AZ/trait変更がplacement snapshotへversion付きで反映される |
+| AT-HST-003 | HostGroup/Placement Scope/trait変更がplacement snapshotへversion付きで反映される |
 | AT-AGT-001 | shell/argv/unknown Command/arbitrary libvirt XML/path payloadをschema境界で拒否する |
 | AT-AGT-002 | Agent artifact/configにBus credential/subject accessがなくGateway mTLSだけを使用する |
 | AT-AGT-003 | identity/capability/armed authority/current Leaseの一つでも欠ければCommandを取得・実行できない |
@@ -57,7 +57,27 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HLC-021 | External Remediation Request/responseがservice identity、contract/generation、expiry、idempotency、integrity、correlationを検証する |
 | AT-HLC-022 | 外部COMPLETION_CLAIM後もfresh observationとassigned Evaluator再評価が一致するまでCompliance/READY/authorityを進めない |
 
-## 5. API / Data / Operations
+## 5. Host Grouping
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-HGR-001 | HostGroup/Dimension/Membership/Hierarchy/Policy Binding/Snapshot/Placement Scopeをgeneration・認可・監査付きresourceとして管理する |
+| AT-HGR-002 | Group typeごとに許可効果を制限し、同じHost集合でも異type semanticsを暗黙共有しない |
+| AT-HGR-003 | EXACTLY_ONE/ZERO_OR_ONE/MANY cardinalityとrequired membershipをdimension+levelごとに検証する |
+| AT-HGR-004 | explicit/selector/external sourceのprovenanceを保持し、materialized membershipだけをcurrent authorityにする |
+| AT-HGR-005 | selectorがpure/deterministicで、input/version/result digestから同じproposalを再現する |
+| AT-HGR-006 | Group所属/weightがineligible Hostをeligibleにせず、Host固有reasonを保持する |
+| AT-HGR-007 | Placement snapshotとfinal admissionがmembership/policy/hierarchy generationを固定・再検証する |
+| AT-HGR-008 | Group capacity表示がHost inventory/allocation合計と一致し、Group独自claim/usage rowを作らない |
+| AT-HGR-009 | Profile/Baseline bindingをpriority/versionで決定し、同priority conflictをBLOCKEDにする |
+| AT-HGR-010 | rolloutが開始時membership snapshotだけを対象とし、retry/resumeでも同じdigestを使う |
+| AT-HGR-011 | maintenance waveがsnapshot、failure-domain concurrency、minimum-ready、drain条件を強制する |
+| AT-HGR-012 | Tenant APIが許可Placement Scopeだけを返し、Host membership/rack/power/owner情報を秘匿する |
+| AT-HGR-013 | DRAFT/ACTIVE/DRAINING/RETIRED/DELETED lifecycleとactive reference delete guardを検証する |
+| AT-HGR-014 | membership/hierarchy変更後も既存workloadを維持し、違反をdrift/action-requiredとして記録する |
+| AT-HGR-015 | membership bulk updateを一generationで不可分commitし、response loss再送を同じdigestへ収束させる |
+
+## 6. API / Data / Operations
 
 | ID | Acceptance Contract |
 |---|---|
@@ -70,7 +90,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-OPS-005 | retry/cancelが許可状態とauthorityを検証し、unsafe actionを拒否する |
 | AT-EVT-001 | event/webhookをdurable outboxから再送し、重複IDとredaction contractを維持する |
 
-## 6. Execution
+## 7. Execution
 
 | ID | Acceptance Contract |
 |---|---|
@@ -82,7 +102,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-006 | successful Result後もJobはverifyingで、matching observation後だけsucceededになる |
 | AT-EXEC-007 | terminal Job/Attempt/Event履歴がimmutableである |
 
-## 7. Placement / Migration
+## 8. Placement / Migration
 
 | ID | Acceptance Contract |
 |---|---|
@@ -96,7 +116,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-PLC-008 | affinity/anti-affinity/PCI/SR-IOV/NUMA constraintをeligibilityで評価する |
 | AT-PLC-009 | eligibility reason、score、rank、final conflict、reselectionを説明できる |
 
-## 8. Compute / Image / Network / Storage
+## 9. Compute / Image / Network / Storage
 
 | ID | Acceptance Contract |
 |---|---|
@@ -111,7 +131,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 
-## 9. NFV Dataplane
+## 10. NFV Dataplane
 
 | ID | Acceptance Contract |
 |---|---|
@@ -129,7 +149,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DPL-012 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない |
 | AT-DPL-013 | Validated OVS/DPDK/distribution/NIC driver組合せだけをsupport matrix対象として公開する |
 
-## 10. Security / Audit / Documentation
+## 11. Security / Audit / Documentation
 
 | ID | Acceptance Contract |
 |---|---|
@@ -142,7 +162,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
 | AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
 
-## 11. HA / Upgrade / Packaging
+## 12. HA / Upgrade / Packaging
 
 | ID | Acceptance Contract |
 |---|---|
@@ -150,7 +170,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-001 | N-1→N upgrade/rollback中にAPI/Agent contractと既存VMを維持する |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 
-## 12. Performance Tests
+## 13. Performance Tests
 
 | ID | Performance Contract |
 |---|---|

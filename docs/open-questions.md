@@ -47,6 +47,11 @@
 | Q-038 | Compliance evidence retention | Control Result/evidence/auditの保持期間と容量 | Technical Preview 前 |
 | Q-039 | External remediation transport/profile | authority/evidence contractは確定。初期adapterのevent/API transport、IdP identity、evidence retention profileを決定 | Technical Preview 前 |
 | Q-040 | Decommission authority | credential revoke、drain exception、physical wipe境界のoperator policy | Product Beta 前 |
+| Q-041 | Initial HostGroup dimensions | placement pool、site/rack/power、owner、baseline ringの初期dimension/cardinality | Phase 0 |
+| Q-042 | Selector source authority | 初期CMDB/asset source、freshness、manual fallback、external assertion identity | Developer Preview 前 |
+| Q-043 | Public Placement Scope | Tenant/NFVOへ公開するAZ/pool model、stable name、Project access policy | Technical Preview 前 |
+| Q-044 | Group binding precedence | initial Profile/Baseline binding priority rangeとdirect Host override運用 | Phase 0 |
+| Q-045 | Maintenance failure-domain policy | dimension別concurrency、minimum ready、membership drift時のpause/continue条件 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -63,3 +68,4 @@
 11. release blocker invariantと手動検証owner
 12. OVS-DPDKのinitial resource schemaとsupport matrix
 13. Enrollment/Baseline/Complianceのinitial policyとControl catalog
+14. Initial HostGroup dimension、binding precedence、公開Placement Scope

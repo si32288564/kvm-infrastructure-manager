@@ -52,6 +52,7 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 - [Acceptance Test Catalog](docs/acceptance-test-catalog.md)
 - [NFV Dataplane Resource Architecture](docs/nfv-dataplane-resource-architecture.md)
 - [Host Lifecycle and Compliance Architecture](docs/host-lifecycle-and-compliance-architecture.md)
+- [Host Grouping Architecture](docs/host-grouping-architecture.md)
 - [リリース計画](docs/release-plan.md)
 - [未決事項](docs/open-questions.md)
 - [Architecture Decision Records](docs/adr/README.md)

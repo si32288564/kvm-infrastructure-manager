@@ -114,6 +114,10 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-HLC-005 | Evaluator Artifactがimmutable digest、build provenance、schema/control/evidence compatibilityと再現可能fixture resultを持つ |
 | XCT-HLC-006 | Evaluator revision更新が旧版とのshadow comparisonとcanary thresholdを通過するまでcurrent assignmentにならない |
 | XCT-HLC-007 | External remediation adapterがCore DB/Agent credential/Lease/authorityを持たず、completion claimをCompliance resultへ直接変換しない |
+| XCT-HGR-001 | HostGroup Selectorがpure/deterministicでcandidate membershipとprovenanceだけを返しDB writeしない |
+| XCT-HGR-002 | external assertion adapterがsource identity、generation、freshness、integrity、bounded claimsを検証する |
+| XCT-HGR-003 | stale/conflicting/unknown selector inputを任意membershipへ丸めずUNKNOWN/conflictとして返す |
+| XCT-HGR-004 | selector/adapter upgradeがcontract version、input/output digest、compatibility、support tierを宣言する |
 
 ### C2
 

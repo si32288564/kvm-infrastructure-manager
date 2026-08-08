@@ -147,6 +147,8 @@ Host lifecycle固有のbootstrap response loss、duplicate identity、Baseline c
 
 identity evidenceの一部一致をHost同一性の証明へ格上げせず、source間conflictはEnrollmentを停止します。Evaluator revision間の判定差はrollout failureとして封じ込め、旧Resultを改変しません。外部remediation callbackの偽装/replay/expiryは拒否し、正当なcompletion claimでもKIMのfresh observationとcurrent Evaluatorが一致しなければNON_COMPLIANT/UNKNOWNとplacement blockを維持します。
 
+HostGroup selector/source failure、exclusive membership conflict、hierarchy cycle、stale generationはaffected scopeをfail closedにします。Placementは再評価し、rollout/maintenanceは開始時snapshotを改変しません。Group binding conflictからBaselineをlast-winsで選ばず、active referenceを持つGroupを削除しません。
+
 ### 5.8 libvirt / QEMU Failure
 
 例: synchronous error、daemon restart、QEMU crash、operation timeout。
@@ -203,6 +205,7 @@ identity evidenceの一部一致をHost同一性の証明へ格上げせず、so
 | Agent loss | 継続 | 対象Host停止 | journal/read-back | mutation証明不能 |
 | Host loss | 不明または停止 | 対象Host停止 | fencing後に限定 | storage/device ownership不明 |
 | Host enrollment/compliance failure | 既存workloadはpolicy依存 | enrollment/placement/remediation停止 | evidence再取得/明示approval | 自動merge/arm/推測compliance |
+| HostGroup membership/hierarchy failure | 既存workloadを維持 | affected placement/snapshot作成停止 | source再取得/再materialize | Group推測選択、snapshot改変、暗黙migration |
 | Network/dataplane backend loss | compute継続、connectivity degradedの可能性 | 対象network/dataplane停止 | intent/typed resolver | external object、PMD/PCI ownership不明 |
 | Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
 

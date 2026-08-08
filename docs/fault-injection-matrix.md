@@ -56,6 +56,14 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-HLC-010 | 新Evaluatorが同じevidence corpusへ旧版と異なる判定を返しcanary thresholdを超過 | shadow/canary result delta | Evaluator rollout pause、未対象Assignment不変 | artifact/input digest、old/new result、threshold decision | 全Host切替、旧Result書換え | authorized fix/new revisionまたは明示rollout decision |
 | FI-HLC-011 | External remediation callbackを偽装・replay・expiry後に送信 | identity/binding/nonce/expiry failure | claim拒否、current request不変 | rejected digest、source、reason、audit | Compliance/maintenance/authority進行 | current authenticated requestに対するfresh response |
 | FI-HLC-012 | 外部systemが成功claimを返すがHost observationは未変更または取得不能 | claim/observation mismatch | Compliance NON_COMPLIANT/UNKNOWN、placement block維持 | external claim、fresh/failed observation、Evaluator result | COMPLIANT/READY/arm/maintenance exit | KIM-trusted observationとcurrent Evaluatorが一致 |
+| FI-HGR-001 | selector/CMDB sourceを停止しmembership evidenceを期限切れにする | source health/freshness expiry | affected dynamic membership UNKNOWN、新規scope利用停止 | last materialization、source/evidence generation、alarm | last resultの無期限current化、推測remove/add | trusted source復旧とnew materialization |
+| FI-HGR-002 | EXACTLY_ONE dimensionを欠損、またはexclusive Group二重所属にする | cardinality conflict | affected Host/scopeをineligible/BLOCKED | conflicting memberships、dimension policy、audit | 任意Group選択、scoreでの救済 | 一意なauthorized membership generation |
+| FI-HGR-003 | hierarchy更新へcycleを入れる、またはgraph write途中でtransactionを失敗させる | cycle/transaction failure | new graph全体をrollback、old committed graph維持 | proposed digest、validation/error、old generation | partial hierarchy公開 | valid graphの一generation commit |
+| FI-HGR-004 | dry selection後、final admission前にHostをPlacement Poolから除外する | membership generation mismatch | final admission rollback、残候補reselection | dry/current generation、conflict reason | stale Host claim、部分reservation | current snapshotで再評価・commit |
+| FI-HGR-005 | rollout/maintenance開始後にGroupへHostを加入・離脱させる | live membershipとsnapshot digest差 | active scope不変、policyによりpause/skip/action-required | snapshot、new membership、decision audit | 加入Hostへの自動適用/maintenance、離脱履歴削除 | new snapshot/new generationまたは元scope完了 |
+| FI-HGR-006 | 同priorityで異なるBaseline bindingを二Groupから適用する | assignment conflict | effective assignment未発行、Host BLOCKED | bindings、priority、group generations、reason | last-wins、任意Baseline適用 | authorized priority/binding conflict解消 |
+| FI-HGR-007 | active Placement/rollout/snapshot/policy referenceを持つGroupをretire/deleteする | active reference guard | DRAINING/RETIRED維持、delete拒否 | reference set、audit、lifecycle state | reference orphan、workload移動/削除 | reference終了/移行後のauthorized delete |
+| FI-HGR-008 | maintenance wave中にfailure-domain membershipを変更し同domain concurrency上限を超える | domain generation/concurrency mismatch | new maintenance authority停止、wave pause | snapshot/current domain、active maintenance、capacity | 追加Host drain/reboot | domain再評価とauthorized new wave/snapshot |
 | FI-LIBVIRT-001 | libvirt mutation後にtimeoutを返す | backend timeout | Attempt UNKNOWN、read-back | Command/Attempt/evidence | 即時反対mutation | Domain UUID/stateで解決 |
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
@@ -83,6 +91,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Agent Gateway / Transport | FI-GATEWAY-001..002, FI-TRANSPORT-001..002 |
 | Agent | FI-AGENT-001..002 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
+| Host Grouping / Failure Domain | FI-HGR-001..008 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |

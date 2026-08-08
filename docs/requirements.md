@@ -36,7 +36,7 @@
 | HST-002 | CPU、NUMA、メモリ、HugePages、ストレージ、NIC、libvirt 機能を収集できる | Must |
 | HST-003 | Host の enabled、disabled、maintenance、failed 状態を管理できる | Must |
 | HST-004 | 仮想資源と物理 Host の対応を照会できる | Must |
-| HST-005 | Host Aggregate、AZ、ラベル、trait を管理できる | Should |
+| HST-005 | 第一級HostGroup、AZ相当のPlacement Scope、ラベル、traitを管理できる | Should |
 | HST-006 | Capacity の予約量、使用量、実測量を区別できる | Must |
 | HST-007 | OS、kernel、QEMU、libvirt、service manager、security module の差異を Agent adapter で吸収できる | Must |
 | HST-008 | Agent が Host capability と制約を正規化して Control Plane へ報告できる | Must |
@@ -71,7 +71,28 @@
 | HLC-021 | Evaluator更新をCI comparison、shadow、canary、batch、failure threshold付きrolloutで進め、過去Resultを改変しない | Must |
 | HLC-022 | External remediationの要求/応答を認証・generation・expiry・idempotency付きcontractで管理し、外部完了claimだけでCOMPLIANT/READY/armedへ遷移しない | Must |
 
-### 2.4 Image、Flavor
+### 2.4 Host Grouping
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| HGR-001 | HostGroupとmembershipをSystem scopeの第一級versioned resourceとして作成、照会、更新、drain、retireできる | Must |
+| HGR-002 | Placement Pool、Failure Domain、Operational Cohortを型分離し、型に許可された効果だけを適用する | Must |
+| HGR-003 | Group dimension+levelごとにEXACTLY_ONE、ZERO_OR_ONE、MANYのmembership cardinalityを定義・検証する | Must |
+| HGR-004 | explicit、versioned selector、authenticated external assertionによるmembership sourceとprovenanceを保持する | Must |
+| HGR-005 | selector evaluationを副作用なく実行し、PostgreSQLへgeneration付きでmaterializeしたmembershipだけをauthorityにする | Must |
+| HGR-006 | 同一type/dimension内のversioned hierarchyをcycle/partial graphなしに不可分更新する | Must |
+| HGR-007 | stale、conflicting、required-missing membership/hierarchyをUNKNOWNまたは不適格としてfail closedに扱う | Must |
+| HGR-008 | Placement dry/final admissionでGroup membership、policy、hierarchy generationを再検証する | Must |
+| HGR-009 | Group membership/weightがHost lifecycle、Compliance、capability、resource eligibilityを上書きしない | Must |
+| HGR-010 | Group capacityをHost inventory/allocationから導出し、独立したreservation authorityにしない | Must |
+| HGR-011 | Group Profile/Baseline bindingをversion/priority付きで解決し、同priority conflictをlast-winsにせずBLOCKEDにする | Must |
+| HGR-012 | Baseline rolloutを開始時のimmutable Group Membership Snapshotへbindし、加入/離脱で実行中scopeを暗黙変更しない | Must |
+| HGR-013 | Maintenance waveをGroup snapshotとfailure-domain concurrency/capacity policyへbindする | Must |
+| HGR-014 | Tenantへraw infrastructure Groupではなくexposure policy付きPlacement Scopeだけを公開する | Must |
+| HGR-015 | active membership/reference/rollout/maintenance/policy bindingを持つGroupを削除しない | Must |
+| HGR-016 | Group変更だけで既存workloadを暗黙移動、停止、再構成せずdrift/action-requiredとして扱う | Must |
+
+### 2.5 Image、Flavor
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -81,7 +102,7 @@
 | FLV-001 | vCPU、RAM、root disk、追加仕様を Flavor として管理できる | Must |
 | FLV-002 | NUMA、HugePages、CPU Pinning を Flavor で要求できる | Should |
 
-### 2.5 Compute
+### 2.6 Compute
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -95,7 +116,7 @@
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 
-### 2.6 Scheduler
+### 2.7 Scheduler
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -107,7 +128,7 @@
 | SCH-006 | final admission の競合失敗時に同じ request snapshot の残候補を再選択できる | Must |
 | SCH-007 | dry admission は状態を変更せず、capacity を予約しない | Must |
 
-### 2.7 Network
+### 2.8 Network
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -119,7 +140,7 @@
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
 
-### 2.8 NFV Dataplane
+### 2.9 NFV Dataplane
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -139,7 +160,7 @@
 | DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
 | DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
 
-### 2.9 Storage
+### 2.10 Storage
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -150,7 +171,7 @@
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
 
-### 2.10 Operation、Event、Notification
+### 2.11 Operation、Event、Notification
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -165,7 +186,7 @@
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
-### 2.11 Fault、Performance、Audit
+### 2.12 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
 |---|---|---|

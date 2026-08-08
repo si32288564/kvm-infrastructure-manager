@@ -120,7 +120,25 @@
 | INV-HLC-017 | 外部remediationの完了claimだけではCOMPLIANT、READY、authority armed、maintenance exitへ遷移しない | FI-HLC-012 |
 | INV-HLC-018 | External remediation integrationはCore DB、Agent credential、Command Lease、Host Operation Authorityを取得しない | AT-HLC-021 |
 
-## 10. Security, Audit, and Failure
+## 10. Host Grouping
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-HGR-001 | PostgreSQLへgeneration付きでmaterializeされたHostGroup membershipだけをauthorityとして使用する | AT-HGR-004 |
+| INV-HGR-002 | Placement Pool、Failure Domain、Operational Cohortの効果を相互に暗黙継承しない | AT-HGR-002 |
+| INV-HGR-003 | required/exclusive dimensionの欠損・多重所属を任意Group選択で解決せずfail closedにする | FI-HGR-002 |
+| INV-HGR-004 | selectorはpure proposalであり、Agent自己申告やexternal claimからmembershipを直接writeしない | XCT-HGR-001 |
+| INV-HGR-005 | hierarchy graphをcycle/partial stateなしに一generationでcommitする | FI-HGR-003 |
+| INV-HGR-006 | Group membership、weight、policyはHost lifecycle/Compliance/capability/resource eligibilityを上書きしない | AT-HGR-006 |
+| INV-HGR-007 | Final Admissionはcurrent membership/policy/hierarchy generationを再検証する | FI-HGR-004 |
+| INV-HGR-008 | Group capacityはHost authorityからの導出値で、独立allocation/reservation ledgerを持たない | AT-HGR-008 |
+| INV-HGR-009 | 同priorityの非互換Group policy bindingをlast-winsで解決せずASSIGNMENT_CONFLICTにする | FI-HGR-006 |
+| INV-HGR-010 | rollout/maintenance targetは開始時のimmutable Group Membership Snapshotへbindする | FI-HGR-005 |
+| INV-HGR-011 | Tenantへraw infrastructure Group/failure topologyを公開せず許可されたPlacement Scopeだけを公開する | AT-HGR-012 |
+| INV-HGR-012 | Group変更だけで既存workloadを暗黙移動、停止、再構成しない | AT-HGR-014 |
+| INV-HGR-013 | active membership/reference/snapshot/policy bindingを持つGroupを削除しない | FI-HGR-007 |
+
+## 11. Security, Audit, and Failure
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -132,7 +150,7 @@
 | INV-HA-001 | 同一Site HA failoverはcommitted authority RPO 0を目標とする | FI-DB-001 |
 | INV-DR-001 | restore後の未知resourceはquarantineし、明示adoption前にmutationしない | FI-DR-001 |
 
-## 11. Extensions
+## 12. Extensions
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -143,7 +161,7 @@
 | INV-EXT-005 | UNKNOWNをFAILED/SUCCEEDEDへ丸めるadapterを受け入れない | XCT-FAIL-001 |
 | INV-EXT-006 | capability消失時は新規利用を停止し、既存resourceを暗黙変更しない | XCT-CAP-001 |
 
-## 12. Documentation
+## 13. Documentation
 
 | ID | Invariant | 主な検証 |
 |---|---|---|

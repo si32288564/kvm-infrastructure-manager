@@ -30,7 +30,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 |---|---|---|---|---|---|
 | HST-001, HST-003 | architecture, agent-protocol | ADR-0001 | INV-AUTH-003, INV-AGT-003 | AT-HST-001 | Planned |
 | HST-002, HST-004, HST-006 | architecture, domain-model | ADR-0001 | INV-DATA-002 | AT-HST-002 | Planned |
-| HST-005 | placement-architecture | ADR-0006 | INV-PLC-001 | AT-HST-003 | Planned |
+| HST-005 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-001, INV-HGR-007 | AT-HST-003, AT-HGR-001, AT-HGR-007 | Planned |
 | HST-007, HST-008, HST-009, HST-010, HST-011 | architecture, extensibility-architecture | ADR-0004, ADR-0011 | INV-AGT-006, INV-AGT-007, INV-EXT-004 | AT-AGT-006, AT-AGT-007, XCT-AGENT-001 | Planned |
 
 ## 5. Host Lifecycle / Baseline / Compliance
@@ -54,7 +54,24 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HLC-020, HLC-021 | host-lifecycle-and-compliance-architecture, extensibility-architecture | ADR-0011, ADR-0013 | INV-HLC-015, INV-HLC-016 | AT-HLC-019, AT-HLC-020, FI-HLC-010, XCT-HLC-005, XCT-HLC-006 | Planned |
 | HLC-022 | host-lifecycle-and-compliance-architecture, responsibility-boundaries, security | ADR-0011, ADR-0013 | INV-HLC-017, INV-HLC-018 | AT-HLC-021, AT-HLC-022, FI-HLC-011, FI-HLC-012, XCT-HLC-007 | Planned |
 
-## 6. Image / Flavor / Compute
+## 6. Host Grouping
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| HGR-001, HGR-015 | host-grouping-architecture, domain-model | ADR-0014 | INV-HGR-001, INV-HGR-013 | AT-HGR-001, AT-HGR-013, AT-HGR-015, FI-HGR-007 | Planned |
+| HGR-002 | host-grouping-architecture | ADR-0014 | INV-HGR-002 | AT-HGR-002 | Planned |
+| HGR-003, HGR-007 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-003 | AT-HGR-003, FI-HGR-001, FI-HGR-002 | Planned |
+| HGR-004, HGR-005 | host-grouping-architecture, extensibility-architecture | ADR-0011, ADR-0014 | INV-HGR-001, INV-HGR-004 | AT-HGR-004, AT-HGR-005, XCT-HGR-001, XCT-HGR-002, XCT-HGR-003, XCT-HGR-004 | Planned |
+| HGR-006 | host-grouping-architecture | ADR-0014 | INV-HGR-005 | FI-HGR-003 | Planned |
+| HGR-008, HGR-009 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-006, INV-HGR-007 | AT-HGR-006, AT-HGR-007, FI-HGR-004 | Planned |
+| HGR-010 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-008 | AT-HGR-008 | Planned |
+| HGR-011 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-009 | AT-HGR-009, FI-HGR-006 | Planned |
+| HGR-012 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-010, FI-HGR-005 | Planned |
+| HGR-013 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-011, FI-HGR-005, FI-HGR-008 | Planned |
+| HGR-014 | host-grouping-architecture, security | ADR-0014 | INV-HGR-011 | AT-HGR-012 | Planned |
+| HGR-016 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-012 | AT-HGR-014 | Planned |
+
+## 7. Image / Flavor / Compute
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -65,7 +82,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | CMP-005, CMP-006, CMP-009 | placement-architecture | ADR-0006 | INV-PLC-007 | AT-PLC-007 | Planned |
 | CMP-008 | api-principles, security | ADR-0005 | INV-SEC-001, INV-SEC-002 | AT-CMP-008 | Planned |
 
-## 7. Placement
+## 8. Placement
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -74,7 +91,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | SCH-003, SCH-005 | placement-architecture | ADR-0006 | INV-PLC-001 | AT-PLC-009 | Planned |
 | SCH-006 | placement-architecture | ADR-0006 | INV-PLC-005 | AT-PLC-005 | Planned |
 
-## 8. Network / Storage
+## 9. Network / Storage
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -94,7 +111,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | DPL-010, DPL-011 | nfv-dataplane-resource-architecture, execution-architecture | ADR-0007, ADR-0012 | INV-DPL-007, INV-DPL-008, INV-DPL-010 | AT-DPL-008, AT-DPL-009, FI-DPDK-003, FI-DPDK-005, XCT-DPDK-002, XCT-DPDK-003, XCT-DPDK-004 | Planned |
 | DPL-013, DPL-014, DPL-015 | nfv-dataplane-resource-architecture, failure-model | ADR-0010, ADR-0012 | INV-DPL-005, INV-DPL-009 | AT-DPL-011, AT-DPL-012, AT-DPL-013, FI-DPDK-001 | Planned |
 
-## 9. Operations / Observability / Audit
+## 10. Operations / Observability / Audit
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -105,7 +122,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | O11Y-001, O11Y-002, O11Y-003 | security, failure-model | ADR-0010 | INV-SEC-002 | AT-O11Y-001 | Planned |
 | AUD-001, AUD-002 | security, responsibility-boundaries | ADR-0005, ADR-0010 | INV-SEC-001, INV-SEC-002 | AT-AUD-001, AT-AUD-002 | Planned |
 
-## 10. Non-functional Requirements
+## 11. Non-functional Requirements
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -117,7 +134,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
 | NFR-EXT-001, NFR-EXT-002, NFR-EXT-003, NFR-EXT-004, NFR-EXT-005, NFR-EXT-006 | extensibility-architecture | ADR-0011 | INV-EXT-001, INV-EXT-002, INV-EXT-003, INV-EXT-004, INV-EXT-005, INV-EXT-006 | XCT-CONTRACT-001, XCT-BOUNDARY-001, XCT-BOUNDARY-002, XCT-BOUNDARY-003, XCT-FAIL-001, XCT-CAP-001, XCT-LIFE-001 | Planned |
 
-## 11. Coverage Gate
+## 12. Coverage Gate
 
 Phase 0完了条件:
 

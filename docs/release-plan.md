@@ -28,6 +28,7 @@
 - NFV Dataplane Resource ModelとOVS-DPDK support boundary
 - Host Lifecycle、Enrollment、Baseline、Continuous Compliance、Decommission model
 - Hardware Identity Evidence policy、Evaluator Artifact rollout、External Remediation trust contract
+- HostGroup、Failure Domain、Placement Scope、rollout/maintenance snapshot model
 
 ### Exit criteria
 
@@ -41,6 +42,7 @@
 - 初期extension pointがCore authorityを迂回しないことをcontract testで検証できる。
 - PMD CPU、DPDK memory、Port/RxQを含むdataplane admissionが既存placement invariantsへtraceされる。
 - identityからauthorityまでのEnrollment/Baseline/Compliance gateがfailure/test matrixへtraceされる。
+- HostGroup membership generationがPlacement final admissionとrollout/maintenance snapshotへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -52,6 +54,7 @@
 - Host Agent 登録と inventory
 - manual Enrollment approval、Host Profile/Baseline Assignment、read-only Compliance
 - provenance付きidentity evidence収集とEvaluator artifact/input digest付きResult
+- explicit HostGroup、Placement Pool、materialized membership generation
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
@@ -71,6 +74,7 @@
 - Developer Preview対象Invariantのtest contractがImplemented状態になる。
 - DPDK claimのdry/final admissionとworkload resource競合をfixtureで検証する。
 - authenticatedだけのHostがREADY/armedにならず、Critical driftがplacementをblockすることを検証する。
+- dry/final間のHostGroup membership変更を検出し、stale Hostへ予約しないことを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -79,6 +83,7 @@
 - 3-node Control Plane
 - OIDC、Tenant、RBAC、Quota
 - policy-based Enrollment、safe typed convergence、continuous drift detection
+- selector-based HostGroup、Failure Domain placement、immutable rollout snapshot
 - OVN overlay、Subnet、Port、Security Group
 - Ceph RBD、Volume、Snapshot
 - NUMA、HugePages、CPU Pinning
@@ -102,6 +107,7 @@
 - disruptive dataplane maintenance operationとOVS/DPDK version certification
 - Baseline rollout、maintenance-required/external remediation、decommission workflow
 - Evaluator shadow/canary rolloutとExternal Remediation request/claim + KIM再観測
+- Group-based maintenance wave、failure-domain concurrency、Placement Scope exposure
 - NFVO integration profile
 - ローリングアップグレード
 - offline bundle、SBOM、artifact signing

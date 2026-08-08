@@ -35,6 +35,7 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 | NFV Dataplane Module | OVS-DPDK discovery/operation | PMD/DPDK memory/Port/RxQ capability、closed typed operation |
 | Storage Backend | LVM、Ceph RBD | capability、Volume/Attachment、fencing、snapshot |
 | Placement Rule | NUMA、PCI、locality、affinity | pure eligibility/scoring rule |
+| HostGroup Selector | CMDB/asset/inventory facts | pure membership proposal、provenance、no direct DB write |
 | Identity Adapter | OIDC issuer/claim mapping | Principal verification/binding。credential発行はしない |
 | Northbound Adapter | ETSI IFA 005 profile | external modelとCore resource mapping |
 | Secret Provider | file/KMS/Vault系 | opaque reference、rotation、least privilege |
@@ -59,6 +60,8 @@ OVS-DPDK Host moduleはC1の静的登録moduleを基本とし、generic OVSDB/EA
 Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、authority armingを行いません。Evaluatorはimmutable artifact digest、build provenance、compatible Control/evidence schema、fixture certificationを宣言し、shadow/canary rollout前にcurrent assignmentへしません。Remediation Moduleは別のclosed C1 CommandとしてExecution domainを通ります。
 
 外部Configuration Management連携はC2 serviceまたはC3 integrationです。scoped External Remediation Requestとappend-only claimだけを交換し、Core DB、Agent credential、Command Lease、Host Operation Authorityを渡しません。外部completion claimはKIMのCompliance Resultではなく、fresh observationとC1 Evaluatorによる再評価をtriggerするだけです。
+
+HostGroup Selectorはpure C1 ruleまたはC2 external assertion adapterです。候補membershipとprovenanceだけを返し、Coreがcardinality/hierarchy/conflictを検証してPostgreSQLへmaterializeします。Selectorがmembership、Placement Scope、Group policyを直接writeしません。
 
 ## 4. Contract Shape
 
