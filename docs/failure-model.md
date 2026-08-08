@@ -152,14 +152,14 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 - Recover:command-specific read-backとverification。
 - Escalate:mutation outcomeやrollbackを証明できなければUNKNOWN。
 
-### 5.9 Network Backend Failure
+### 5.9 Network / NFV Dataplane Backend Failure
 
-例: OVN DB quorum loss、transaction conflict、controller lag、dataplane drift。
+例: OVN DB quorum loss、transaction conflict、controller lag、dataplane drift、PMD/RxQ停止、OVS-DPDK restart結果不明、PCI binding不明。
 
-- Detect:NB/SB transaction status、chassis binding、Port/dataplane observation。
-- Contain/Fence:affected network/gatewayへの新規bindingを停止。
-- Recover:KIM所有intentだけをgeneration付きで再適用し、dataplaneを検証。
-- Prohibited:未知OVN objectや物理networkを自動削除しない。
+- Detect:NB/SB transaction status、chassis binding、PMD/RxQ/Port/runtime/dataplane observation。
+- Contain/Fence:affected network/gateway/dataplane resourceへの新規bindingを停止し、PCI/PMD allocation generationをblock。
+- Recover:KIM所有intentとtyped dataplane resolverだけをgeneration付きで適用し、PMD/RxQ/Port/PCIを検証。
+- Prohibited:未知OVN objectや物理networkの自動削除、blind OVS restart、PCI rebind、kernel datapathへのsilent fallbackを行わない。
 
 ### 5.10 Storage Backend Failure
 
@@ -198,7 +198,7 @@ current authorityとtrusted observationを比較し、新しいevidence/eventと
 | Gateway loss | 継続 | Host配送停止 | session再確立 | in-flight outcome unknown |
 | Agent loss | 継続 | 対象Host停止 | journal/read-back | mutation証明不能 |
 | Host loss | 不明または停止 | 対象Host停止 | fencing後に限定 | storage/device ownership不明 |
-| Network backend loss | compute継続、connectivity degradedの可能性 | 対象network停止 | intent再適用 | external/unknown object競合 |
+| Network/dataplane backend loss | compute継続、connectivity degradedの可能性 | 対象network/dataplane停止 | intent/typed resolver | external object、PMD/PCI ownership不明 |
 | Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
 
 ## 7. Verification and Fault Injection
@@ -212,4 +212,3 @@ Phase 0で各failure classに以下を関連付けます。
 - automated test、fault injection、runbook owner
 
 最低限、commit応答喪失、Lease expiry後の遅延Result、Agent crash before/after journal、Gateway partition、DB failover、Host loss、libvirt timeout、OVN conflict、Ceph attachment timeout、stale authorityをsystem testへ含めます。
-

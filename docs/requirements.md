@@ -92,7 +92,27 @@
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
 
-### 2.7 Storage
+### 2.7 NFV Dataplane
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| DPL-001 | OVS/DPDK version、runtime readiness、datapath modeをHost capabilityとして収集する | Must |
+| DPL-002 | pCPUをhousekeeping、workload shared/dedicated、emulator、PMD、service lcoreのroleで排他的に管理する | Must |
+| DPL-003 | NUMA/page sizeごとのHugePage poolをworkload、DPDK、platform reserveのpurpose別ledgerで管理する | Must |
+| DPL-004 | DPDK socket memoryをNUMAごとのdesired/reserved/observed resourceとして管理する | Must |
+| DPL-005 | DPDK Port、PF/VF/representor、vhost、Rx Queue、queue capabilityをstable identityで管理する | Must |
+| DPL-006 | PMD core setとRxQ assignmentをdesired/observed generationとして管理する | Must |
+| DPL-007 | PMD、Port、DPDK memory、VM memory、PCIのNUMA localityをeligibilityで評価する | Must |
+| DPL-008 | PMD CPU、DPDK memory、Port/RxQ claimを他resourceと同じfinal admissionで不可分commitする | Must |
+| DPL-009 | vhost multiqueue/queue pair要求をVM Dataplane Bindingとして表現する | Should |
+| DPL-010 | OVS-DPDK変更をclosed typed Commandで実行し、任意OVSDB/EAL/PCI操作を許可しない | Must |
+| DPL-011 | restart-required変更をdisruptive operationとして通常VM作成から分離する | Must |
+| DPL-012 | PMD/RxQ/Port/runtime observationでdataplane complianceを検証する | Must |
+| DPL-013 | PMD utilization、cycles、dropsをauthorityではなくtelemetryとして扱う | Must |
+| DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
+| DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
+
+### 2.8 Storage
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -103,7 +123,7 @@
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
 
-### 2.8 Operation、Event、Notification
+### 2.9 Operation、Event、Notification
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -118,7 +138,7 @@
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
-### 2.9 Fault、Performance、Audit
+### 2.10 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
 |---|---|---|

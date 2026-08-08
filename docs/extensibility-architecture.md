@@ -30,6 +30,7 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 | Host OS Integration | Ubuntu、RHEL-compatible、SUSE | discovery、preflight、bounded typed remediation |
 | Agent Operation Module | VM power、CPU placement、Volume attach | closed Command type、narrow backend interface、read-back |
 | Network Backend | OVN、将来のprovider adapter | plan/apply/observe capability、intent generation |
+| NFV Dataplane Module | OVS-DPDK discovery/operation | PMD/DPDK memory/Port/RxQ capability、closed typed operation |
 | Storage Backend | LVM、Ceph RBD | capability、Volume/Attachment、fencing、snapshot |
 | Placement Rule | NUMA、PCI、locality、affinity | pure eligibility/scoring rule |
 | Identity Adapter | OIDC issuer/claim mapping | Principal verification/binding。credential発行はしない |
@@ -50,6 +51,8 @@ Extensionは一つのplugin interfaceへ統合せず、影響度と隔離境界�
 - C3 Untrusted External Integration
 
 Identity、Secret、Placementは高影響領域であり、Identity/Secret連携はC2の隔離service、Placement Ruleは副作用のないC1 moduleを基本とします。許可能力と検証項目は [Extension Conformance Contract](extension-conformance.md) を正本とします。
+
+OVS-DPDK Host moduleはC1の静的登録moduleを基本とし、generic OVSDB/EAL/PCI操作を公開しません。Control Plane側のDataplane orchestrationはC0 Coreとしてallocation authorityを保持します。
 
 ## 4. Contract Shape
 

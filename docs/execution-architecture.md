@@ -116,6 +116,8 @@ UNKNOWNはCommand typeごとのtyped resolverで処理します。汎用retryや
 
 UNKNOWNのAttempt履歴をSUCCEEDED/FAILEDへ書き換えません。解決結果は新しいverification evidence、Job event、必要なら新Attemptとして追記します。
 
+OVS-DPDKのrestart-required変更は通常VM Operationから分離したdisruptive typed Operationとし、impact set、drain、maintenance authority、read-backを必要とします。詳細は [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md) に従います。
+
 ## 8. Retry
 
 Retry policyはCommand typeとoutcome reasonごとに閉じて定義します。

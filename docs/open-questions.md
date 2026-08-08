@@ -36,6 +36,11 @@
 | Q-027 | Extension SDK/API surface | 最初は内部contractとconformance kit、第三者SDK公開時期は未決定 | Technical Preview 前 |
 | Q-028 | Extension trust class assignment | 初期extensionをC0/C1/C2/C3へ正式割当 | Phase 0 |
 | Q-029 | Traceability automation | Markdown ID検証から開始し、machine-readable manifestへの移行時期を決定 | Developer Preview 前 |
+| Q-030 | OVS/DPDK first Validated versions | distribution/OVS/DPDK/NIC driverの組合せを決定 | Developer Preview 前 |
+| Q-031 | PMD assignment policy | automatic/pinned/mixedの初期support範囲 | Phase 0 |
+| Q-032 | DPDK HugePage ownership | Host-wide reserved poolとKIM allocation ledgerのauthority境界 | Phase 0 |
+| Q-033 | Dataplane disruption policy | ovs-vswitchd restartのimpact/drain/maintenance workflow | Technical Preview 前 |
+| Q-034 | Performance policy classes | queue/latency/throughput requirementをTenant APIへ公開する粒度 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -50,3 +55,4 @@
 9. fault injection環境とfailure scenario owner
 10. 初期releaseで正式に公開するextension points
 11. release blocker invariantと手動検証owner
+12. OVS-DPDKのinitial resource schemaとsupport matrix

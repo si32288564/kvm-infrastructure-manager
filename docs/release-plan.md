@@ -25,6 +25,7 @@
 - Extensibility Architecture、Core invariant、extension conformance contract
 - Architecture InvariantsとRequirement-to-Test Traceability Matrix
 - 12 failure classのFault Injection Matrix
+- NFV Dataplane Resource ModelとOVS-DPDK support boundary
 
 ### Exit criteria
 
@@ -36,6 +37,7 @@
 - placement競合、lease expiry、stale result、outcome unknown、DB failover/restoreのfailure scenarioがテスト設計に落ちる。
 - 各failure classにDetect/Contain/Fence/Observe/Recover/Reconcile/Escalateと禁止操作が割り当てられる。
 - 初期extension pointがCore authorityを迂回しないことをcontract testで検証できる。
+- PMD CPU、DPDK memory、Port/RxQを含むdataplane admissionが既存placement invariantsへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -48,6 +50,7 @@
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
+- OVS-DPDK capability discoveryとread-only dataplane observation
 - local storage
 - Operation API、監査、基本メトリクス
 
@@ -61,6 +64,7 @@
 - dry admissionとtransactional final admissionの競合再選択を自動試験する。
 - write-before-execute journal、lease expiry、stale Result fencingを自動試験する。
 - Developer Preview対象Invariantのtest contractがImplemented状態になる。
+- DPDK claimのdry/final admissionとworkload resource競合をfixtureで検証する。
 
 ## Phase 2: Technical Preview
 
@@ -71,6 +75,7 @@
 - OVN overlay、Subnet、Port、Security Group
 - Ceph RBD、Volume、Snapshot
 - NUMA、HugePages、CPU Pinning
+- OVS-DPDK PMD/RxQ allocation、vhost multiqueue、typed online operation
 - Backup/restore、診断バンドル
 
 ### Exit criteria
@@ -87,6 +92,7 @@
 - 100 Host 規模検証
 - cold/live migration
 - SR-IOV
+- disruptive dataplane maintenance operationとOVS/DPDK version certification
 - NFVO integration profile
 - ローリングアップグレード
 - offline bundle、SBOM、artifact signing

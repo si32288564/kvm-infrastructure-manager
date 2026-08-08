@@ -48,6 +48,12 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
 | FI-NET-002 | ovn-controller lagでDB intentとdataplaneを乖離 | binding/dataplane lag | Portをprovisioning/degradedに維持 | intent+observed generations | Port ready誤表示 | chassis/dataplane verification |
+| FI-DPDK-001 | active PortのPMD threadを停止/消失させる | PMD/runtime observation | affected Port/Hostへの新規dataplane placement停止 | runtime/Port alarm、generation | ready継続、silent fallback | PMD復旧+RxQ polling verification |
+| FI-DPDK-002 | RxQをunpolledまたは不正PMD coreへdriftさせる | RxQ/PMD assignment mismatch | bindingをdegraded/blocked | desired/observed mapping evidence | compliant/ready誤表示 | policy準拠mappingをobservationで確認 |
+| FI-DPDK-003 | ovs-vswitchd restart適用後にResult responseをdrop | Command timeout/runtime gap | Attempt UNKNOWN、新規disruptive op停止 | journal、runtime generation、Port evidence | blind restart/rollback | full runtime/PMD/Port/RxQ observation |
+| FI-DPDK-004 | DPDK socket memory/HugePage不足でruntime起動失敗 | runtime init/hugepage shortage | Host dataplane ineligible | desired/observed memory、bounded reason | restart loop、workload pages横取り | capacity修正+明示maintenance operation |
+| FI-DPDK-005 | PCI driver bind/rebind後にAgentを停止 | device ownership outcome unknown | device/VF/IOMMU group quarantine | journal、driver/IOMMU/OVS observation | VM/OVSへのblind再割当 | exclusive ownershipをread-backで証明 |
+| FI-DPDK-006 | PMD/Portを異NUMAへ移動させる | locality drift | policyによりdegraded/non-compliant | NUMA mapping、performance alarm | automatic cross-NUMA受容 | policy準拠配置または明示例外 |
 | FI-STORAGE-001 | Volume attach適用後response timeout | attachment timeout | attachment generation block | Attempt UNKNOWN、backend/Host evidence | detach/別Host attach | single-writerとattachment state確定 |
 | FI-STORAGE-002 | Ceph unavailable中にVolume operation | backend health/error | 対象backend mutation停止 | backend alarm、Operation待機/失敗 | local/silent backend fallback | backend復旧+capability+read-back |
 | FI-SPLIT-001 | old leader/authority generationからLease/Result送信 | generation/token mismatch | stale actor拒否 | conflict audit、current generation | Job/Desired進行 | current authorityから再同期 |
@@ -66,7 +72,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Agent | FI-AGENT-001..002 |
 | Host | FI-HOST-001..002 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
-| Network | FI-NET-001..002 |
+| Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |
 | Split-brain / Stale Authority | FI-SPLIT-001 |
 | Identity / Audit | FI-IDENTITY-001, FI-AUDIT-001 |
@@ -77,4 +83,3 @@ test harnessが障害を解除しただけでは合格になりません。期�
 - Technical Preview: 全12classで最低1 testをImplementedし、multi-node環境で証拠保存。
 - Product Beta: network/storage partition、Host fencing、DR restoreを含む全matrixを自動または承認済みrunbookで実行。
 - GA: release candidateごとにcritical subset、定期chaos campaignでfull setを実行。
-

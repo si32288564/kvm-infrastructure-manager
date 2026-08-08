@@ -52,6 +52,9 @@ flowchart LR
 - 管理、ストレージ、migration、tenant overlay のネットワーク分離を標準構成とする。
 - VLAN ID、VNI、tunnel endpoint、provider network mapping の競合を一元管理する。
 - anti-spoofing、MAC/IP binding、DHCP trust をテスト対象とする。
+- OVS-DPDK操作はHost-local typed adapterに限定し、arbitrary OVSDB key、EAL argument、`ovs-appctl` mutation、PCI bind commandを受け付けない。
+- Tenantはqueue/performance policyを要求できても、物理core ID、PMD mask、PCI BDF、vhost socket pathを直接指定できない。
+- VFIO、hugetlbfs、vhost-user socketは専用service identityと最小権限でアクセスする。
 
 ## 6. Storage と秘密情報
 

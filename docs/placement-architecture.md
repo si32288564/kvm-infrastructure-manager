@@ -48,6 +48,7 @@ backend mutation、Agent Command、Message publish、external API callも行い�
 - memory、HugePage size/node、reserved memory
 - PCI/SR-IOV/IOMMU group と device ownership
 - network segment/provider reachability
+- PMD/service CPU、DPDK socket memory、Dataplane Port/RxQ、vhost queue、dataplane NUMA locality
 - storage backend/access/locality
 - affinity/anti-affinity、AZ、trait、policy
 - quota と project policy
@@ -60,6 +61,8 @@ backend mutation、Agent Command、Message publish、external API callも行い�
 - required claims/reservations
 - evaluation generation/fingerprint
 - score input facts
+
+OVS-DPDK要求を持つshapeは [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md) のresource/claimを含めます。
 
 ## 4. Scoring
 
@@ -81,6 +84,7 @@ score は適格性を上書きしません。weight と計算根拠は versioned
 1. workload、quota、policy、Host allocation generation をlock/検証する。
 2. dry evaluation と同じ admission rule を最新 authority state へ再適用する。
 3. CPU、memory、HugePages、PCI、network、storage のclaimsを不可分に確保する。
+   OVS-DPDK利用時はPMD/service CPU、DPDK socket memory、Port/RxQ、VM Dataplane Bindingも同じtransactionに含める。
 4. Quota usage、Reservation、Desired State、Job、Command intent、idempotency recordを同時にcommitする。
 
 一つでも満たせない場合は何もcommitしません。競合による不適格化は通常動作であり、同じ request snapshot でまだ有効な次候補を選び直します。policy/inventoryの意味が変わった場合は新しいevaluationへ戻します。

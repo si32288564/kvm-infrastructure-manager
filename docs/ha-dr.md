@@ -16,6 +16,7 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 - Tenant、Project、Membership、Role Binding、Quota
 - desired state、resource ownership、generation
 - placement allocation、reservation、PCI/Volume attachment authority
+- PMD CPU、DPDK memory、Dataplane Port/RxQ、VM Dataplane Binding authority
 - logical network intent とprovider binding
 - Operation、Job、Command、Lease、Attempt、idempotency
 - Host Operation Authority と監査outbox

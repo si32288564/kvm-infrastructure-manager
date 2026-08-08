@@ -12,6 +12,7 @@
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
+| NFV Dataplane | Dataplane Runtime、PMD Core、DPDK Memory、Dataplane Port、Rx Queue、VM Dataplane Binding |
 | Storage | Storage Backend、Volume、Snapshot、Attachment |
 | Operations | Operation、Step、Event、Notification |
 | Execution | Job、Command、Lease、Attempt、Result |
@@ -34,6 +35,11 @@ erDiagram
     VM ||--o{ PORT : attaches
     NETWORK ||--o{ SUBNET : contains
     NETWORK ||--o{ PORT : contains
+    HOST ||--o{ DATAPLANE_RUNTIME : runs
+    DATAPLANE_RUNTIME ||--o{ PMD_CORE_ALLOCATION : owns
+    DATAPLANE_RUNTIME ||--o{ DPDK_SOCKET_MEMORY : reserves
+    PORT ||--o| VM_DATAPLANE_BINDING : provides
+    VM ||--o{ VM_DATAPLANE_BINDING : uses
     VM ||--o{ VOLUME_ATTACHMENT : has
     VOLUME ||--o{ VOLUME_ATTACHMENT : participates
     VM ||--o{ ALLOCATION : consumes
@@ -140,6 +146,8 @@ Attempt outcomeは`SUCCEEDED`、`FAILED`、`UNKNOWN`です。Lease expiry、exec
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。
+- pCPUとHugePageのworkload/dataplane roleを同一allocation ledgerで排他的に管理する。
+- PMD/RxQ統計をallocation authorityとして使用しない。
 - Identity ProviderがUser/Service credentialを所有し、KIMはPrincipal bindingだけを所有する。
 - eligibility=falseのHostをscoreで選択可能にしない。
 - final admissionと全resource claimは一つのtransactionでcommitする。

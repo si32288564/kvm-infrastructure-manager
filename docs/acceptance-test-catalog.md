@@ -84,7 +84,25 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 
-## 8. Security / Audit / Documentation
+## 8. NFV Dataplane
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-DPL-001 | OVS/DPDK version、datapath mode、runtime readinessをbounded capabilityへ正規化する |
+| AT-DPL-002 | concurrent workload/emulator/PMD/service CPU claimが同一pCPUを二重確保しない |
+| AT-DPL-003 | workload/DPDK/platform reserveをNUMA/page size別HugePage ledgerで競合判定する |
+| AT-DPL-004 | PF/VF/representor/vhost/RxQをstable identityとcapabilityでinventory化する |
+| AT-DPL-005 | PMD/Port/DPDK memory/VM memory/PCIのNUMA policy違反をeligibilityで拒否する |
+| AT-DPL-006 | PMD CPU/DPDK memory/Port/RxQとVM resource claimを一transactionでcommit/rollbackする |
+| AT-DPL-007 | vhost multiqueue/queue pair要求がVM Dataplane Bindingとadmissionへ伝播する |
+| AT-DPL-008 | unknown/arbitrary OVSDB/EAL/PCI/shell operationをschema/Agent moduleが拒否する |
+| AT-DPL-009 | restart-required変更がdisruptive Operation、impact set、maintenance authorityを要求する |
+| AT-DPL-010 | successful Result後もPMD/RxQ/Port/runtime observationまでcompliantにならない |
+| AT-DPL-011 | PMD cycles/utilization/drop変動だけでdurable allocationを変更しない |
+| AT-DPL-012 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない |
+| AT-DPL-013 | Validated OVS/DPDK/distribution/NIC driver組合せだけをsupport matrix対象として公開する |
+
+## 9. Security / Audit / Documentation
 
 | ID | Acceptance Contract |
 |---|---|
@@ -97,7 +115,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
 | AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
 
-## 9. HA / Upgrade / Packaging
+## 10. HA / Upgrade / Packaging
 
 | ID | Acceptance Contract |
 |---|---|
@@ -105,7 +123,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-001 | N-1→N upgrade/rollback中にAPI/Agent contractと既存VMを維持する |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 
-## 10. Performance Tests
+## 11. Performance Tests
 
 | ID | Performance Contract |
 |---|---|

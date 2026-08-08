@@ -82,6 +82,21 @@
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 
+### NFV Dataplane
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-DPL-001 | 一つのexclusive pCPUをworkload/emulator/PMD/service roleへ二重claimしない | AT-DPL-002 |
+| INV-DPL-002 | workload HugePagesとDPDK socket memoryを同じ物理poolのpurpose別ledgerで予約する | AT-DPL-003 |
+| INV-DPL-003 | PMD、Port、DPDK memory、VM memory、PCIのNUMA localityをeligibilityで評価する | AT-DPL-005 |
+| INV-DPL-004 | PMD CPU、DPDK memory、Port/RxQ claimを他resourceと同じtransactionで不可分commitする | AT-DPL-006 |
+| INV-DPL-005 | PMD utilization/cycles/drop telemetryをallocation authorityとして使用しない | AT-DPL-011 |
+| INV-DPL-006 | dataplane desired allocationとobserved OVS/DPDK bindingを別generationで保持する | AT-DPL-010 |
+| INV-DPL-007 | restart-required dataplane変更を通常VM作成から暗黙実行しない | AT-DPL-009 |
+| INV-DPL-008 | arbitrary OVSDB/EAL/PCI/shell操作をAPI/Command/Extensionで受理しない | AT-DPL-008 |
+| INV-DPL-009 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない | AT-DPL-012 |
+| INV-DPL-010 | PCI/PMD/OVS mutation結果不明時はresourceをquarantineしblind replay/rebindしない | FI-DPDK-005 |
+
 ## 9. Security, Audit, and Failure
 
 | ID | Invariant | 主な検証 |
@@ -111,4 +126,3 @@
 |---|---|---|
 | INV-DOC-001 | Requirements、Accepted ADR、Architectureの矛盾を暗黙解釈せず、実装を停止して解消する | AT-DOC-001 |
 | INV-DOC-002 | 重要判断の変更はADR、Requirements、Architecture、test traceを同じchange setで更新する | AT-DOC-002 |
-

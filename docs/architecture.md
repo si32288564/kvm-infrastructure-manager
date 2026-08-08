@@ -58,6 +58,8 @@ flowchart TB
     AgentN --> OVSN["OVS / ovn-controller"]
     NetworkCtl["Network Controller Adapter"] --> OVNDB[("OVN Northbound DB")]
     StorageCtl["Storage Adapter"] --> RBD["Ceph RBD / LVM"]
+    DataplaneCtl["NFV Dataplane Controller"] --> Gateway
+    Agent1 --> DPDK1["OVS-DPDK / PMD / VFIO"]
 ```
 
 ### API Gateway / Resource API
@@ -190,6 +192,12 @@ KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し
 
 KIMのauthorityはNFVI-PoP内のvirtual network resource、provider network binding、virtual router、tenant overlay、VM connectivityまでです。WAN path、transport network、inter-PoP connectivity、物理switch lifecycleはWIMまたは外部Network/PIMの責務です。
 
+### NFV Dataplane
+
+OVS-DPDKを利用するHostでは、PMD/service CPU、DPDK socket memory、Dataplane Port、Rx Queue、VM bindingを第一級resourceとして扱います。workload CPU/HugePages/PCI/networkと同じtransactional final admissionで予約し、desired allocationとobserved OVS/DPDK bindingを分離します。
+
+restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance authorityを持つdisruptive typed operationとして実行します。詳細は [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md) を参照します。
+
 ## 8. Storage
 
 - Backend capability を共通モデルで公開する。
@@ -242,6 +250,7 @@ KIMのauthorityはNFVI-PoP内のvirtual network resource、provider network bind
 | Internal durable messaging | NATS JetStream | Proposed。Agent transportには直接使用しない標準案 |
 | Hypervisor API | libvirt | Accepted in principle |
 | Network | OVN + Open vSwitch | Proposed |
+| NFV dataplane acceleration | OVS-DPDK | Proposed |
 | Shared storage | Ceph RBD | Proposed |
 | Identity | OIDC | Proposed |
 | Telemetry | Prometheus + OpenTelemetry | Proposed |
@@ -265,6 +274,7 @@ KIMのauthorityはNFVI-PoP内のvirtual network resource、provider network bind
 - [HA / DR Architecture](ha-dr.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
+- [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

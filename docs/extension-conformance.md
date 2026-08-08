@@ -21,6 +21,8 @@ KIM release bundleへ静的登録される制限moduleです。in-processでもn
 
 例: Agent Operation Module、pure Placement Rule、OS discovery adapter。
 
+OVS-DPDK Host discovery/operation moduleもC1に分類します。
+
 ### C2: Isolated Adapter Service
 
 別process/serviceとして、scoped workload identityとversioned APIを使います。network/secret/backend side effectを持ち得るため、process、credential、rate limit、circuit breakerを分離します。
@@ -101,6 +103,10 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-AGENT-002 | closed Command variant以外をdecode/executeしない |
 | XCT-PLC-001 | Placement Ruleがpureで、同一snapshotへ決定的結果を返す |
 | XCT-PLC-002 | eligibility=falseをscoreで上書きできない |
+| XCT-DPDK-001 | PMD CPU、DPDK memory、Port/RxQ capabilityをraw設定ではなくversioned schemaへ正規化する |
+| XCT-DPDK-002 | arbitrary OVSDB/EAL/PCI/shell操作を受理しない |
+| XCT-DPDK-003 | restart-required変更をonline operationとして報告・実行しない |
+| XCT-DPDK-004 | side effect後のtimeoutをPMD/RxQ/Port/runtime read-backで解決し、不能ならUNKNOWNにする |
 
 ### C2
 
@@ -142,4 +148,3 @@ conformance合格は製品サポート認定の必要条件ですが十分条件
 - active Operation/LeaseをCore policyに従ってfenceする。
 - operatorへ依存resourceとsafe actionsを提示する。
 - 再認定までReadyへ戻さない。
-

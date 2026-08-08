@@ -63,6 +63,7 @@ KIM の typed remediation は schema、precondition、対象 resource、rollback
 | Provider network binding | Physical switch lifecycle/configuration |
 | DHCP、Security Group、Floating IP | Carrier/WAN resource orchestration |
 | VM connectivity と NFVI-PoP gateway attachment | 外部ネットワーク容量 authority |
+| OVS-DPDK PMD/DPDK memory/Port/RxQのHost内allocation | NIC firmware、physical fabric、外部DPDK application lifecycle |
 
 KIM は provider network、gateway、external connectivity の参照とbindingを保持できますが、外部物理ネットワークを暗黙に構成しません。外部資源変更は別authorityとの明示的な契約を必要とします。
 

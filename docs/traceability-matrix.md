@@ -63,6 +63,16 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | STO-001, STO-002, STO-003, STO-004, STO-005 | architecture, execution-architecture | ADR-0007, ADR-0011 | INV-STO-001, INV-EXEC-008 | AT-STO-001, FI-STORAGE-001 | Planned |
 | STO-006 | extensibility-architecture | ADR-0011 | INV-STO-002, INV-EXT-006 | AT-STO-002, XCT-CAP-001 | Planned |
 
+### NFV Dataplane
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| DPL-001, DPL-005, DPL-006, DPL-012 | nfv-dataplane-resource-architecture | ADR-0012 | INV-DPL-006 | AT-DPL-001, AT-DPL-004, AT-DPL-010, XCT-DPDK-001 | Planned |
+| DPL-002, DPL-003, DPL-004 | nfv-dataplane-resource-architecture, placement-architecture | ADR-0012 | INV-DPL-001, INV-DPL-002 | AT-DPL-002, AT-DPL-003 | Planned |
+| DPL-007, DPL-008, DPL-009 | nfv-dataplane-resource-architecture, placement-architecture | ADR-0006, ADR-0012 | INV-DPL-003, INV-DPL-004 | AT-DPL-005, AT-DPL-006, AT-DPL-007 | Planned |
+| DPL-010, DPL-011 | nfv-dataplane-resource-architecture, execution-architecture | ADR-0007, ADR-0012 | INV-DPL-007, INV-DPL-008, INV-DPL-010 | AT-DPL-008, AT-DPL-009, FI-DPDK-003, FI-DPDK-005, XCT-DPDK-002, XCT-DPDK-003, XCT-DPDK-004 | Planned |
+| DPL-013, DPL-014, DPL-015 | nfv-dataplane-resource-architecture, failure-model | ADR-0010, ADR-0012 | INV-DPL-005, INV-DPL-009 | AT-DPL-011, AT-DPL-012, AT-DPL-013, FI-DPDK-001 | Planned |
+
 ## 8. Operations / Observability / Audit
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |

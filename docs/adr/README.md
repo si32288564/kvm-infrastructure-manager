@@ -26,3 +26,4 @@
 - [ADR-0009: HAとDRのRPOを分離する](0009-database-ha-dr.md)
 - [ADR-0010: 不確実な障害状態を推測で確定しない](0010-system-wide-failure-semantics.md)
 - [ADR-0011: ExtensionはCore authorityを迂回しない](0011-extension-contract-boundary.md)
+- [ADR-0012: OVS-DPDK資源を第一級Placement Resourceとして扱う](0012-nfv-dataplane-resource-model.md)

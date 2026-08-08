@@ -35,6 +35,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 
 - KVM ホスト群を単一のリソースプールとして管理できる。
 - 通信ワークロード向けの NUMA、HugePages、CPU Pinning、SR-IOV を段階的に利用できる。
+- OVS-DPDKのPMD CPU、socket memory、Port/RxQ、NUMA localityをworkload資源と一体で配置・予約できる。
 - API の冪等性と収束制御により、部分障害時にも安全に再試行できる。
 - ETSI NFV の概念と対応する外部モデルを提供できる。
 - 小規模なエッジから 100 ホスト規模まで、同一の運用モデルを適用できる。
