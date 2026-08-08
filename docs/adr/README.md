@@ -33,3 +33,4 @@
 - [ADR-0016: NF側HAの分離意図をtransactional Failure Domain claimへ変換する](0016-workload-resilience-intent.md)
 - [ADR-0017: Recovery stormをdurable budgetとqueueで制御する](0017-bounded-recovery-storm-control.md)
 - [ADR-0018: 永続データをclassifyし安全なschema evolutionとrestoreを行う](0018-classified-persistence-and-safe-evolution.md)
+- [ADR-0019: Volume Attachment authorityと実世界fencingを分離する](0019-storage-attachment-authority-and-fencing.md)

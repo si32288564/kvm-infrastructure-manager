@@ -192,7 +192,7 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 | Placement allocation | PostgreSQL | Scheduler が世代管理 |
 | Logical network intent | PostgreSQL | Network Controller が OVN へ反映 |
 | Network dataplane state | OVN/OVS | observed state を収集 |
-| Volume metadata | PostgreSQL | 実体は backend が所有 |
+| Volume/Backend Binding/Attachment Claim/Fencing decision | PostgreSQL | 実体とclient/device stateはbackend/libvirtのobserved state |
 | Operation history | PostgreSQL | 長期監査とは分離 |
 | Job、Command、Lease、Attempt | PostgreSQL | Execution authority と履歴 |
 | Outbox、Inbox、Receipt | PostgreSQL | delivery journal。domain decisionとtransactionalに接続 |
@@ -238,11 +238,14 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 
 ## 8. Storage
 
-- Backend capability を共通モデルで公開する。
-- Local LVM は簡易構成と ephemeral/local workload に使用する。
-- Ceph RBD は共有 block storage、snapshot、clone、live migration の標準候補とする。
-- Secret は DB へ平文保存せず、Secret Provider と libvirt secret を介して使用する。
-- Volume attachment は fencing と世代管理により二重接続を防止する。
+- Storage Backend/Class capabilityをversioned modelで公開する。
+- Volume desired state、Backend Binding、Attachment Claim/Generation、backend/libvirt Observationを分離する。
+- Local LVMはlocality固定、Ceph RBDはshared block storage候補として扱う。
+- SecretはDBへ平文保存せず、Secret Providerとlibvirt/backend secret referenceを介して使用する。
+- single-writer DB Claimだけで旧I/O停止を推測せず、compute source、storage client、attachment authority fencingを別々に証明する。
+- attach/detach/recovery/migrationはtyped Executionとpost-observationを通じて収束する。
+
+詳細は [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) を参照します。
 
 ## 9. Control Plane HA
 
@@ -313,6 +316,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [Agent Protocol Architecture](agent-protocol.md)
 - [HA / DR Architecture](ha-dr.md)
 - [Data and Persistence Architecture](data-persistence-architecture.md)
+- [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)

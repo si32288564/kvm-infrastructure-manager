@@ -99,7 +99,11 @@ PostgreSQL は desired state、allocation、network intent、attachment、operat
 
 KIMは自身のauthority data、decision/evidence、delivery journal、schema migration、retention/GC、backup/PITR reconciliationを所有します。ただし、汎用Data Warehouse、顧客application backup、外部SIEM/Archive lifecycle、Secret valueの保管を所有しません。DB retentionやrestoreをbackend resource削除/作成のauthorityとして使用しません。
 
-## 7. 明示的な非責任
+## 7. Storage
+
+KIMはKIM Volumeのmetadata/ownership、Backend Binding、Attachment Claim/Generation、typed lifecycle、fencing decisionを所有します。Ceph cluster/OSD/MON/MGR、physical disk/VG、SAN/NAS fabric、外部backup、guest filesystem/application consistencyは所有しません。Ceph/LVMのwatcher/lock/holderはKIM authorityではなく、Claimと照合するobservationです。
+
+## 8. 明示的な非責任
 
 KIMは以下を暗黙にも代行しません。
 

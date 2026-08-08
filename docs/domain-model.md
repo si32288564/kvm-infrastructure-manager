@@ -18,7 +18,7 @@
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
 | NFV Dataplane | Dataplane Runtime、PMD Core、DPDK Memory、Dataplane Port、Rx Queue、VM Dataplane Binding |
-| Storage | Storage Backend、Volume、Snapshot、Attachment |
+| Storage | Storage Backend/Class、Volume、Backend Binding、Snapshot/Clone、Attachment Intent/Claim/Observation、Fencing Proof、Handoff |
 | Operations | Operation、Step、Event、Notification |
 | Execution | Job、Command、Lease、Attempt、Result |
 | Assurance | Alarm、Metric、Audit Record、Diagnostic Bundle |
@@ -78,6 +78,12 @@ erDiagram
     VM ||--o{ VM_DATAPLANE_BINDING : uses
     VM ||--o{ VOLUME_ATTACHMENT : has
     VOLUME ||--o{ VOLUME_ATTACHMENT : participates
+    STORAGE_BACKEND ||--o{ VOLUME_BACKEND_BINDING : hosts
+    VOLUME ||--o{ VOLUME_BACKEND_BINDING : binds
+    VOLUME_ATTACHMENT ||--o| ATTACHMENT_CLAIM : authorizes
+    VOLUME_ATTACHMENT ||--o{ ATTACHMENT_OBSERVATION : observes
+    VOLUME_ATTACHMENT ||--o{ STORAGE_FENCING_PROOF : fences
+    VOLUME_ATTACHMENT ||--o{ ATTACHMENT_HANDOFF : migrates
     VM ||--o{ ALLOCATION : consumes
     HOST ||--o{ ALLOCATION : provides
     OPERATION }o--|| PROJECT : scoped_to
@@ -184,6 +190,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 
 - 一つの active VM は同時に一つの Host allocation のみ持つ。
 - Port および Volume Attachment は Project 境界を越えない。
+- SINGLE_WRITER Volumeはcurrent active Attachment Claimを最大一つだけ持ち、Claim release前に実世界I/O停止を検証する。
+- watcher/lock/device observationだけでAttachment authorityを作成・譲渡・解放しない。
 - Quota 消費と Allocation claim は VM dispatch より前に確定する。
 - Host が maintenance または disabled の場合、新規 Allocation を作らない。
 - authenticatedだけのHostをenrolled/ready/armedとして扱わない。

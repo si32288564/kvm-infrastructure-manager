@@ -67,6 +67,9 @@
 | Q-058 | Data retention profile | class別online/archive/tombstone/dedupe期間、legal hold、容量見積りを決定 | Technical Preview 前 |
 | Q-059 | Schema compatibility profile | N/N-1 window、initial isolation level、DDL lock budget、backfill batch/checkpoint値を決定 | Developer Preview 前 |
 | Q-060 | Backup/PITR profile | PostgreSQL distribution、base/WAL方式、object storage、encryption/key custody、restore drill頻度を決定 | Technical Preview 前 |
+| Q-061 | Ceph RBD fencing profile | supported Ceph/libvirt/QEMU version、exclusive-lock/blocklist/watcher evidence、client identity、timeoutを決定 | Technical Preview 前 |
+| Q-062 | Local LVM support profile | thin/thick、persistent/ephemeral、VG discovery、failure/loss表示、copy/replication非対応境界を決定 | Developer Preview 前 |
+| Q-063 | Storage force operation policy | force detach、client fence、lock break、delete/adoptionのapproval、break-glass、runbookを決定 | Technical Preview 前 |
 
 ## 最初に確定すべき判断
 
@@ -88,3 +91,4 @@
 16. Northbound resilience profileとRecovery budget/fairness defaults
 17. Failure Campaign correlation profileとcanonical BudgetScopeKey schema
 18. Data retention、schema compatibility、backup/PITRのinitial product profile
+19. Ceph RBD fencing、Local LVM、Storage force operationのinitial support profile

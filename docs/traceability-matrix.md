@@ -141,6 +141,8 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | DAT-016, DAT-017 | data-persistence-architecture, ha-dr, failure-model | ADR-0009, ADR-0010, ADR-0018 | INV-DATA-016, INV-DATA-017 | AT-DATA-015, AT-DATA-016, FI-DR-001, FI-DATA-011 | Planned |
 | DAT-018 | data-persistence-architecture, execution-architecture, ha-dr | ADR-0007, ADR-0009, ADR-0018 | INV-DATA-018 | AT-DATA-017, FI-DATA-010 | Planned |
 | DAT-019 | data-persistence-architecture, ha-dr, failure-model | ADR-0009, ADR-0010, ADR-0018 | INV-DATA-019 | AT-DATA-019, FI-DATA-009, FI-DATA-013 | Planned |
+| DAT-020 | data-persistence-architecture | ADR-0018 | INV-DATA-020 | AT-DATA-020, FI-DATA-014 | Planned |
+| DAT-021 | data-persistence-architecture, security | ADR-0009, ADR-0018 | INV-DATA-021 | AT-DATA-021, FI-DATA-015 | Planned |
 
 ## 11. Image / Flavor / Compute
 
@@ -169,8 +171,21 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NET-001, NET-002, NET-003, NET-004, NET-005 | architecture, responsibility-boundaries | ADR-0011 | INV-NET-001 | AT-NET-001, AT-NET-002 | Planned |
 | NET-006 | placement-architecture | ADR-0006 | INV-PLC-004, INV-PLC-007 | AT-NET-006 | Planned |
 | NET-007 | failure-model | ADR-0010 | INV-NET-002, INV-FAIL-003 | FI-NET-001 | Planned |
-| STO-001, STO-002, STO-003, STO-004, STO-005 | architecture, execution-architecture | ADR-0007, ADR-0011 | INV-STO-001, INV-EXEC-008 | AT-STO-001, FI-STORAGE-001 | Planned |
-| STO-006 | extensibility-architecture | ADR-0011 | INV-STO-002, INV-EXT-006 | AT-STO-002, XCT-CAP-001 | Planned |
+| STO-001, STO-002, STO-008, STO-011, STO-012 | storage-attachment-fencing-architecture, execution-architecture, placement-architecture | ADR-0006, ADR-0007, ADR-0019 | INV-STO-003, INV-STO-006, INV-STO-007, INV-STO-008 | AT-STO-001, AT-STO-003, AT-STO-006, AT-STO-007, AT-STO-008, AT-STO-016, AT-STO-017, FI-STORAGE-001, FI-STORAGE-004, FI-STORAGE-012, FI-STORAGE-013 | Planned |
+| STO-003, STO-017 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-012 | AT-STO-012, FI-STORAGE-009 | Planned |
+| STO-004, STO-016 | storage-attachment-fencing-architecture, security | ADR-0011, ADR-0019 | INV-STO-011 | AT-STO-011, FI-STORAGE-002, FI-STORAGE-006, FI-STORAGE-010, XCT-STO-001 | Planned |
+| STO-005, STO-020 | storage-attachment-fencing-architecture | ADR-0019 | INV-STO-015 | AT-STO-015, FI-STORAGE-012 | Planned |
+| STO-006, STO-007 | storage-attachment-fencing-architecture, extensibility-architecture | ADR-0011, ADR-0019 | INV-STO-002 | AT-STO-002, AT-STO-021, AT-STO-022, XCT-CAP-001, XCT-STO-001, XCT-STO-006 | Planned |
+| STO-009, STO-010 | storage-attachment-fencing-architecture | ADR-0019 | INV-STO-004, INV-STO-005 | AT-STO-004, AT-STO-005, FI-STORAGE-003 | Planned |
+| STO-013, STO-014, STO-015 | storage-attachment-fencing-architecture, execution-architecture, failure-model | ADR-0007, ADR-0010, ADR-0019 | INV-STO-001, INV-STO-008, INV-STO-009, INV-STO-010 | AT-STO-008, AT-STO-009, AT-STO-010, FI-STORAGE-005, FI-STORAGE-006, FI-STORAGE-007 | Planned |
+| STO-018 | storage-attachment-fencing-architecture, availability-responsibility-architecture | ADR-0010, ADR-0015, ADR-0019 | INV-STO-013 | AT-STO-013, FI-STORAGE-008, FI-STORAGE-010 | Planned |
+| STO-019 | storage-attachment-fencing-architecture, placement-architecture, execution-architecture | ADR-0006, ADR-0007, ADR-0019 | INV-STO-014 | AT-STO-014, FI-STORAGE-011 | Planned |
+| STO-021 | storage-attachment-fencing-architecture, execution-architecture | ADR-0007, ADR-0019 | INV-STO-003 | AT-STO-016, FI-STORAGE-013 | Planned |
+| STO-022, STO-023 | storage-attachment-fencing-architecture, data-persistence-architecture | ADR-0018, ADR-0019 | INV-STO-016 | AT-STO-017, FI-STORAGE-012 | Planned |
+| STO-024 | storage-attachment-fencing-architecture, security, extensibility-architecture | ADR-0011, ADR-0019 | INV-STO-011, INV-SEC-002 | AT-STO-011, AT-STO-020, XCT-STO-005 | Planned |
+| STO-025 | storage-attachment-fencing-architecture, failure-model | ADR-0010, ADR-0019 | INV-STO-017 | AT-STO-018, FI-STORAGE-014, XCT-STO-002, XCT-STO-004 | Planned |
+| STO-026 | storage-attachment-fencing-architecture, security | ADR-0019 | INV-STO-018 | AT-STO-019, FI-STORAGE-015, FI-STORAGE-016, XCT-STO-003 | Planned |
+| STO-027 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-019, INV-PLC-004 | AT-STO-023, FI-STORAGE-017 | Planned |
 
 ### NFV Dataplane
 

@@ -43,6 +43,7 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 - [Agent Protocol Architecture](docs/agent-protocol.md)
 - [HA / DR Architecture](docs/ha-dr.md)
 - [Data and Persistence Architecture](docs/data-persistence-architecture.md)
+- [Storage, Attachment, and Fencing Architecture](docs/storage-attachment-fencing-architecture.md)
 - [設計文書の正本と変更規則](docs/document-governance.md)
 - [System-wide Failure Model](docs/failure-model.md)
 - [Extensibility Architecture](docs/extensibility-architecture.md)

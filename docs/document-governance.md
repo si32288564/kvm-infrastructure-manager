@@ -61,3 +61,4 @@ ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureま�
 - Availability responsibility、Host failure fencing、managed workload recovery boundary
 - Workload resilience intent/Domain ClaimとRecovery Budget/Queue authority boundary
 - persistent data classification、retention/GC、schema evolution、Outbox/Inbox、PITR restore authority boundary
+- Storage Backend/Class、Volume Attachment Claim/Generation、single-writer、compute/storage fencing boundary

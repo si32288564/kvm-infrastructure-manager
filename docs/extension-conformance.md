@@ -140,6 +140,12 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-SECRET-001 | secret valueを永続metadata、event、logへ含めない |
 | XCT-IDENTITY-001 | issuer/subject検証だけを行い、KIM User DB/Credentialを作らない |
 | XCT-BACKEND-001 | side effect後のtimeoutをtyped read-backで解決し、証明不能ならUNKNOWN |
+| XCT-STO-001 | Storage capabilityとVolumeをstable backend identity、generation、limits、locality、fencing featureへ正規化する |
+| XCT-STO-002 | adapterがCore DB/Attachment Claimへwriteせず、watcher/lock/holder observationをownership authorityとして返さない |
+| XCT-STO-003 | create/attach/detach/fence/snapshot/clone/expand/deleteをclosed typed operationだけで実行し任意command/pathを受けない |
+| XCT-STO-004 | side effect後timeoutをstable identity/device/client/lock read-backで解決し、不能ならUNKNOWNにする |
+| XCT-STO-005 | secret value、raw client/device identity、生backend errorをmetadata/Event/logへ含めない |
+| XCT-STO-006 | unsupported access mode/fencing/snapshot/migration capabilityへsilent fallbackしない |
 
 ### C3
 

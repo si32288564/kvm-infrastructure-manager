@@ -164,6 +164,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DATA-017 | PITR point後に配送/実行済みのEvent/Commandをstable IDで再送しReceipt/journalへ収束する |
 | AT-DATA-018 | replication/WAL/backup gap、partition/GC backlog、migration、Outbox/Inbox age、restore reconciliationをmetrics/alarmで公開する |
 | AT-DATA-019 | RECOVERY_READ_ONLYがrecovery-control writeだけを許可し、旧writer/Control Plane/credentialのfencing proof後にscope別mutationを再開する |
+| AT-DATA-020 | hard DB、verified logical、archive referenceのwrite/GC/archive切替とIntegrity Verifierを検証する |
+| AT-DATA-021 | Recovery Control専用identity/role/APIが通常Service Principalと相互に権限昇格せずapproval/auditを強制する |
 | AT-OPS-001 | Operation状態、進捗、correlation、bounded failure reasonを照会できる |
 | AT-OPS-005 | retry/cancelが許可状態とauthorityを検証し、unsafe actionを拒否する |
 | AT-EVT-001 | event/webhookをdurable outboxから再送し、重複IDとredaction contractを維持する |
@@ -208,6 +210,27 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-006 | SR-IOV Port assignmentをPCI/device/network eligibilityと不可分に扱う |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
+| AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |
+| AT-STO-004 | concurrent SINGLE_WRITER attach requestが一つのactive Claimだけをcommitする |
+| AT-STO-005 | READ_ONLY_MANYをcapability/policy一致かつ全active Claim read-only時だけ許可しSHARED_WRITERを拒否する |
+| AT-STO-006 | attachがFinal Admission、typed backend/libvirt execution、DB/device/client verification後だけATTACHEDになる |
+| AT-STO-007 | detachがsource I/O/device/backend client/lock releaseを検証してからClaimをreleaseする |
+| AT-STO-008 | UNKNOWN AttachmentをBLOCKED/FENCE_REQUIREDに保ち反対操作と別Host writeを拒否する |
+| AT-STO-009 | Storage Fencing Proofがcompute/storage/attachment fenceを別state/provenance/generationで保持する |
+| AT-STO-010 | stale watcher/lock/device/holder observationをownership decisionへ昇格せずfresh resolverを要求する |
+| AT-STO-011 | Ceph BindingをFSID/pool/namespace/image ID/features/secret referenceで管理しraw secretを永続化しない |
+| AT-STO-012 | Local LVM BindingをHost/VG/LV UUID/localityで管理し別Host候補をineligibleにする |
+| AT-STO-013 | Availability responsibility別のHost recoveryが同じAttachment/fencing gateを通る |
+| AT-STO-014 | cold/live Attachment Handoffがsingle logical writerとsource/destination verificationを維持する |
+| AT-STO-015 | Snapshot/Clone parent-child/consistency/deletion dependencyを管理する |
+| AT-STO-016 | backend expandとguest-visible sizeを別generationで検証しpartial convergenceを表現する |
+| AT-STO-017 | Volume delete guard、typed backend cleanup、absence verification、DB tombstone/GC分離を強制する |
+| AT-STO-018 | backend-only/unknown storage objectをquarantineしexplicit Adoption/repair Operationを要求する |
+| AT-STO-019 | force detach/client fence/lock break/delete/Adoptionを個別permission/approval/auditで保護する |
+| AT-STO-020 | Storage Event/APIがgeneration/correlationを保持しsecret/raw backend/Host detailをredactする |
+| AT-STO-021 | Ceph health/capability change時にaffected Volumeだけをpauseしsilent backend/access-mode fallbackしない |
+| AT-STO-022 | Storage adapterがstable identity、typed side effect、UNKNOWN/read-back、secret/fencing evidence contractへ適合する |
+| AT-STO-023 | Storage Capacity Poolがreserved/allocated/observed/external usageとthin data/metadata healthを分離しtransactional claim/releaseする |
 
 ## 13. NFV Dataplane
 

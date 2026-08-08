@@ -47,6 +47,8 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-DATA-011 | restore後にDB_ONLY/BACKEND_ONLY/CONFLICTING/UNKNOWN resourceを混在提示 | full observation/classification mismatch | scope mutation停止、backend-only quarantine | DB/observed identity/generation/ownership evidence | 自動adopt/delete、反対mutation | matchedまたはexplicit Adoption/domain resolution |
 | FI-DATA-012 | Derived Projection/current summary/検索indexを全削除 | projection health/missing generation | authority write継続可否をpolicy通り制御しprojection再構築 | source authority snapshot、rebuild generation | projectionを正本に逆同期、authority消失 | authorityから同じprojectionを再生成 |
 | FI-DATA-013 | DR restore中に旧primary/Control Planeを隔離後再接続し、旧credentialからmutationを送信 | DR fencing/restore epoch/endpoint conflict | 復元側はREAD_ONLY維持または旧actor拒否、単一writerだけを有効化 | DR activation、old/current DB/credential generation、fencing proof | 両Site mutation、restore epochだけで安全宣言 | 旧writer/dispatch/credential fencingを外部証明しcurrent側だけでmutation成功 |
+| FI-DATA-014 | current authorityが参照するhistory partitionをarchive manifest不完全のままdetach、またはlogical reference先を欠損させる | FK/Integrity Verifier/reference digest failure | affected scope mutation/GC停止、REFERENCE_UNKNOWN | reference class、target/digest、manifest、verifier result | dangling pointer、evidence推測、元partition drop | valid target/manifestへrepairしfull integrity scan成功 |
+| FI-DATA-015 | 通常Service PrincipalからRecovery Control API/DB roleを使用、またはRecovery roleからCommand dispatchを試行 | identity/role/API/DR generation policy violation | request拒否、mutationなし、security alert | actor/role/scope/approval/audit | privilege escalation、通常resource/backend mutation | authorized recovery identity+approvalでrecovery evidenceだけcommit |
 | FI-BUS-001 | internal messageをduplicate/reorder | delivery metadata、old generation | handler idempotency、DB authority確認 | work/event dedupe evidence | 二重Command/transition | 単一authority stateへ収束 |
 | FI-BUS-002 | Bus停止後に復旧 | consumer/work age alarm | durable acceptance後のdispatch待機 | pending work age | DB authority loss、成功推測 | DBから未完work再駆動 |
 | FI-GATEWAY-001 | Lease前にAgent Gateway partition | heartbeat/session loss | 新Lease停止、Host ineligible | gateway/Host alarm | Agent cached/autonomous mutation | session+capability再検証 |
@@ -121,6 +123,21 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-DPDK-006 | PMD/Portを異NUMAへ移動させる | locality drift | policyによりdegraded/non-compliant | NUMA mapping、performance alarm | automatic cross-NUMA受容 | policy準拠配置または明示例外 |
 | FI-STORAGE-001 | Volume attach適用後response timeout | attachment timeout | attachment generation block | Attempt UNKNOWN、backend/Host evidence | detach/別Host attach | single-writerとattachment state確定 |
 | FI-STORAGE-002 | Ceph unavailable中にVolume operation | backend health/error | 対象backend mutation停止 | backend alarm、Operation待機/失敗 | local/silent backend fallback | backend復旧+capability+read-back |
+| FI-STORAGE-003 | 同じSINGLE_WRITER Volumeへ二VM/workerから同時attach | active Claim unique conflict | 一Claimだけcommit、他方rollback/BLOCKED | Volume/Attachment generation、claim transaction | 二active writer Claim、部分quota | winning Claim verificationまたはrelease後に再評価 |
+| FI-STORAGE-004 | libvirt detach適用後にresponseをdropしCeph watcher/lockを遅延表示 | detach outcome uncertainty | Claim active/UNKNOWN維持、別Host attach停止 | Command/Attempt、device/client/lock observations | Claim早期release、force cleanup | source I/O/device/client releaseをfresh evidenceで確認 |
+| FI-STORAGE-005 | watcher/lock absenceのstale snapshotとsource device presenceを競合提示 | evidence generation/freshness conflict | FENCE_REQUIRED/UNKNOWN、fresh resolver | source/digests/generations/conflict | absenceだけでownership譲渡 | current device/client/lock evidenceが一致 |
+| FI-STORAGE-006 | Host compute fence成功、Ceph client fencing失敗/UNKNOWN | storage fence incomplete | replacement Claim/attach停止 | compute proof、client fence error、old generation | 別Host write attach | storage client fencingとabsence verification成功 |
+| FI-STORAGE-007 | Ceph client fence成功、Host/BMC fencing失敗/UNKNOWN | compute fence incomplete | replacement Claim/attach停止 | client proof、compute fence state | heartbeat lossだけでrestart/attach | source compute fencing proof成功 |
+| FI-STORAGE-008 | recovery先attach後にold Attachment Result/observationを遅延 | old generation/token | stale evidence拒否、new Claimのみcurrent | old/new generation、Recovery Operation、proofs | old Claim復活、二重writer | destination DB/device/backend evidence一致 |
+| FI-STORAGE-009 | Local LVM VolumeのHostをlossし同名VG/LV候補を別Hostに提示 | Host/VG/LV UUID/locality mismatch | restart-on-other-host ineligible、Volume UNKNOWN/UNAVAILABLE | original/candidate identities、Host failure | 空/同名LV作成・自動adopt | source復旧またはexplicit certified copy/restore workflow |
+| FI-STORAGE-010 | Ceph shared Volume recovery時にdestination pool access/capabilityを欠損 | destination eligibility failure | Recovery BLOCKED、Claim未active | backend/class/binding/capability generations |別backend/local fallback、partial attach | current access/capability+全fencing+final admission |
+| FI-STORAGE-011 | live handoffのswitchover前後でworker/libvirt connectionをkill | handoff/operation outcome unknown | 一logical writer authority維持、両側read-back | handoff Lease/state、source/destination QEMU/client evidence | 二active Claim、両側推測detach | verified source/destination stateへhandoff収束 |
+| FI-STORAGE-012 | active clone child/Attachment/UNKNOWN Operationを持つVolume/Snapshotをdelete | dependency/reference guard | delete拒否、backend untouched | dependency graph、state、audit | parent/image削除、DB tombstone先行 | dependency解消とtyped absence verification |
+| FI-STORAGE-013 | backend expand成功後にguest/device resizeを失敗/timeout | desired/backend/guest generation mismatch | Volume DEGRADED/UNKNOWN、縮小rollback禁止 | sizes/generations/Attempts/observations | guest-ready誤表示、自動shrink | device/guest verificationまたはaction-required |
+| FI-STORAGE-014 | backend-only RBD image/LV、unknown watcher、unmatched libvirt deviceを検出 | identity/ownership mismatch | quarantine、affected scope mutation停止 | stable IDs、provenance、observations | auto adopt/delete/detach | explicit authorized Adoption/repairまたは外部所有確定 |
+| FI-STORAGE-015 | unauthorized actorがforce detach/client fence/lock break/deleteを要求 | permission/approval failure | request拒否、no Command、security audit | actor/action/target/decision | destructive backend side effect | authorized scoped approvalとpost-verification |
+| FI-STORAGE-016 | Storage adapterがsecret/raw device pathをerror/Eventへ返し、またはside effect後timeoutをFAILED化 | conformance/redaction/UNKNOWN violation | adapter quarantine、affected new mutations停止 | payload digest、manifest/version、test evidence | secret leak、blind retry/silent fallback | patched certified adapterとread-back reconciliation |
+| FI-STORAGE-017 | concurrent Volume create中にCeph/LVM observed freeをstale化しthin metadata圧迫/外部使用量を注入 | ledger conflict、health/freshness threshold | claim上限内だけcommit、stale/pressure scope ineligible | capacity generations、claims、backend observations | over-allocation、UNKNOWN freeの楽観利用、delete中capacity再利用 | fresh healthy capacityとbackend absence後にclaim/release再評価 |
 | FI-SPLIT-001 | old leader/authority generationからLease/Result送信 | generation/token mismatch | stale actor拒否 | conflict audit、current generation | Job/Desired進行 | current authorityから再同期 |
 | FI-IDENTITY-001 | JWKS/certificate revocation state unavailable | trust validation unavailable | privileged mutation fail closed | bounded auth error、audit | stale/unknown trustで新mutation | trust generation復旧 |
 | FI-AUDIT-001 | durable audit outbox writeを失敗させる | audit unavailable | 管理mutation transaction rollback | failure metric、request correlation | 監査なしmutation | audit durability復旧後に再受付 |
@@ -131,7 +148,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 |---|---|
 | Client | FI-CLIENT-001..002 |
 | API / Control Plane | FI-CP-001..002 |
-| Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..013 |
+| Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..015 |
 | Internal Message | FI-BUS-001..002 |
 | Agent Gateway / Transport | FI-GATEWAY-001..002, FI-TRANSPORT-001..002 |
 | Agent | FI-AGENT-001..002 |
@@ -142,7 +159,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
-| Storage | FI-STORAGE-001..002 |
+| Storage | FI-STORAGE-001..017 |
 | Split-brain / Stale Authority | FI-SPLIT-001 |
 | Identity / Audit | FI-IDENTITY-001, FI-AUDIT-001 |
 

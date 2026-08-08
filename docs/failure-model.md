@@ -193,10 +193,11 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 
 例: Ceph timeout、attachment結果不明、local volume loss、fencing failure。
 
-- Detect:backend result、attachment read-back、Ceph health、Host observation。
-- Contain/Fence:Volume/attachment generationをblockし、反対操作を停止。
-- Recover:identityとsingle-writer/fencingを証明後にtyped resolverを実行。
-- Prohibited:detach timeout直後に別Hostへattachしない。
+- Detect:backend result、Attachment Claim/generation、libvirt device、Ceph watcher/lock/client、LVM holder、backend health、Host observation。
+- Contain/Fence:Volume/Attachment generationをblockし、反対操作と別Host write attachを停止。
+- Recover:stable backend identity、DB Claim、compute source fencing、storage client fencing、attachment authority fencingを証明後にtyped resolverを実行。
+- Escalate:いずれかのI/O ownership evidenceを証明できなければ`UNKNOWN/FENCE_REQUIRED`を維持。
+- Prohibited:detach timeout、heartbeat loss、watcher/lock absenceのいずれか単独でClaimをreleaseまたは別Hostへattachしない。Local LVMを別Hostの同名LVへ置換しない。
 
 ### 5.11 Split-brain / Stale Authority
 

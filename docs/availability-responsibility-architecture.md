@@ -186,6 +186,7 @@ Faultを`ACTION_REQUIRED`として保持し、自動VM mutationを開始しま�
 - failure epochとaffected VM snapshotがcurrentである。
 - source fencing proofがPolicy要求を満たす。
 - Volume attachment/single-writer ownershipが確定している。
+- old/new Attachment generation、compute source fencing、storage client fencing、attachment authority fencingがStorage Policyを満たす。
 - VM migration capabilityが候補Hostに対して`restart-on-other-host`である。
 - image、secret、network、storage backendがdestinationで利用可能。
 - PCI/SR-IOV/DPDK/local resourceの代替またはPolicy上の不使用が証明される。

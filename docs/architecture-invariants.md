@@ -51,6 +51,8 @@
 | INV-DATA-017 | BACKEND_ONLY/CONFLICTING/UNKNOWN resourceを自動adopt/deleteしない | FI-DATA-011 |
 | INV-DATA-018 | PITR後の再送はstable ID/Receiptでdeduplicateし、外部side effect不明をUNKNOWNとしてread-backする | FI-DATA-010 |
 | INV-DATA-019 | restore epochだけで旧Site/primaryをfencedとみなさず、外部DR fencing proofなしに通常mutationを再開しない | FI-DATA-013 |
+| INV-DATA-020 | authority/history/archive referenceをhard DB、verified logical、archive referenceへ分類し、欠損/不一致scopeのmutation/GCを停止する | FI-DATA-014 |
+| INV-DATA-021 | Recovery Control writeは専用identity/DB role/API/DR generation/approval/auditを要求し、通常resource/backend mutation権限を持たない | FI-DATA-015 |
 
 ## 5. Placement
 
@@ -97,6 +99,23 @@
 | INV-NET-002 | 未知または外部所有network objectを自動削除しない | FI-NET-001 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
+| INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |
+| INV-STO-004 | SINGLE_WRITER Volumeのactive Attachment ClaimはPostgreSQL constraintで最大一つ | FI-STORAGE-003 |
+| INV-STO-005 | READ_ONLY_MANYは明示capabilityと全active Claim read-onlyを要求し、未certified SHARED_WRITERを拒否する | AT-STO-005 |
+| INV-STO-006 | ATTACHEDはcurrent DB Claim、libvirt device、backend client/lock evidenceの一致後だけ確定する | AT-STO-006 |
+| INV-STO-007 | DETACHED/Claim releaseはsource I/O pathとbackend client/lock releaseのverification後だけ確定する | FI-STORAGE-004 |
+| INV-STO-008 | Attachment outcome/I/O ownershipがUNKNOWNなら反対操作、Claim release、別Host write attachを開始しない | FI-STORAGE-005 |
+| INV-STO-009 | 別Host write authorityはcompute source、storage client、attachment authority fencingをすべて必要とする | FI-STORAGE-006 |
+| INV-STO-010 | watcher/lock/blocklist/device/holder observation単独ではAttachment authorityを作成・譲渡・解放しない | FI-STORAGE-005 |
+| INV-STO-011 | Ceph Bindingはstable image identityとscoped secret referenceを持ち、name/secret valueをauthority metadataにしない | AT-STO-011 |
+| INV-STO-012 | Local LVM VolumeはHost/VG/LV identityへbindし、certified replication/exportなしに別Host recoveryしない | FI-STORAGE-009 |
+| INV-STO-013 | Host recoveryはold/new Attachment generationと全storage fencing/eligibilityを再検証する | FI-STORAGE-008 |
+| INV-STO-014 | migration handoffは一つのlogical write authorityを維持し、一般的な二active writer Claimを作らない | FI-STORAGE-011 |
+| INV-STO-015 | Snapshot/Clone dependencyとconsistency evidenceを保持し、未証明application consistencyを表示しない | AT-STO-015 |
+| INV-STO-016 | active/pending Attachment、child、Recovery/Migration/UNKNOWN/hold中のVolumeを削除せず、DB GCとbackend cleanupを分離する | FI-STORAGE-012 |
+| INV-STO-017 | backend-only image/LV、unknown watcher/lock、unmatched deviceを自動adopt/delete/detachしない | FI-STORAGE-014 |
+| INV-STO-018 | force detach/client fence/lock break/backend delete/Adoptionは個別permission/approval/auditを要求する | FI-STORAGE-015 |
+| INV-STO-019 | Storage capacityはtransactional ledgerでclaimし、stale/UNKNOWN backend usageを空きへ丸めずbackend absence前に再利用しない | FI-STORAGE-017 |
 
 ### NFV Dataplane
 

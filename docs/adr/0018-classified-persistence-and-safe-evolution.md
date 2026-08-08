@@ -11,6 +11,7 @@ KIMではPostgreSQLがdesired state、ownership、allocation、attachment、exec
 
 - persistent dataを`CURRENT_AUTHORITY`、`IMMUTABLE_DECISION`、`IMMUTABLE_EVIDENCE`、`DELIVERY_JOURNAL`、`DERIVED_PROJECTION`へ分類する。
 - current authorityと履歴/evidenceを分離し、current pointer更新で過去decision/resultを書き換えない。
+- referenceをhard database、verified logical、archive manifest referenceへ分類し、logical/archive integrity不明scopeをfail closedにする。
 - domain mutationとOutbox、Inbox受理とdomain decisionをそれぞれ一つのPostgreSQL transactionでcommitする。
 - retention/GCをversioned policy、reference/legal hold、tombstone、GC Lease/Receiptで制御し、DB GCからbackend side effectを起こさない。
 - append-heavy historyだけを主なpartition対象とし、authority uniqueness/transactionをpartition都合で分裂させない。
@@ -18,6 +19,7 @@ KIMではPostgreSQLがdesired state、ownership、allocation、attachment、exec
 - backup/WAL/schema/artifactをmanifestへbindし、PITR後に新しいrestore epoch/database authority generationでpre-restore Lease/session/claimをfenceする。
 - restore epochだけをsplit-brain fencingとみなさず、旧database writer/Control Plane/credentialの外部fencing proofまで通常mutationを再開しない。
 - restore後はread-only recovery mode、full observation、classification、quarantine、explicit adoptionを経てscope別にmutation authorityを再開する。
+- Recovery Control writeを通常principal/DB role/APIから分離し、専用identity/role、approval、DR generation、immutable auditを要求する。
 
 ## Consequences
 

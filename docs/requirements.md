@@ -177,6 +177,8 @@
 | DAT-017 | backend-only resourceを自動adopt/deleteせず、ownership/fencing/authorization付きAdoption Operationを要求する | Must |
 | DAT-018 | PITR後のOutbox/Inbox/Command再送をstable ID/Receiptでdeduplicateし、外部side effect不明をUNKNOWN/read-backで解決する | Must |
 | DAT-019 | DR restore epochを旧Site/primary fencingの代替にせず、旧database writer、Control Plane dispatch、credential/endpointのfencing proofまで通常mutationを再開しない | Must |
+| DAT-020 | current authorityからhistory/archiveへのreferenceをhard DB、verified logical、archive manifest referenceに分類し、欠損/不一致scopeをfail closedにする | Must |
+| DAT-021 | RECOVERY_READ_ONLY writeを専用identity、DB role、API、DR generation、approval、auditで通常service/resource mutationから分離する | Must |
 
 ### 2.9 Image、Flavor
 
@@ -256,6 +258,27 @@
 | STO-004 | Ceph RBD backend を利用できる | Should |
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
+| STO-007 | Storage Backend/Classをstable identity、locality、access scope、capability/health generation、fencing/secret policy付きで管理する | Must |
+| STO-008 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別resource/generationとして管理する | Must |
+| STO-009 | SINGLE_WRITER Volumeのactive Attachment ClaimをPostgreSQL transactionで最大一つに制限する | Must |
+| STO-010 | READ_ONLY_MANYを明示backend/device capabilityかつ全active Claim read-only時だけ許可し、未certified SHARED_WRITERを拒否する | Must |
+| STO-011 | attachをFinal Admission、typed execution、DB/libvirt/backend observation verificationで収束させる | Must |
+| STO-012 | detachでlibvirt I/O pathとbackend client/lock releaseを検証するまでAttachment Claimを解放しない | Must |
+| STO-013 | attach/detach outcome、client I/O、watcher/lock/holderのいずれかがUNKNOWNなら反対操作または別Host write attachを開始しない | Must |
+| STO-014 | compute source fencing、storage client fencing、attachment authority fencingを別の証明として管理する | Must |
+| STO-015 | watcher、lock、blocklist、device/holder stateをgeneration/freshness/provenance付きevidenceとして扱い、単独でownership authorityにしない | Must |
+| STO-016 | Ceph RBDをcluster/pool/namespace/image stable ID、feature、client/lock、secret reference付きBindingとして管理する | Must |
+| STO-017 | Local LVMをHost/VG/LV UUIDとlocalityへbindし、certified replication/exportなしに別Host recoveryを許可しない | Must |
+| STO-018 | Host failure recoveryでcurrent Availability responsibility、old/new Attachment generation、compute/storage fencing、destination accessを再評価する | Must |
+| STO-019 | cold/live migrationをAttachment Handoffとして管理し、一時dual accessを一般的な二active writer Claimへ変換しない | Must |
+| STO-020 | Snapshot/Cloneのparent-child dependencyとconsistency levelを保持し、未証明のapplication consistencyを表示しない | Must |
+| STO-021 | backend expandとguest-visible device/filesystem convergenceを分離して検証する | Should |
+| STO-022 | active/pending Attachment、Snapshot/Clone child、Recovery/Migration/UNKNOWN、legal hold中のVolume deleteを拒否する | Must |
+| STO-023 | DB tombstone/GCとbackend image/LV cleanupを分離し、typed deleteとabsence verificationを要求する | Must |
+| STO-024 | Storage credential値をSecret Providerへ置き、KIM DB/Event/Commandにはscoped reference/versionだけを保持する | Must |
+| STO-025 | backend-only image/LV、unknown watcher/lock、unmatched deviceを自動adopt/delete/detachせず明示Operationを要求する | Must |
+| STO-026 | force detach、client fencing、lock break、backend delete、Adoptionを個別permission/approval/auditで保護する | Must |
+| STO-027 | Storage capacityをPostgreSQL reserved/allocated ledgerとbackend observed/external usageへ分離し、Final Admissionで不可分claimしbackend delete確認まで再利用しない | Must |
 
 ### 2.15 Operation、Event、Notification
 

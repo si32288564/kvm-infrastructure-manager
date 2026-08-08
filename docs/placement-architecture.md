@@ -98,13 +98,15 @@ score は適格性を上書きしません。weight と計算根拠は versioned
 
 1. workload、quota、policy、Host allocation generation をlock/検証する。
 2. dry evaluation と同じadmission ruleとHostGroup membership/policy/hierarchy generationを最新authority stateへ再適用する。
-3. CPU、memory、HugePages、PCI、network、storage のclaimsを不可分に確保する。
+3. CPU、memory、HugePages、PCI、network、storage capacity/Attachment Claimのclaimsを不可分に確保する。
    OVS-DPDK利用時はPMD/service CPU、DPDK socket memory、Port/RxQ、VM Dataplane Bindingも同じtransactionに含める。
 4. Quota usage、Reservation、Availability Binding、Resilience Domain Claim、Desired State、Job、Command intent、idempotency recordを同時にcommitする。
 
 一つでも満たせない場合は何もcommitしません。競合による不適格化は通常動作であり、同じ request snapshot でまだ有効な次候補を選び直します。policy/inventoryの意味が変わった場合は新しいevaluationへ戻します。
 
 Final Admissionの副作用境界はPostgreSQL commitまでです。このtransaction中にlibvirt、Agent、OVN、Cephへ接続しません。commit後にExecution domainがCommand配送とbackend mutationを開始します。したがって、DB rollbackとbackend rollbackを一つのtransactionのように表現しません。
+
+Storageを伴うrequestはVolume ownership/lifecycle、Storage Class/Backend Binding、locality/reachability、access mode、Attachment generation、active Claim、backend capability/health generationをdry/finalで同じruleにより評価します。詳細は [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
 
 ## 6. Explanation
 

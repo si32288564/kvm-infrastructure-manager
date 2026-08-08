@@ -77,6 +77,9 @@ flowchart LR
 - credential は Secret Provider に格納し、アプリケーション DB へ平文保存しない。
 - backup は暗号化し、restore 権限を通常運用権限から分離する。
 - 削除済み Volume のデータ消去保証レベルを backend ごとに文書化する。
+- Storage Backend/Class/Attachment/Fencingの管理権限を分離し、force detach、client blocklist/lock break、backend delete、Adoptionへ個別permission/approvalを要求する。
+- typed Storage Commandはstable backend resource identityとgenerationだけを受け、任意RBD/LVM command、argument、device pathを許可しない。
+- watcher/lock/client、VG/LV/device path等のraw infrastructure detailをTenant API/Eventからredactする。
 
 ## 7. API 防御
 

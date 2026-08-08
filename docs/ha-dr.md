@@ -11,6 +11,8 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 
 data class、backup manifest、restore epoch、schema/retention contractの詳細は [Data and Persistence Architecture](data-persistence-architecture.md) に従います。
 
+Volume/Attachmentのrestore classification、single-writer、backend adoption、fencingは [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
+
 本書のControl Plane HA/DRと、Host failure時のmanaged VM recoveryは別問題です。VM recovery責任と動作は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従い、Control Plane failoverだけでVM restart/evacuateを開始しません。
 
 ## 2. Authority Data
@@ -19,7 +21,7 @@ data class、backup manifest、restore epoch、schema/retention contractの詳�
 
 - Tenant、Project、Membership、Role Binding、Quota
 - desired state、resource ownership、generation
-- placement allocation、reservation、PCI/Volume attachment authority
+- placement allocation、reservation、PCI/Volume Attachment Claim/Generation、Storage Fencing Proof/Handoff authority
 - PMD CPU、DPDK memory、Dataplane Port/RxQ、VM Dataplane Binding authority
 - logical network intent とprovider binding
 - Operation、Job、Command、Lease、Attempt、idempotency

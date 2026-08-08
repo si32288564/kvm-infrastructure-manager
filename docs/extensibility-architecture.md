@@ -58,6 +58,8 @@ Extensionは一つのplugin interfaceへ統合せず、影響度と隔離境界�
 
 Identity、Secret、Placementは高影響領域であり、Identity/Secret連携はC2の隔離service、Placement Ruleは副作用のないC1 moduleを基本とします。許可能力と検証項目は [Extension Conformance Contract](extension-conformance.md) を正本とします。
 
+Storage adapterもhigh-impact C2 boundaryとして、stable backend identity、typed side effect/read-back、scoped secret、fencing evidenceだけを提供します。Attachment Claim/Generation、single-writer decision、Recovery authority、Core DBを所有しません。Host-local LVM/libvirt operation moduleはC1のclosed Command境界に従います。
+
 OVS-DPDK Host moduleはC1の静的登録moduleを基本とし、generic OVSDB/EAL/PCI操作を公開しません。Control Plane側のDataplane orchestrationはC0 Coreとしてallocation authorityを保持します。
 
 Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、authority armingを行いません。Evaluatorはimmutable artifact digest、build provenance、compatible Control/evidence schema、fixture certificationを宣言し、shadow/canary rollout前にcurrent assignmentへしません。Remediation Moduleは別のclosed C1 CommandとしてExecution domainを通ります。

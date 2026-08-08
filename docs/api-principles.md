@@ -30,6 +30,9 @@
 /api/v1/subnets
 /api/v1/ports
 /api/v1/volumes
+/api/v1/volume-attachments
+/api/v1/volume-snapshots
+/api/v1/storage-classes
 /api/v1/operations
 /api/v1/alarms
 ```

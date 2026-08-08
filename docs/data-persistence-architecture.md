@@ -46,6 +46,18 @@ Current Resource / Summary
 
 summary再計算失敗でhistoryを変更せず、history欠損時にsummaryを推測してauthorityへ使用しません。
 
+### Reference Classes
+
+Current AuthorityからDecision/Evidence/Archiveへのreferenceは、実装都合で曖昧なID参照にせず次へ分類します。
+
+| Class | 用途 | Enforcement |
+|---|---|---|
+| `HARD_DATABASE_REFERENCE` | 同じonline authority set内のownership、active claim、current revision、未完Operation | PostgreSQL FK/unique/check。deferred constraintを含め同transactionで検証 |
+| `VERIFIED_LOGICAL_REFERENCE` | partitioned history、別retention class、cross-partition evidence | type+ID+digest+schema generationを保持し、write/GC時のIntegrity Verifierとperiodic scanで検証 |
+| `ARCHIVE_REFERENCE` | detached/archive済みimmutable evidence | archive manifest ID、object key、record digest、schema/reader artifact、retention/holdを保持 |
+
+authority/safetyに必要な参照を、FK実装が難しいという理由だけでunchecked logical referenceへ下げません。logical/archive referenceはcurrent pointer更新前に存在/digest/accessibilityを検証し、Verifierが欠損・不一致を検出したscopeは`REFERENCE_UNKNOWN`としてmutation/GCを停止します。archive detachはonline referenceを同transactional workflowでArchive Referenceへ切り替え、manifest verification前に元partitionをdropしません。
+
 ## 3. Schema and Row Conventions
 
 authority-bearing schemaは最低限次を使用します。
@@ -183,6 +195,8 @@ restore epochは復元cluster内のfencing tokenであり、旧Site/旧primary�
 ## 11. Recovery Mode and Authority Re-establishment
 
 Restore後はControl Planeを`RECOVERY_READ_ONLY`で起動します。これはTenant/resource/backend mutationを禁止する状態であり、restore epoch、observation、classification、reconciliation evidence、operator decision等のrecovery-control writeだけを専用権限で許可します。
+
+Recovery Control write pathは通常service principal/DB role/APIから分離します。専用workload identity、最小権限DB role、recovery-only API、DR activation generation、操作種別ごとのapproval、immutable auditを要求します。通常API GatewayやDomain workerがroleを昇格・代行できず、Recovery Control roleも通常resource/backend mutation tableやCommand dispatchを直接進められません。scope authority再開は承認済みtransitionを通常roleが新generationとして受け取る方式にします。
 
 1. restored DB/schema/artifact/backup manifestのintegrityを検証する。
 2. restore epochでpre-restore actor/Lease/sessionをfenceする。
