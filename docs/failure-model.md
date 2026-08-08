@@ -242,6 +242,17 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 - Recover: current healthy clock decisionとnew generationからtimer/Leaseを再導出し、既存expiryをreviveしない。
 - Prohibited: timestamp-only ordering、expiryから未実行推測、clock jumpによるmass GC/catch-up、同時刻だけのcampaign merge。
 
+### 5.15 PKI / Trust Lifecycle Failure
+
+例: issuer/Secret Provider outage、unknown profile、issuance response loss、revocation stale/partial、Host/Control Plane key compromise、CA compromise、offline Bundle replay。
+
+- Detect: TrustBundle/Profile/Binding/revocation/trust/session generation、chain/SAN/EKU、distribution receipt、incident evidence。
+- Contain: affected new session/privileged mutationを停止し、credential/session/Host/service authorityをscope別にfenceする。
+- Fence: trust/Binding/session/Host/DB/Bus/backend/Lease generationを対象ごとに進め、certificate revoke単独へ依存しない。
+- Observe: issuer/revocation/Secret Provider、active session、Host/resource/backend ownership、out-of-band recovery authorityをread-backする。
+- Recover: normal rolloverまたはindependent emergency rollover、new identity/session、current authorization/preflightから再開する。
+- Prohibited: certificate validityだけのauthority、revoke=Host/storage fence、compromised chainによる自己rollover、TOFU/trust rollback。
+
 ## 6. Failure Matrix
 
 | Scope | Existing workload | New mutation | Automatic recovery | Escalation condition |
@@ -261,6 +272,7 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 | Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
 | Upgrade/compatibility failure | 既存workloadとserving old replicaを維持 | later wave/feature/affected dispatch停止 | reversibleなら新Planでrollback、それ以外forward repair | artifact/schema/protocol/rollback outcome不明 |
 | Time/clock failure | 既存workload/dataplane維持 | auth/placement/dispatch/GC等をscope別停止 | healthy clock+new generationから再評価 | offset/uncertainty/continuityまたはside effect不明 |
+| PKI/trust failure | 既存workload/dataplane維持 | affected session/privileged mutation停止 | current trust/revocation/identity evidenceからreissue/rejoin | issuer/key/session/resource fencing不明 |
 
 ## 7. Verification and Fault Injection
 

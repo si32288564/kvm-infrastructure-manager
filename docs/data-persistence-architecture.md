@@ -20,7 +20,7 @@ KIMのPostgreSQLはcacheではなく、resource ownership、desired state、allo
 
 | Class | 例 | 更新規則 | Retention/Restore規則 |
 |---|---|---|---|
-| `CURRENT_AUTHORITY` | desired resource、ownership、Allocation、Attachment、Lease、current binding/summary | generation/ETag、DB constraint、明示state transitionだけで更新 | active reference中は削除不可。PITR後の正本だがbackendとの差分を再証明 |
+| `CURRENT_AUTHORITY` | desired resource、ownership、Allocation、Attachment、Lease、current binding/summary、TrustBundle/Binding/revocation generation | generation/ETag、DB constraint、明示state transitionだけで更新 | active reference中は削除不可。PITR後の正本だがbackend/trust providerとの差分を再証明 |
 | `IMMUTABLE_DECISION` | Admission decision、Policy revision、Availability Binding、Campaign membership decision | append-only revision。過去行をcurrent resultに合わせて変更しない | retention期限とreference/legal holdを満たすまで保持 |
 | `IMMUTABLE_EVIDENCE` | Attempt、Result、Observation、Compliance Result、fencing proof、audit reference | append-only、digest/provenance付き | archive可能だが未解決authorityの根拠を先にGCしない |
 | `DELIVERY_JOURNAL` | Outbox、Inbox、Receipt、delivery attempt | at-least-onceを前提に状態遷移 | dedupe/replay windowと下流SLOより長く保持 |

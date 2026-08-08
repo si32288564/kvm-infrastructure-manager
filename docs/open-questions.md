@@ -90,6 +90,16 @@
 | Q-081 | Agent local deadline protocol | Gateway exchange sample、uncertainty calculation、stream/long-poll時のresync、journal fieldを決定 | Developer Preview 前 |
 | Q-082 | Calendar and DST policy | timezone入力、DST gap/overlap、missed maintenance window、approval/catch-up禁止のinitial policyを決定 | Technical Preview 前 |
 | Q-083 | Time retention/correlation profile | idempotency/Event decoder horizon、offline interval、clock anomaly GC safety horizon、failure correlation uncertaintyを決定 | Technical Preview 前 |
+| Q-084 | Precision time profile | PTP domain/grandmaster/holdover/offsetのHost capability、Compliance、Placement公開範囲を決定 | Technical Preview 前 |
+| Q-085 | Leap/smear policy | supported time scale、leap/smear source混在、maintenance/Lease test profileを決定 | Technical Preview 前 |
+| Q-086 | Initial CA provider/topology | customer CA、bundled subordinate、Root custody、Site/purpose Intermediate、HSM/KMS integrationを決定 | Developer Preview 前 |
+| Q-087 | Certificate profile/lifetime | Agent/Control Plane/integration/backend別SAN/EKU/algorithm、lifetime、renewal lead、rekey/overlapを決定 | Developer Preview 前 |
+| Q-088 | Revocation profile | CRL/OCSP/local deny/offline update、freshness、session revalidation、propagation SLOを決定 | Technical Preview 前 |
+| Q-089 | Agent trust bootstrap | one-time material delivery、hardware key/TPM requirement、CSR transport、manual/offline recoveryを決定 | Developer Preview 前 |
+| Q-090 | Emergency trust authority | CA compromise時のout-of-band authority、two-person approval、TRUST_RECOVERY runbookを決定 | Technical Preview 前 |
+| Q-091 | Offline trust update | full/delta Bundle、sequence/previous digest、update cadence、maximum disconnected intervalを決定 | Technical Preview 前 |
+| Q-092 | PKI DR/key custody | CA/Secret Provider key backup、new Site reissue、old Site/issuer fencing、revocation sequence recoveryを決定 | Technical Preview 前 |
+| Q-093 | Cross-domain trust | NFVO/VNFM/WIM/backend/customer PKIのexplicit relationship、name constraint、trust exposureを決定 | Product Beta 前 |
 
 ## 最初に確定すべき判断
 
@@ -115,3 +125,4 @@
 20. Storage encryption/degraded/durabilityとNetwork IPAM/OVN/Gateway/Securityのinitial profile
 21. Gateway failure-domain/WIM/IPAM pressureとUpgrade compatibility/rollout/rollbackのinitial profile
 22. Clock source/uncertainty、Lease/Agent deadline、calendar/retention/correlationのinitial time profile
+23. CA topology/profile、bootstrap/renewal/revocation、emergency/offline/DR trustのinitial PKI profile

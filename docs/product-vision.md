@@ -47,6 +47,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 - authority、履歴evidence、delivery journal、projectionを分離し、upgrade、retention、PITR後も安全なownership判断を維持できる。
 - Release Manifestとcurrent compatibility evidenceに基づくN/N-1 rolling upgradeを行い、rollback boundaryを越える変更を暗黙実行しない。
 - wall clock、DB authority time、local monotonic clock、source timestampを区別し、期限切れや時刻差だけで実世界の状態を推測しない。
+- workload/Host trust domain、credential、session、revocationをlifecycle管理し、certificate validityをresource mutation authorityと混同しない。
 - Volume AttachmentのDB authorityと実世界I/O fencingを分離し、Host障害やmigrationでもsingle-writerを維持できる。
 - IP/VLAN/VNI/Port BindingのDB authorityとOVN/Host dataplane realizationを分離し、部分収束時にもidentityとsecurity policyを誤認しない。
 - オフライン環境にインストールし、アップグレードとロールバックを管理できる。

@@ -120,7 +120,7 @@ timestampはUTC/offsetと意味（source/received/verified/expiry）を区別し
 ## 10. 認証・認可
 
 - OAuth 2.0/OIDC access token を使用する。
-- User/Service credentialは外部Identity Platformが発行し、KIMはcredential authorityにならない。
+- User/Northbound Service Principal credentialは外部Identity Platformが発行し、KIMはそのcredential authorityにならない。内部workload/Host transport certificateはPKI trust lifecycleの別境界とする。
 - authorization は action、resource、scope、ownership、attribute で評価する。
 - 認可失敗は actor、policy、resource ID、request ID とともに監査する。
 - Console URL、image upload URL などは短寿命かつ一回用途を基本とする。

@@ -16,6 +16,7 @@
 | Data and Persistence | Schema Catalog、Retention Policy、Outbox、Inbox/Receipt、GC Snapshot/Lease/Receipt、Migration、Backup Manifest、Restore Epoch |
 | Upgrade and Compatibility | Release Manifest、Compatibility Decision、Upgrade Campaign/Plan/Wave/Target、Feature Gate、Rollback Boundary |
 | Time and Clock Semantics | Clock Observation/Health Policy/Decision、Time Envelope、Calendar Window Materialization |
+| PKI and Trust Lifecycle | Trust Domain/Bundle/Profile/Relationship、Issuer/Credential Binding、Trust Decision、Authenticated Session、Revocation、Rollover/Incident |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet/IP Pool、IP/MAC Claim、Segment Pool/Claim、Port/Binding/Handoff、Router/Gateway、Floating IP/NAT、DHCP、Security Policy |
@@ -114,6 +115,13 @@ erDiagram
     SITE ||--o{ CLOCK_OBSERVATION : observes
     HOST ||--o{ CLOCK_OBSERVATION : observes
     CLOCK_HEALTH_POLICY ||--o{ CLOCK_HEALTH_DECISION : evaluates
+    TRUST_DOMAIN ||--o{ TRUST_BUNDLE : publishes
+    TRUST_DOMAIN ||--o{ CERTIFICATE_PROFILE : constrains
+    TRUST_BUNDLE ||--o{ CREDENTIAL_BINDING : validates
+    CREDENTIAL_BINDING ||--o{ TRUST_DECISION : evaluated_by
+    TRUST_DECISION ||--o{ AUTHENTICATED_SESSION : establishes
+    TRUST_DOMAIN ||--o{ REVOCATION_SET : revokes
+    TRUST_DOMAIN ||--o{ TRUST_ROLLOVER_CAMPAIGN : rotates
 ```
 
 ## 3. 識別子と共通属性

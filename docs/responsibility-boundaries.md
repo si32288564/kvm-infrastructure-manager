@@ -21,13 +21,15 @@ flowchart LR
 | 領域 | Authority |
 |---|---|
 | User lifecycle、password、MFA、federation | External Identity Platform |
-| Human/Service credential 発行・失効 | External Identity Platform |
+| Human/Northbound Service Principal credential 発行・失効 | External Identity Platform |
 | Tenant、Project | KIM |
 | Membership、Role Binding、KIM Policy | KIM |
 | Resource ownership、Quota | KIM |
 | KIM action authorization decision | KIM |
 
 KIM は外部 Principal の安定した subject と issuer を参照します。email、display name、group claim は補助属性であり、単独では永続 identity にしません。
+
+Human/Service credential authorityと、KIM workload/Host transport PKIを区別します。customer/external CAがRoot/issuer custodyを持つ場合でも、KIMはaccepted Trust Domain/Profile、Credential Binding、trust generation、session/application authorizationを所有します。証明書発行主体とKIM resource authorityを混同しません。詳細は [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) に従います。
 
 ## 3. Host Configuration
 

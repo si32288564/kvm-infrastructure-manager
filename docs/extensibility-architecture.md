@@ -47,6 +47,8 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 
 KVM/libvirtは製品identityのCoreです。任意hypervisorを同一抽象へ押し込むことは初期extension pointにしません。
 
+Secret Provider/CA integrationはprivate key custody、cryptographic operation、issuance claimを提供できますが、TrustBundle、Credential Binding、revocation/session/trust generation authorityを所有しません。PKI固有境界は [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) に従います。
+
 ### 3.1 Trust Classes
 
 Extensionは一つのplugin interfaceへ統合せず、影響度と隔離境界で分類します。

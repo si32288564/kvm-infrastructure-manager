@@ -84,6 +84,16 @@ ClockObservation
 
 許容値は用途別です。一般VM維持、new Command、certificate validation、failure correlation、高精度NFV telemetryを同じthresholdにしません。
 
+Database/Control Plane clockは自分自身のtimestampだけでは`HEALTHY`を証明できません。`ClockReferenceSet`として、独立したupstream time source、DB HostとControl Plane nodeの相互観測、platform health、source diversityをprovenance/uncertainty付きで比較します。外部比較を取得できない場合は、last-known-goodを無期限利用せず、policyにより`DEGRADED`または`UNKNOWN`とします。単一external sourceを新しいmutation authorityにはせず、DB authority generationとgeneration/token gateを維持します。
+
+### NFV Precision Time Boundary
+
+PTP/GNSS等の高精度時刻は`PrecisionTimeDomain`としてControl Plane authority clockから分離します。KIMはHost/NIC/PTP hardware/daemonのcapability、offset、grandmaster/domain、holdover、qualityをObservation/Compliance/Placement inputとして扱えますが、VNF telemetry timestampやPTP lockだけをLease、credential、ordering、fencing authorityにしません。高精度時刻の提供・grandmaster運用・guest/application同期は外部infrastructure/NFの責任です。
+
+### Leap Second and Smear
+
+Clock source/policyはtime scale、leap indicator、smear有無/algorithm/windowを宣言します。異なるleap/smear policyを同一reference setへ無条件に混在させず、offsetが予測可能なwindowでもuncertaintyへ反映します。policy不明またはsource conflict時はtime-sensitive decisionを`DEGRADED/UNKNOWN`とし、leap eventをLease延長、mass expiry、duplicate calendar executionへ変換しません。
+
 ## 6. Database Authority Time
 
 Control Planeが発行するLease、retention snapshot、queue age、rollout deadline等は、application nodeのwall clockではなくcurrent PostgreSQL authority上で計算・比較します。
@@ -266,6 +276,9 @@ high-cardinality raw source identityを通常metric labelへ入れません。
 最低限、次を自動試験します。
 
 - Control Plane/DB/Host wall clockのforward/backward step、slew、source loss。
+- DB clockと独立reference sourceの乖離、全external reference喪失、single-source spoof。
+- PTP lock/holdover/grandmaster changeがKIM authority clockへ昇格しないこと。
+- leap second/smear policy混在とcalendar/Lease/freshness continuity。
 - process restart/Host reboot/DB failover/PITRとmonotonic/authority generation。
 - delayed/reordered Command、expiry直前開始、expiry後Result、renewal conflict。
 - Agent request/response RTTとuncertainty上限、local deadline derivation。

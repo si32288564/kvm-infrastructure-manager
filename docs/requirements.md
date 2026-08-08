@@ -26,7 +26,7 @@
 | IAM-003 | vCPU、メモリ、VM、Volume、Storage、Port ごとにクォータを設定できる | Must |
 | IAM-004 | 外部 Identity Platform が発行した Service Identity を Project と Role Binding に関連付けられる | Should |
 | IAM-005 | 複数 IdP を同時に利用できる | Could |
-| IAM-006 | User lifecycle、password、MFA、Identity federation、Credential 発行を KIM の責務に含めない | Must |
+| IAM-006 | User/Northbound Service Principal lifecycle、password、MFA、Identity federation、Credential発行をKIMの責務に含めない | Must |
 
 ### 2.2 Host、Inventory、Capacity
 
@@ -397,6 +397,46 @@
 | TIM-026 | APIでtimestamp種別、UTC/offset、freshness/expiry、bounded clock quality/uncertainty、server-evaluated remaining durationを表現する | Should |
 | TIM-027 | clock anomaly時も既存VM/dataplaneを維持し影響するnew auth/placement/dispatch/GC/finalizationだけをfail closedにする | Must |
 | TIM-028 | clock step/slew/source loss、delay/reorder、reboot/failover/PITR、DST、retention、correlationをfault injectionする | Must |
+| TIM-029 | DB/Control Plane Clock Healthを独立upstream source、node相互観測、source diversity、provenance/uncertaintyから評価する | Must |
+| TIM-030 | PTP/GNSS等のPrecision Time DomainをKIM authority clockから分離しcapability/Compliance/Placement observationとして扱う | Must |
+| TIM-031 | time scale、leap second/smear policy/windowをClock Policyへ宣言し不明・競合sourceを安全に扱う | Should |
+
+### 2.19 PKI and Trust Lifecycle
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| PKI-001 | Control Plane、Host Agent、External Integration、Backend Adapter、Artifact Verification、Data Protectionのtrust/key domainを分離する | Must |
+| PKI-002 | 外部Identity PlatformのUser/Service Principal authorityとKIM workload/transport PKIのTrust Bindingを分離する | Must |
+| PKI-003 | Root CAをoffline/external custodyとし通常Control Plane/Agent/DBで日常issuanceに使用しない | Must |
+| PKI-004 | purpose/Site/environment別Intermediate CAでAgentとControl Plane workloadのissuance blast radiusを分離する | Must |
+| PKI-005 | Certificate ProfileでSAN namespace、EKU/key usage、name/path constraint、algorithm、lifetime、key provenanceを制限する | Must |
+| PKI-006 | CA/workload private key valueをKIM DBへ保存せずSecret Provider/HSM/KMSのopaque reference/version/public fingerprintだけを保持する | Must |
+| PKI-007 | Root/Intermediate、Profile、Relationship、Revocation sourceをimmutable TrustBundle revisionとmonotonic trust generationで管理する | Must |
+| PKI-008 | certificateをissuer/profile/fingerprint/public key、Principal/Host/workload identity、Enrollment、trust generationへCredential Bindingする | Must |
+| PKI-009 | Trust Decisionでchain、time、profile、SAN/EKU、Binding、revocation freshness、proof-of-possession、sessionを検証する | Must |
+| PKI-010 | certificate validation成功をRole Binding、Enrollment、Host authority、Command Lease、backend mutation成功とみなさない | Must |
+| PKI-011 | TrustBundle、revocation、clock、Credential Binding generation変更時にcached Trust Decisionを失効する | Must |
+| PKI-012 | Agent bootstrap materialをone-time、short-lived、Site/Host/policy、nonce/challenge、maximum useへbindする | Must |
+| PKI-013 | Agent CSRをhardware identity/Enrollment evidence、challenge、Certificate Profile、proof-of-possessionへbindする | Must |
+| PKI-014 | private keyをAgent/workload側で生成しCSR/API/Event/Command/log/diagnostic/通常backupへ送信・保存しない | Must |
+| PKI-015 | issuance response lossをrequest/CSR/key digestとCredential Bindingのread-backで解決しblind duplicate issuanceを行わない | Must |
+| PKI-016 | renewal/rekeyをcurrent identity/policy/trust/proofを再評価した新Credential Binding revisionとして管理する | Must |
+| PKI-017 | certificate overlap中もold/new credentialを一つのlogical identityとcurrent session/Host authority generationへmapする | Must |
+| PKI-018 | Authenticated Sessionをpeer fingerprint、Binding、TrustBundle/revocation/trust/protocol/authority generationとmaximum lifetimeへbindする | Must |
+| PKI-019 | renewal、revocation、distrust、trust generation変更時にactive sessionをrevalidate/drain/fenceする | Must |
+| PKI-020 | revocationをintent、local enforcement、distribution、propagation verificationへ分離しsequence/freshness/receiptを保持する | Must |
+| PKI-021 | revocation stateがstale/UNKNOWNなprofile scopeでnew privileged sessionをfail closedにする | Must |
+| PKI-022 | certificate単体に加えissuer/intermediate/algorithm/profile/namespaceをdistrustできsilent fallbackしない | Must |
+| PKI-023 | Host identity compromise時にHost authority/session/credentialをfenceしInventory/Result/evidenceをquarantineする | Must |
+| PKI-024 | credential revocation/Gateway disconnectをHost、storage client、Attachment/Port ownershipのfencing proofにしない | Must |
+| PKI-025 | Control Plane identity compromise時にcertificate、endpoint、DB/Bus/Secret/backend credential、Lease/authorityを個別にcontainする | Must |
+| PKI-026 | CA compromise時にcompromised chainと独立したrecovery authority/approvalでnew anchorをauthorizeしold issuerをdistrustする | Must |
+| PKI-027 | normal CA rotationをdual TrustBundle、distribution receipt、canary/batch reissue、issuance switch、old anchor absence proofで行う | Must |
+| PKI-028 | Secret Providerのcompletion claimだけでcredential active/revoked/rotatedを確定せずpublic trust/session stateを検証する | Must |
+| PKI-029 | offline trust/bootstrap/revocation bundleへsignature、sequence、previous digest、expiry、approvalを要求しTOFU/rollbackを拒否する | Must |
+| PKI-030 | PITR/DR後にrestore/trust generationでold session/Leaseをfenceしold Site/issuer/revocation stateを外部再検証する | Must |
+| PKI-031 | Trust publish、issuance override、revoke/distrust、CA rollover、emergency recovery、Secret administrationを個別permission/approval/auditで保護する | Must |
+| PKI-032 | trust/credential/session/revocation/rollover/offline/DR状態をsecret/raw identityを漏らさず観測・fault injectionできる | Must |
 
 ## 3. 非機能要件
 
@@ -429,6 +469,11 @@
 | NFR-SEC-003 | Tenant 間の API、Network、Storage 分離を試験する |
 | NFR-SEC-004 | リリースごとに SBOM、署名、脆弱性レポートを生成する |
 | NFR-SEC-005 | Agent は内部 Message Bus credential を保持せず、専用 Agent Gateway と mTLS session で通信することを標準案とする |
+| NFR-SEC-006 | workload/Host PKIをpurpose/Site別trust domainとleast-privilege certificate profileで分離する |
+| NFR-SEC-007 | credential issuance、renewal、revocation、distrust、CA rolloverを監査可能なlifecycleとして提供する |
+| NFR-SEC-008 | credential/CA compromise時にaffected trust scopeをcontainし既存VMを不用意に停止しない |
+| NFR-SEC-009 | offline/DR環境でもTOFU、default shared secret、trust generation rollbackを許可しない |
+| NFR-SEC-010 | private key/secret valueをControl Plane DB、Event、Command、log、diagnosticへ保存・公開しない |
 
 ### Operability and Compatibility
 

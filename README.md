@@ -47,6 +47,7 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 - [Network Resource Architecture](docs/network-resource-architecture.md)
 - [Upgrade and Compatibility Architecture](docs/upgrade-and-compatibility-architecture.md)
 - [Time and Clock Semantics Architecture](docs/time-and-clock-semantics.md)
+- [PKI and Trust Lifecycle Architecture](docs/pki-and-trust-lifecycle-architecture.md)
 - [設計文書の正本と変更規則](docs/document-governance.md)
 - [System-wide Failure Model](docs/failure-model.md)
 - [Extensibility Architecture](docs/extensibility-architecture.md)

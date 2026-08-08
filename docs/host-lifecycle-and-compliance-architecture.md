@@ -87,6 +87,8 @@ Enrollment Policyは以下をversioned ruleとして持ちます。
 
 Agent自己申告のhostname/labelだけでPolicy Matchしません。stable identity evidence、credential binding、approved inventory factsを使用します。
 
+bootstrap material、CSR proof-of-possession、Credential Binding、renewal/revocation/session generationは [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) に従います。credential issuanceだけでEnrollment、READY、Host Operation Authorityへ進めません。
+
 同一Host identityの重複enrollmentは同じHostへ冪等収束させ、異なるhardware identityやactive Hostとの衝突はquarantineします。
 
 ### Hardware Identity Evidence

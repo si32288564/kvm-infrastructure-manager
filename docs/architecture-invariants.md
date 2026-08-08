@@ -19,7 +19,7 @@
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
-| INV-AUTH-001 | User/Service credential authorityは外部Identity Platformであり、KIMはcredentialを発行しない | AT-AUTH-001 |
+| INV-AUTH-001 | User/Northbound Service Principal credential authorityは外部Identity Platformであり、KIMはそのcredentialを発行しない | AT-AUTH-001 |
 | INV-AUTH-002 | KIMはissuer+subjectでPrincipalを識別し、Tenant/Project MembershipとRole Bindingを所有する | AT-AUTH-002 |
 | INV-AUTH-003 | Host credentialはidentityを証明するが、Host mutation authorityそのものではない | AT-AGT-003 |
 | INV-AUTH-004 | stale authority generationはCommand LeaseとResultを進められない | FI-SPLIT-001 |
@@ -328,3 +328,36 @@
 | INV-TIM-018 | event timestamp近接だけでFailure Epochを同一Campaignへmergeしない | FI-TIME-012 |
 | INV-TIM-019 | clock anomalyだけで既存VM/dataplaneを停止・移動・再構成しない | AT-TIM-022 |
 | INV-TIM-020 | clock復旧だけでHost/Agent/Lease/credential authorityを自動再armしない | FI-TIME-013 |
+| INV-TIM-021 | DB/Control Plane clockは自身のtimestampまたは単一external sourceだけでHEALTHYを自己証明しない | FI-TIME-017 |
+| INV-TIM-022 | PTP/GNSS lock、grandmaster、VNF telemetry timestampをKIM Lease/credential/ordering/fencing authorityにしない | FI-TIME-018 |
+| INV-TIM-023 | leap/smear policy不明・競合を無視してLease延長、mass expiry、calendar二重実行を行わない | FI-TIME-019 |
+
+## 19. PKI and Trust Lifecycle
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-PKI-001 | Control Plane、Agent、integration/backend、artifact signing、data encryptionのtrust/key domainを無制限共有しない | AT-PKI-001 |
+| INV-PKI-002 | workload certificateを外部Identity PlatformのUser/Service authorization authorityとして使用しない | AT-PKI-002 |
+| INV-PKI-003 | Root private keyを通常Control Plane/Agent/DBへ配置して日常issuanceに使用しない | FI-PKI-001 |
+| INV-PKI-004 | unknown/wildcard/CN-only/constraint外SAN・EKU・algorithm certificateをtrusted identityにしない | FI-PKI-002 |
+| INV-PKI-005 | private key/secret valueをKIM DB、Event、Command、log、diagnostic、通常backupへ保存しない | FI-PKI-003 |
+| INV-PKI-006 | TrustBundle/Profile/Relationshipをimmutable revisionとmonotonic trust generationで更新しold Bundleを上書き・rollbackしない | FI-PKI-004 |
+| INV-PKI-007 | valid certificateだけでRole、Enrollment、Host authority、Command Lease、backend mutationを成立させない | AT-PKI-007 |
+| INV-PKI-008 | Trust Decisionをcurrent Bundle/profile/revocation/clock/Binding/session generationへbindしUNKNOWNをtrustedへ丸めない | FI-PKI-005 |
+| INV-PKI-009 | bootstrap token/credentialだけでEnrollment、READY、Host authorityを成立させない | FI-PKI-006 |
+| INV-PKI-010 | proof-of-possessionとcurrent Enrollment/identity evidenceなしにAgent certificateを発行しない | AT-PKI-010 |
+| INV-PKI-011 | issuance/renewal response lossで別key/identity certificateをblind発行しない | FI-PKI-007 |
+| INV-PKI-012 | renewal/rekeyは新Credential Binding revisionとし過去certificate/Binding historyを書き換えない | AT-PKI-012 |
+| INV-PKI-013 | overlap中のold/new certificateから二つのHost/workload mutation authorityを作らない | FI-PKI-008 |
+| INV-PKI-014 | TrustBundle/revocation/Binding/authority generation変更後のstale sessionをmutationへ使用しない | FI-PKI-009 |
+| INV-PKI-015 | certificate expiry/revocation/session closeをpeer process/Host/backend side effect停止の証明にしない | FI-PKI-010 |
+| INV-PKI-016 | revocation intentをdistribution/propagation完了へ丸めずsequence/freshness/receiptを要求する | FI-PKI-011 |
+| INV-PKI-017 | revocation stateがstale/UNKNOWNなprofile scopeでnew privileged sessionをfail openしない | FI-PKI-012 |
+| INV-PKI-018 | distrusted issuer/profile/namespaceを別chain、cached session、old Bundleへsilent fallbackしない | FI-PKI-013 |
+| INV-PKI-019 | Host credential revoke/Gateway disconnectだけでcompute/storage/network fencing完了を確定しない | FI-PKI-014 |
+| INV-PKI-020 | Control Plane certificate rotationだけでDB/Bus/backend credentialやLease/authorityをfencedとみなさない | FI-PKI-015 |
+| INV-PKI-021 | compromised issuer自身の署名だけでemergency Root/anchor rolloverを承認しない | FI-PKI-016 |
+| INV-PKI-022 | offline Bundleのsequence/previous digest/trust generation rollbackまたはTOFU/default shared secretを許可しない | FI-PKI-017 |
+| INV-PKI-023 | PITR/DRで時間上有効なold certificate/session/Lease authorityを復活・cloneしない | FI-PKI-018 |
+| INV-PKI-024 | Secret Provider completion claimだけでcredential active/revoked/rotatedを確定しない | FI-PKI-019 |
+| INV-PKI-025 | Root/issuer distrust、emergency anchor、CA key restore、force issuanceを通常resource operator単独で実行しない | FI-PKI-020 |

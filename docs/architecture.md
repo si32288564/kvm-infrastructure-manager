@@ -187,6 +187,7 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 | Principal credential、User lifecycle | External Identity Platform | KIM は所有しない |
 | Tenant、Project、Membership、Role Binding、Quota、Policy | PostgreSQL | KIM が所有 |
 | Enrollment、Profile、Baseline、Assignment、Compliance history | PostgreSQL | KIMがversioned authority/evidenceを所有 |
+| Trust Domain/Bundle/Profile、Credential Binding、Revocation/Session generation | PostgreSQL | private key valueはSecret Provider/HSM/KMS、KIMはtrust lifecycle authorityを所有 |
 | VM desired state | PostgreSQL | API が更新 |
 | VM runtime state | libvirt/QEMU | Agent が observed state として同期 |
 | Placement allocation | PostgreSQL | Scheduler が世代管理 |
@@ -322,7 +323,13 @@ wall clock、PostgreSQL上のDatabase Authority Time、process/Agent monotonic c
 
 Leaseやcredentialの失効は今後の使用を止めますが、期限前にside effectが起きなかった証明にはしません。AgentはGateway exchangeとuncertaintyから保守的なlocal monotonic deadlineを導出し、DB/Host clock anomaly時は既存VMを維持したまま影響scopeの新規mutationだけを停止します。詳細は [Time and Clock Semantics Architecture](time-and-clock-semantics.md) を参照します。
 
-## 16. 参照資料
+## 16. PKI and Trust Lifecycle
+
+Control Plane、Host Agent、external integration、backend adapter、artifact signing、data encryptionのtrust/key domainを分離します。immutable TrustBundle、Credential Binding、revocation state、trust generationをsessionへbindし、有効なcertificateだけでRole、Enrollment、Host Operation Authority、Command Leaseを成立させません。
+
+Root/Intermediate、bootstrap、renewal/rekey/overlap、revocation/distrust、Host/Control Plane/CA compromise、offline trust、DR restoreの詳細は [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) を参照します。
+
+## 17. 参照資料
 
 - [責任境界](responsibility-boundaries.md)
 - [Placement Architecture](placement-architecture.md)
@@ -334,6 +341,7 @@ Leaseやcredentialの失効は今後の使用を止めますが、期限前にsi
 - [Network Resource Architecture](network-resource-architecture.md)
 - [Upgrade and Compatibility Architecture](upgrade-and-compatibility-architecture.md)
 - [Time and Clock Semantics Architecture](time-and-clock-semantics.md)
+- [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md)
 - [System-wide Failure Model](failure-model.md)
 - [Extensibility Architecture](extensibility-architecture.md)
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)

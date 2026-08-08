@@ -11,7 +11,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 
 | ID | Acceptance Contract |
 |---|---|
-| AT-AUTH-001 | 外部IdPの有効/無効tokenを検証し、KIMがUser/Credential rowを発行しない |
+| AT-AUTH-001 | 外部IdPの有効/無効tokenを検証し、KIMがUser/Northbound Service Principal credential rowを発行しない |
 | AT-AUTH-002 | issuer+subjectを安定PrincipalとしてMembership/Role Bindingへ関連付ける |
 | AT-AUTH-003 | system/tenant/project action matrixがdeny-by-defaultで評価される |
 | AT-AUTH-004 | 複数issuerの同一subjectを別Principalとして安全に扱う |
@@ -349,8 +349,41 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-TIM-023 | APIがUTC/offset、timestamp種別、freshness/expiry、bounded clock quality、server-side remaining durationを返す |
 | AT-TIM-024 | metrics/alarmがoffset/uncertainty、clock step、Lease expiry unresolved、freshness、blocked scopeを公開する |
 | AT-TIM-025 | clock正常化後もcurrent enrollment/preflight/Lease/credential generationなしにauthorityを再armしない |
+| AT-TIM-026 | DB/Control Plane ClockReferenceSetが独立source、node相互観測、diversity、provenance/uncertaintyを評価する |
+| AT-TIM-027 | Precision Time DomainのPTP/GNSS/holdover qualityをHost capability/Complianceとして扱いauthority clockと分離する |
+| AT-TIM-028 | leap second/smear policy/windowを宣言し異policy混在時のuncertainty/DEGRADED/UNKNOWNを評価する |
 
-## 17. Performance Tests
+## 17. PKI and Trust Lifecycle
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-PKI-001 | Control Plane/Agent/integration/backend/artifact/data protectionのtrust/key domainとexplicit cross-trustを分離する |
+| AT-PKI-002 | external Identity Platform Principalとworkload certificate identityを別authority/bindingとして評価する |
+| AT-PKI-003 | Rootをoffline/external custody、Agent/Control Planeをpurpose/Site別Intermediateでissuanceする |
+| AT-PKI-004 | Certificate ProfileがSAN namespace、EKU/key usage、path/name constraint、algorithm/lifetime/provenanceを制限する |
+| AT-PKI-005 | KIM DBがprivate key valueを持たずopaque Secret Provider reference/version/public fingerprintだけを保持する |
+| AT-PKI-006 | TrustBundle/Profile/Issuer/Relationship/Revocation sourceをimmutable revision/trust generationでpublishする |
+| AT-PKI-007 | certificate validation後にもRole/Enrollment/Host authority/Command Lease/backend authorizationを個別評価する |
+| AT-PKI-008 | Trust Decisionがpeer fingerprint、Bundle/profile/revocation/clock/Binding/session generationとevidenceへbindする |
+| AT-PKI-009 | one-time bootstrap materialがSite/Host/policy/nonce/max-useへbindしreplay/共有credentialを拒否する |
+| AT-PKI-010 | Agent CSRがhardware/Enrollment evidence、challenge、profile、key provenance、proof-of-possessionを満たす |
+| AT-PKI-011 | issuance response lossでrequest/CSR/key digestから同じBinding/certificate receiptへ収束する |
+| AT-PKI-012 | renewal/rekeyがnew Credential Binding revision、current identity/policy/trust/proofを保持する |
+| AT-PKI-013 | overlap中にnew sessionを検証してoldをdrainし一logical identity/authority generationを維持する |
+| AT-PKI-014 | Authenticated Sessionがmaximum lifetime、periodic revalidation、trust/authority generation fencingを持つ |
+| AT-PKI-015 | revocation lifecycleがrequest/local enforce/distribute/propagation verifiedをsequence/receipt付きで区別する |
+| AT-PKI-016 | certificate、issuer、algorithm、profile、namespaceのdistrustをscope別に評価する |
+| AT-PKI-017 | Host compromise flowがdisarm/revoke/session fence/evidence quarantine/resource observation/re-enrollmentを実行する |
+| AT-PKI-018 | Control Plane compromise flowがcertificate/endpoint/DB/Bus/Secret/backend/Leaseを個別containする |
+| AT-PKI-019 | normal CA rolloverがdual Bundle、receipt、canary/batch、issuance switch、old anchor absence proofを通る |
+| AT-PKI-020 | CA compromise時にindependent recovery authority/two-person approvalでnew anchorをauthorizeしold issuerをdistrustする |
+| AT-PKI-021 | Secret Provider outage/rotation/claimとpublic certificate/Bundle/session verificationを分離する |
+| AT-PKI-022 | offline bootstrap/updateがsigned manifest、anchor fingerprint、sequence、previous digest、expiry、approvalを検証する |
+| AT-PKI-023 | PITR/DR後にrestore/trust generationでold session/Leaseをfenceしrevocation/issuer stateを再取得する |
+| AT-PKI-024 | Trust publish/issuance override/revoke/distrust/rollover/emergency/Secret administrationの権限とapprovalを分離する |
+| AT-PKI-025 | metrics/auditがtrust/credential/session/revocation/rolloverを追跡しsecret/raw identityをredactする |
+
+## 18. Performance Tests
 
 | ID | Performance Contract |
 |---|---|

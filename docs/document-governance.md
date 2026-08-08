@@ -41,6 +41,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 6. Contract/acceptance testへのtraceability
 7. Upgrade path、mixed-version、rollback boundary、support matrixへの影響
 8. Lease、freshness、retention、credential、calendar/correlationのtime semanticsへの影響
+9. Trust Domain、Certificate Profile、revocation、rollover、offline/DR trustへの影響
 7. Architecture InvariantとFault/Conformance test ID
 
 ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureまたは専用contract文書へリンクします。

@@ -5,14 +5,15 @@
 
 ## Context
 
-KIMにはTenant/Project単位のresource ownershipとauthorizationが必要ですが、OIDCを前提としながらUser、password、MFA、Service Credentialまで所有するとIdentity Providerの責務を重複して持つことになります。
+KIMにはTenant/Project単位のresource ownershipとauthorizationが必要ですが、OIDCを前提としながらUser、password、MFA、Northbound Service Principal Credentialまで所有するとIdentity Providerの責務を重複して持つことになります。Control Plane workload/Host Agentのtransport certificateはPrincipal credentialではなく、別のPKI trust lifecycleとして扱います。
 
 ## Decision
 
-- User/Service identity、credential lifecycle、password、MFA、federationは外部Identity Platformが所有する。
+- User/Northbound Service Principal identity、credential lifecycle、password、MFA、federationは外部Identity Platformが所有する。
 - KIMはissuerとsubjectでPrincipalを参照し、Tenant/Project Membership、Role Binding、Policy、Quotaを所有する。
 - authenticationとKIM authorization decisionを分離する。
-- KIMはService Credentialを発行せず、外部Service IdentityをProject/Roleへbindする。
+- KIMはUser/Northbound Service Principal Credentialを発行せず、外部Service IdentityをProject/Roleへbindする。
+- 内部workload/Host transport certificateはPrincipal/Role authorityにせず、PKI Trust Domain/Profile/Bindingの別契約へ従う。
 
 ## Consequences
 

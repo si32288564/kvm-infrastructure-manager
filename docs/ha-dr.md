@@ -15,6 +15,8 @@ Control Plane mixed-version、rolling replacement、serving/quorum budget、roll
 
 DB failover、process/Host reboot、PITR時のclock discontinuity、timer再構築、old Lease/session fencingは [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従います。
 
+PITR/DR後のTrustBundle/revocation state、old Site credential/session、CA/Secret Provider key custody、new Site reissueは [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) に従います。restore epochだけでold certificate/issuer/Siteをrevoked/fencedとみなしません。
+
 Volume/Attachmentのrestore classification、single-writer、backend adoption、fencingは [Storage, Attachment, and Fencing Architecture](storage-attachment-fencing-architecture.md) に従います。
 
 Network Claim/Intent/Bindingのrestore classification、identity/segment reuse、OVN adoptionは [Network Resource Architecture](network-resource-architecture.md) に従います。
@@ -38,6 +40,7 @@ Network Claim/Intent/Bindingのrestore classification、identity/segment reuse�
 - Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Manual Recovery Decision
 - Recovery Budget Policy、Queue Entry、Budget Lease/Consumption、canonical scope schema、Workload Resilience Group/Member/Constraint/Domain Claim
 - Schema/Retention Catalog、Outbox/Inbox/Receipt、GC/Migration record、Backup Manifest、Restore Epoch
+- Trust Domain/Bundle/Profile、Credential Binding、Revocation/Trust/Session generation、Rollover/Incident evidence
 
 backend observationだけでこれらを無条件に復元しません。
 

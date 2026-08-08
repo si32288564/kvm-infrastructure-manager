@@ -188,6 +188,29 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-TIME-014 | credential expiry境界で認証responseをdropし同tokenをreplay | expiry/replay/receipt uncertainty | nonce/session/idempotencyでduplicate拒否/同Receipt | token interval、nonce、session、audit | expiryだけに依存した再受付 | current credential/new request binding |
 | FI-TIME-015 | PITRで未失効に見えるLease/token/maintenance scheduleを復元 | restore epoch/time travel | pre-restore timer/session/Lease fence | restore/DB/Lease/schedule generations | restored token再利用、catch-up mutation | DR clock healthy+current epoch reissue |
 | FI-TIME-016 | DB/Control Plane/Host time sourceを同時喪失させclock evidenceをstale化 | source unavailable/freshness expiry | affected auth/dispatch/GC block、existing VM維持 | scope health、last evidence、alarms | fail-open mutation、既存VM停止 | independent source recovery+new Clock Decision |
+| FI-TIME-017 | DB clockと独立sourceを乖離させ、単一sourceだけを正常値としてspoofする | ClockReferenceSet diversity/conflict | DB clock UNTRUSTED/UNKNOWN、新Lease/GC/finalization停止 | source identities、offset/uncertainty、provenance | self/single-source HEALTHY、authority継続 | independent quorum/reference一致+new decision |
+| FI-TIME-018 | PTP grandmaster change/holdover lossと高精度telemetry timestamp jumpを注入 | Precision Time Domain health drift | affected NFV capability/placement block、KIM Lease維持 | PTP domain/GM/offset/holdover、DB clock evidence | PTPをauthority clock化、VM停止 | precision domain recovery+Compliance再評価 |
+| FI-TIME-019 | leap secondと異なるsmear policy sourceを混在させる | time scale/policy conflict | uncertainty拡大、time-sensitive decision pause | source policies、leap/smear window、decisions | Lease延長、mass expiry、calendar二重実行 | compatible policy/reference setへ収束 |
+| FI-PKI-001 | Root private keyまたはunconstrained Intermediateを通常Control Planeへ配置する構成を投入 | custody/profile policy violation | deployment/readiness拒否、security alert | key reference/profile/manifest digest | online Rootの日常利用、unbounded issuance | offline Root+constrained issuerへ是正 |
+| FI-PKI-002 | wildcard/CN-only、wrong SAN/EKU、unknown issuer/algorithm certificateで接続 | profile/name/chain mismatch | TLS/application session拒否 | peer digest、profile、bounded reason | identity推測、別profile fallback | compliant certificateでnew session |
+| FI-PKI-003 | adapter/Agentがprivate key/Secret Provider valueをDB/Event/Command/logへ返す | secret scanning/schema violation | write/redaction拒否、component quarantine | redacted digest、source、audit | secret persistence/disclosure | credential rotation+patched certified component |
+| FI-PKI-004 | old/replayed TrustBundle revisionをcurrent generationへ適用 | sequence/generation rollback | publish/apply拒否、current trust維持 | old/current sequence/digest/approval | old anchor/profile再信頼 | higher valid revisionを適用 |
+| FI-PKI-005 | TrustDecision後にrevocation/clock/Binding generationを変更しcached sessionを使用 | decision dependency stale | session/privileged mutation拒否 | old/current generations、peer/session | cached trust継続 | current revalidation/new session |
+| FI-PKI-006 | used/expired/shared bootstrap tokenで別Host CSR/Enrollmentを要求 | nonce/use/scope/identity mismatch | bootstrap/issuance拒否、quarantine | token digest、Host evidence、use receipt | duplicate Host credential、auto-enroll | new scoped bootstrap+current approval |
+| FI-PKI-007 | issuer commit後のissuance/renewal responseをdropしてretry | issuance outcome unknown/idempotency | same CSR/requestへsame Binding/receipt | request/CSR/key/cert digests | blind duplicate key/identity issuance | issuer/Binding read-backで収束 |
+| FI-PKI-008 | overlap中old/new Agent certificateから二sessionでCommandを同時取得 | logical identity/authority conflict | one current Host/session generationだけlease | Binding/session/Host/Lease generations | dual Host authority、duplicate execution | new session verified+old drain/fence |
+| FI-PKI-009 | revoke/TrustBundle change後にlong-lived TLS sessionを維持してResult/Command送信 | stale trust/session generation | stale traffic拒否、session terminate | peer fingerprint、trust/session generations | revocation bypass | current certificate/new session/resync |
+| FI-PKI-010 | certificate expiry/session close直後にHost/backend side effect不在としてrecovery | trust loss + resource uncertainty | ownership UNKNOWN、typed observation/fencing | credential/session/Host/resource evidence | restart/attach without fencing | compute/storage/network proof後にpolicy decision |
+| FI-PKI-011 | local deny後にCRL/OCSP/offline revocation distributionをdrop | propagation incomplete | LOCAL_ENFORCED/DISTRIBUTING維持、remove禁止 | sequence、receipts、target status | REVOKED完了誤表示、session許可 | required target propagation verification |
+| FI-PKI-012 | revocation sourceをstale/UNKNOWNにしてnew privileged sessionを要求 | freshness unavailable | profile scope fail closed、existing VM維持 | source sequence/age、policy、decision | last-good無期限trust | fresh current revocation state |
+| FI-PKI-013 | distrusted issuer certificateをalternate chain/old Bundle/cached sessionで提示 | distrust scope match | 全fallback拒否、scope quarantine | chains、Bundle generations、distrust reason | silent alternate trust | approved new issuer/profile |
+| FI-PKI-014 | Host certificate compromise後revokeだけ成功しBMC/storage fencingを失敗 | trust contained/resource fence incomplete | recovery/reattach停止、ownership UNKNOWN | revoke/session/compute/storage evidence | revoke=Host fencedと推測 | required fencing+new enrollment |
+| FI-PKI-015 | Control Plane certificateだけrotateしold DB/Bus/backend credential/Leaseを使用 | multi-credential containment gap | old workload/credential/Lease拒否、scope pause | identities、roles、tokens、authority generations | rotated TLSでincident完了 | individual fence/rotation+clean canary rejoin |
+| FI-PKI-016 | compromised Intermediate自身が署名したnew Root/Bundleでemergency rollover | recovery authority not independent | rollover拒否、TRUST_RECOVERY維持 | old/new chains、approval sources、audit | attacker-controlled anchor adoption | independent out-of-band approval/new anchor |
+| FI-PKI-017 | offline trust/revocation deltaをskip/reorder/replayしdefault secretでbootstrap | chain/sequence/bootstrap violation | bundle/bootstrap拒否 | sequence/previous digest/expiry/use receipt | trust rollback、TOFU/shared credential | valid full/delta chain+one-time material |
+| FI-PKI-018 | PITR後に時間上有効なold Site certificate/session/Leaseを再送 | restore/trust generation mismatch | old identity/session/Lease拒否、recovery mode維持 | restore/trust/session generations、revocation age | old Site clone、stale mutation | external fencing+current trust reissue/session |
+| FI-PKI-019 | Secret Providerがrotation成功claimを返すがpublic certificate/sessionは旧key | claim/observation mismatch | credential state UNKNOWN、switch/old revoke停止 | provider claim、public key/Binding/session evidence | unverified ACTIVE、old key早期revoke | public trust/session verification |
+| FI-PKI-020 | unauthorized single operatorがRoot distrust/emergency anchor/force issuanceを要求 | permission/approval failure | transition拒否、TrustBundle不変 | actor/action/approvals/digest/audit | unilateral trust takeover | scoped two-person authorization |
 | FI-SPLIT-001 | old leader/authority generationからLease/Result送信 | generation/token mismatch | stale actor拒否 | conflict audit、current generation | Job/Desired進行 | current authorityから再同期 |
 | FI-IDENTITY-001 | JWKS/certificate revocation state unavailable | trust validation unavailable | privileged mutation fail closed | bounded auth error、audit | stale/unknown trustで新mutation | trust generation復旧 |
 | FI-AUDIT-001 | durable audit outbox writeを失敗させる | audit unavailable | 管理mutation transaction rollback | failure metric、request correlation | 監査なしmutation | audit durability復旧後に再受付 |
@@ -211,13 +234,14 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Network / NFV Dataplane | FI-NET-001..018, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..017 |
 | Upgrade / Compatibility | FI-UPG-001..018 |
-| Time / Clock Semantics | FI-TIME-001..016 |
+| Time / Clock Semantics | FI-TIME-001..019 |
+| PKI / Trust Lifecycle | FI-PKI-001..020 |
 | Split-brain / Stale Authority | FI-SPLIT-001 |
 | Identity / Audit | FI-IDENTITY-001, FI-AUDIT-001 |
 
 ## 5. Release Gate
 
 - Developer Preview: Client、Execution、Agent、DB failoverのcritical pathsをImplemented。
-- Technical Preview: 全14classで最低1 testをImplementedし、multi-node環境で証拠保存。
+- Technical Preview: 全15classで最低1 testをImplementedし、multi-node環境で証拠保存。
 - Product Beta: network/storage partition、Host fencing、DR restoreを含む全matrixを自動または承認済みrunbookで実行。
 - GA: release candidateごとにcritical subset、定期chaos campaignでfull setを実行。

@@ -26,8 +26,10 @@ flowchart LR
 
 ## 3. Identity と権限
 
+Root/Intermediate、TrustBundle/Profile、Agent/workload Credential Binding、renewal/revocation/compromise/offline/DRの正本は [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) です。本書はそのtrust resultを認証・認可・least privilegeへ適用します。
+
 - 人間ユーザーは外部 IdP の OIDC を使用し、User lifecycle、password、MFA、federationは外部Identity Platformが所有する。
-- Service Identity/Credentialは外部Identity Platformが発行し、KIMはPrincipalとProject/Role Bindingだけを保持する。
+- User/Northbound Service Principal Identity/Credentialは外部Identity Platformが発行し、KIMはPrincipalとProject/Role Bindingだけを保持する。内部workload/Host transport certificateはPrincipal authorityにしない。
 - Control Plane workload と Agent は相互 TLS の workload identity を持つ。
 - Agent bootstrap credential は一回用途とし、登録後にノード固有証明書へ交換する。
 - authenticated Hostを自動承認せず、Enrollment Policy/approvalとidentity evidenceを別に検証する。

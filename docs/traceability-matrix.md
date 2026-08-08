@@ -228,6 +228,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-AVL-005, NFR-AVL-006 | ha-dr | ADR-0009 | INV-DR-001, INV-AUTH-005 | FI-DR-001 | Planned |
 | NFR-PERF-001, NFR-PERF-002, NFR-PERF-003, NFR-PERF-004 | architecture, release-plan | ADR-0003 | - | PT-SCALE-001, PT-API-001, PT-OPS-001 | Planned |
 | NFR-SEC-001, NFR-SEC-002, NFR-SEC-003, NFR-SEC-004, NFR-SEC-005 | security, agent-protocol | ADR-0005, ADR-0008 | INV-SEC-001, INV-SEC-002, INV-AGT-002 | AT-SEC-001, AT-SEC-002, AT-SEC-003, AT-AGT-002 | Planned |
+| NFR-SEC-006, NFR-SEC-007, NFR-SEC-008, NFR-SEC-009, NFR-SEC-010 | pki-and-trust-lifecycle-architecture, security, agent-protocol | ADR-0005, ADR-0008, ADR-0023 | INV-PKI-001, INV-PKI-005, INV-PKI-006, INV-PKI-016, INV-PKI-021, INV-PKI-022, INV-PKI-023 | AT-PKI-001, AT-PKI-005, AT-PKI-006, AT-PKI-015, AT-PKI-020, AT-PKI-022, AT-PKI-023, FI-PKI-003, FI-PKI-016, FI-PKI-017, FI-PKI-018 | Planned |
 | NFR-OPS-001, NFR-OPS-003, NFR-OPS-004, NFR-OPS-005, NFR-OPS-006 | architecture, release-plan, extensibility-architecture | ADR-0003, ADR-0004, ADR-0011 | INV-AGT-006, INV-EXT-006 | AT-OFFLINE-001, XCT-CAP-001 | Planned |
 | NFR-OPS-002, NFR-OPS-007, NFR-OPS-008, NFR-OPS-009, NFR-OPS-010, NFR-OPS-011, NFR-OPS-012 | upgrade-and-compatibility-architecture, data-persistence-architecture, release-plan | ADR-0018, ADR-0021 | INV-UPG-001, INV-UPG-004, INV-UPG-005, INV-UPG-006, INV-UPG-007, INV-UPG-016, INV-UPG-017 | AT-UPG-001, AT-UPG-008, AT-UPG-010, AT-UPG-019, AT-UPG-023, FI-UPG-005, FI-UPG-010, FI-UPG-011, FI-UPG-013, FI-UPG-015 | Planned |
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
@@ -275,8 +276,32 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | TIM-026 | time-and-clock-semantics, api-principles | ADR-0002, ADR-0022 | INV-TIM-001 | AT-TIM-023 | Planned |
 | TIM-027 | time-and-clock-semantics, failure-model | ADR-0010, ADR-0022 | INV-TIM-019, INV-TIM-020 | AT-TIM-022, AT-TIM-025, FI-TIME-013, FI-TIME-016 | Planned |
 | TIM-028 | time-and-clock-semantics, fault-injection-matrix | ADR-0022 | INV-TIM-002, INV-TIM-005, INV-TIM-006, INV-TIM-011, INV-TIM-014, INV-TIM-016, INV-TIM-018 | FI-TIME-001, FI-TIME-002, FI-TIME-003, FI-TIME-007, FI-TIME-009, FI-TIME-011, FI-TIME-012, FI-TIME-015 | Planned |
+| TIM-029 | time-and-clock-semantics | ADR-0022 | INV-TIM-021 | AT-TIM-026, FI-TIME-017 | Planned |
+| TIM-030 | time-and-clock-semantics, host-lifecycle-and-compliance-architecture, placement-architecture | ADR-0013, ADR-0022 | INV-TIM-022 | AT-TIM-027, FI-TIME-018 | Planned |
+| TIM-031 | time-and-clock-semantics | ADR-0022 | INV-TIM-023 | AT-TIM-028, FI-TIME-019 | Planned |
 
-## 18. Coverage Gate
+## 18. PKI and Trust Lifecycle
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| PKI-001, PKI-002 | pki-and-trust-lifecycle-architecture, responsibility-boundaries, security | ADR-0005, ADR-0023 | INV-PKI-001, INV-PKI-002 | AT-PKI-001, AT-PKI-002 | Planned |
+| PKI-003, PKI-004, PKI-005 | pki-and-trust-lifecycle-architecture, security | ADR-0023 | INV-PKI-003, INV-PKI-004 | AT-PKI-003, AT-PKI-004, FI-PKI-001, FI-PKI-002 | Planned |
+| PKI-006 | pki-and-trust-lifecycle-architecture, extensibility-architecture, security | ADR-0011, ADR-0023 | INV-PKI-005 | AT-PKI-005, FI-PKI-003 | Planned |
+| PKI-007, PKI-008, PKI-009, PKI-010, PKI-011 | pki-and-trust-lifecycle-architecture, agent-protocol | ADR-0005, ADR-0008, ADR-0023 | INV-PKI-006, INV-PKI-007, INV-PKI-008 | AT-PKI-006, AT-PKI-007, AT-PKI-008, FI-PKI-004, FI-PKI-005 | Planned |
+| PKI-012, PKI-013, PKI-014 | pki-and-trust-lifecycle-architecture, host-lifecycle-and-compliance-architecture, agent-protocol | ADR-0008, ADR-0013, ADR-0023 | INV-PKI-009, INV-PKI-010 | AT-PKI-009, AT-PKI-010, FI-PKI-006 | Planned |
+| PKI-015, PKI-016 | pki-and-trust-lifecycle-architecture, execution-architecture | ADR-0007, ADR-0023 | INV-PKI-011, INV-PKI-012 | AT-PKI-011, AT-PKI-012, FI-PKI-007 | Planned |
+| PKI-017, PKI-018, PKI-019 | pki-and-trust-lifecycle-architecture, agent-protocol | ADR-0008, ADR-0023 | INV-PKI-013, INV-PKI-014, INV-PKI-015 | AT-PKI-013, AT-PKI-014, FI-PKI-008, FI-PKI-009, FI-PKI-010 | Planned |
+| PKI-020, PKI-021, PKI-022 | pki-and-trust-lifecycle-architecture, security | ADR-0023 | INV-PKI-016, INV-PKI-017, INV-PKI-018 | AT-PKI-015, AT-PKI-016, FI-PKI-011, FI-PKI-012, FI-PKI-013 | Planned |
+| PKI-023, PKI-024 | pki-and-trust-lifecycle-architecture, availability-responsibility-architecture, storage-attachment-fencing-architecture | ADR-0010, ADR-0015, ADR-0019, ADR-0023 | INV-PKI-019 | AT-PKI-017, FI-PKI-014 | Planned |
+| PKI-025 | pki-and-trust-lifecycle-architecture, ha-dr, execution-architecture | ADR-0007, ADR-0009, ADR-0023 | INV-PKI-020 | AT-PKI-018, FI-PKI-015 | Planned |
+| PKI-026, PKI-027 | pki-and-trust-lifecycle-architecture, upgrade-and-compatibility-architecture | ADR-0021, ADR-0023 | INV-PKI-021 | AT-PKI-019, AT-PKI-020, FI-PKI-016 | Planned |
+| PKI-028 | pki-and-trust-lifecycle-architecture, extensibility-architecture | ADR-0011, ADR-0023 | INV-PKI-024 | AT-PKI-021, FI-PKI-019 | Planned |
+| PKI-029 | pki-and-trust-lifecycle-architecture, upgrade-and-compatibility-architecture | ADR-0021, ADR-0023 | INV-PKI-022 | AT-PKI-022, FI-PKI-017 | Planned |
+| PKI-030 | pki-and-trust-lifecycle-architecture, ha-dr, data-persistence-architecture | ADR-0009, ADR-0018, ADR-0023 | INV-PKI-023 | AT-PKI-023, FI-PKI-018 | Planned |
+| PKI-031 | pki-and-trust-lifecycle-architecture, security | ADR-0005, ADR-0023 | INV-PKI-025 | AT-PKI-024, FI-PKI-020 | Planned |
+| PKI-032 | pki-and-trust-lifecycle-architecture, failure-model, fault-injection-matrix | ADR-0010, ADR-0023 | INV-PKI-008, INV-PKI-015, INV-PKI-016 | AT-PKI-025, FI-PKI-005, FI-PKI-009, FI-PKI-011, FI-PKI-018 | Planned |
+
+## 19. Coverage Gate
 
 Phase 0完了条件:
 

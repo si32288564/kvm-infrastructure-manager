@@ -314,7 +314,7 @@ abortは未開始waveを止め、active targetを安全な境界まで収束さ�
 - artifact、SBOM、provenance、vulnerability exception、approval、compatibility decisionを監査可能に関連付ける。
 - break-glassでもschema/Lease/fencing/tenant isolation invariantを迂回できない。
 
-PKI、signing key、workload identityのrotation/revocation詳細は将来のPKI / Trust Lifecycle Architectureで定義します。本書ではverified identity/digestをupgrade gateの入力として要求します。
+PKI、signing key、workload identityのrotation/revocation詳細は [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) に従います。本書ではverified identity/digestをupgrade gateの入力として要求します。product Release Manifestやbinary upgradeだけでTrust Root/issuerを暗黙置換せず、TrustBundle/Rollover Campaignの別approvalとdistribution verificationを必要とします。
 
 ## 17. Observability and Operator Contract
 
