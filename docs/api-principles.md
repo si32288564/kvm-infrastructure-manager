@@ -1,7 +1,7 @@
 # API 設計原則
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 
 ## 1. API の役割
 
@@ -110,6 +110,7 @@ RFC 9457 Problem Details を基礎に、安定した製品 error code を追加�
 ## 10. 認証・認可
 
 - OAuth 2.0/OIDC access token を使用する。
+- User/Service credentialは外部Identity Platformが発行し、KIMはcredential authorityにならない。
 - authorization は action、resource、scope、ownership、attribute で評価する。
 - 認可失敗は actor、policy、resource ID、request ID とともに監査する。
 - Console URL、image upload URL などは短寿命かつ一回用途を基本とする。

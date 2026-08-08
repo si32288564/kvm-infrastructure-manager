@@ -1,19 +1,20 @@
 # ドメインモデル
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 
 ## 1. 境界づけられたコンテキスト
 
 | Context | 主な責務 |
 |---|---|
-| Identity and Tenancy | Tenant、Project、Role、Quota |
+| Tenancy and Authorization | Tenant、Project、Membership、Role Binding、Policy、Quota |
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
 | Compute | VM、Image、Flavor、Console、Migration |
-| Placement | Resource Provider、Inventory、Allocation、Constraint |
+| Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
 | Storage | Storage Backend、Volume、Snapshot、Attachment |
-| Operations | Operation、Step、Retry、Event、Notification |
+| Operations | Operation、Step、Event、Notification |
+| Execution | Job、Command、Lease、Attempt、Result |
 | Assurance | Alarm、Metric、Audit Record、Diagnostic Bundle |
 
 ## 2. 主要エンティティ
@@ -25,6 +26,8 @@ erDiagram
     PROJECT ||--o{ VM : owns
     PROJECT ||--o{ NETWORK : owns
     PROJECT ||--o{ VOLUME : owns
+    PRINCIPAL ||--o{ ROLE_BINDING : receives
+    PROJECT ||--o{ ROLE_BINDING : scopes
     IMAGE ||--o{ VM : boots
     FLAVOR ||--o{ VM : sizes
     HOST ||--o{ VM : runs
@@ -36,6 +39,10 @@ erDiagram
     VM ||--o{ ALLOCATION : consumes
     HOST ||--o{ ALLOCATION : provides
     OPERATION }o--|| PROJECT : scoped_to
+    OPERATION ||--o{ JOB : contains
+    JOB ||--o{ COMMAND : dispatches
+    COMMAND ||--o{ ATTEMPT : attempts
+    COMMAND ||--o| LEASE : authorizes
 ```
 
 ## 3. 識別子と共通属性
@@ -92,6 +99,22 @@ stateDiagram-v2
     QUEUED --> CANCELLED
 ```
 
+OperationはAPI利用者向けの集約状態です。Host実行の結果不明をOperationの一般的なFAILEDへ潰しません。
+
+### Execution lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> AVAILABLE
+    AVAILABLE --> LEASED
+    LEASED --> RESULT_RECORDED
+    LEASED --> LEASE_EXPIRED
+    LEASE_EXPIRED --> AVAILABLE
+    LEASED --> AUTHORITY_REVOKED
+```
+
+Attempt outcomeは`SUCCEEDED`、`FAILED`、`UNKNOWN`です。Lease expiry、executor interruption、backend outcome不明、rollback未確認は`UNKNOWN`としてappend-onlyに記録します。新Attemptが作られても旧Attemptのstale Resultが現在のauthorityを進めることはありません。
+
 ## 5. ETSI NFV 概念との対応
 
 | ETSI NFV 概念 | KIM 内部概念 |
@@ -117,3 +140,8 @@ stateDiagram-v2
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。
+- Identity ProviderがUser/Service credentialを所有し、KIMはPrincipal bindingだけを所有する。
+- eligibility=falseのHostをscoreで選択可能にしない。
+- final admissionと全resource claimは一つのtransactionでcommitする。
+- Commandごとにactive Leaseは最大一つで、Attemptは上書きしない。
+- Agent Resultの成功だけではJobを成功にせず、後続observationを必要とする。

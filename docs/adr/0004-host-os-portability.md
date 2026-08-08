@@ -16,6 +16,8 @@ KIM は、特定ベンダーまたは特定 Linux ディストリビューショ
 - Scheduler は distribution 名ではなく、正規化された capability、trait、constraint で判断する。
 - Virtualization、Network、Storage、OS Integration を Agent 内で別 adapter とする。
 - Agent は登録前または有効化前に preflight を実行し、必須 capability と remediation hint を報告する。
+- Discoveryとpreflight/validationをAgentの必須責務とし、Host mutationから分離する。
+- Host mutationを提供する場合は、KIM resource成立に必要なversioned typed infrastructure remediationだけに限定する。
 - 新しい Linux 対応のために Control Plane へ OS 名の条件分岐を追加しない。
 - Agent という名称は仮称であり、製品上の正式名称は別途決定する。
 
@@ -50,4 +52,6 @@ KIM は、特定ベンダーまたは特定 Linux ディストリビューショ
 - OS 検出結果だけで capability を推測せず、実機能を probe する。
 - 未知の OS は黙って既知 OS として扱わず、明示的に Compatible/Unsupported を判定する。
 - セキュリティ機構を無効化して互換性を得る実装を標準動作にしない。
-
+- 任意package名、service名、shell、argv、file path、設定内容、kernel argumentをControllerから受け取らない。
+- OS package installation、patching、任意設定変更、reboot orchestrationを汎用Configuration Managementとして実装しない。
+- typed remediationは対象resource、precondition、authority generation、bounded result、read-back verificationを必須とする。

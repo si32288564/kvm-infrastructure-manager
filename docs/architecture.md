@@ -1,7 +1,7 @@
 # システムアーキテクチャ
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 
 ## 1. アーキテクチャ目標
 
@@ -44,13 +44,14 @@ flowchart TB
     Gateway --> API["Resource API"]
     API --> DB[("PostgreSQL")]
     API --> Workflow["Workflow / Operation Service"]
-    Workflow --> Bus[("Durable Message Bus")]
+    Workflow --> Bus[("Internal Durable Message Bus")]
     Scheduler["Placement Scheduler"] --> DB
     Reconciler["Resource Reconcilers"] --> DB
     Reconciler --> Bus
     Inventory["Inventory and Capacity"] --> DB
-    Bus --> Agent1["Host Agent"]
-    Bus --> AgentN["Host Agent"]
+    Bus --> Gateway["Agent Gateway / Command Service"]
+    Gateway --> Agent1["Host Agent"]
+    Gateway --> AgentN["Host Agent"]
     Agent1 --> Libvirt1["libvirt / QEMU-KVM"]
     AgentN --> LibvirtN["libvirt / QEMU-KVM"]
     Agent1 --> OVS1["OVS / ovn-controller"]
@@ -81,11 +82,24 @@ flowchart TB
 
 ### Placement Scheduler
 
-1. Host 状態、AZ、trait、機能、容量による filter。
-2. NUMA、HugePages、PCI、affinity などの constraint 評価。
-3. spread、残容量、キャッシュ locality などによる weigh。
-4. DB 上で allocation generation を検証しながら容量を claim。
-5. 配置判断と除外理由を記録。
+1. request、policy、inventory、allocation generation を固定したsnapshotを作る。
+2. stateを変更しないdry eligibility/admissionで不適格Hostを除外する。
+3. eligible Hostだけをversioned policyでscoringする。
+4. 候補を選択し、PostgreSQL transaction内でfinal admissionを再評価する。
+5. compute、NUMA、HugePages、PCI、network、storage、quotaを不可分に予約する。
+6. 競合時は残候補を再選択し、適格性、score、選択・除外理由を記録する。
+
+詳細は [Placement Architecture](placement-architecture.md) を参照します。
+
+### Agent Gateway / Command Service
+
+- 内部Message BusをHost側Trust Boundaryへ公開しない。
+- Agentが確立したmTLS session上でInventory、heartbeat、Command Lease、Resultを扱う。
+- certificateからHost identityを導出し、body/headerのHost IDをauthorityに使わない。
+- Command execution authorityはMessage BusではなくPostgreSQLのLeaseから発行する。
+- transportをJob/Command/Lease/Attempt semanticsから分離する。
+
+詳細は [Agent Protocol Architecture](agent-protocol.md) を参照します。
 
 ### Host Agent
 
@@ -116,22 +130,25 @@ flowchart LR
     Store --> HostStore["LVM / Ceph client"]
 ```
 
-OS Integration Adapter は最低限、以下の契約を実装します。
+OS Integration Adapter は最低限、以下のdiscovery/validation契約を実装します。
 
 - distribution、version、kernel、service manager、security module の検出
-- package prerequisite と設定ファイル位置の解決
-- service lifecycle、log、audit、diagnostic の正規化
-- firewall、SELinux/AppArmor、device permission の適用
-- HugePages、CPU isolation、IOMMU、NUMA などの Host tuning
+- package prerequisite と設定ファイル位置の検出
+- service state、log、audit、diagnostic の正規化
+- firewall、SELinux/AppArmor、device permission の状態検証
+- HugePages、CPU isolation、IOMMU、NUMA などのHost tuning状態検証
 - preflight、readiness、capability、remediation hint の報告
 
 Host capability は「OS名」ではなく、機能と制約として Scheduler へ公開します。新しいディストリビューション対応で Control Plane に OS 名による条件分岐を追加してはいけません。
+
+OS変更は別のtyped infrastructure remediation境界です。任意package/service/configuration/kernel argumentを操作する汎用Configuration Managementを提供しません。KIM resource成立に必要な限定操作だけが、明示authority、precondition、verification、bounded rollbackを伴って実行できます。
 
 ## 4. データ所有権
 
 | データ | System of Record | 備考 |
 |---|---|---|
-| Tenant、Quota、Policy | PostgreSQL | Control Plane が所有 |
+| Principal credential、User lifecycle | External Identity Platform | KIM は所有しない |
+| Tenant、Project、Membership、Role Binding、Quota、Policy | PostgreSQL | KIM が所有 |
 | VM desired state | PostgreSQL | API が更新 |
 | VM runtime state | libvirt/QEMU | Agent が observed state として同期 |
 | Placement allocation | PostgreSQL | Scheduler が世代管理 |
@@ -139,6 +156,7 @@ Host capability は「OS名」ではなく、機能と制約として Scheduler 
 | Network dataplane state | OVN/OVS | observed state を収集 |
 | Volume metadata | PostgreSQL | 実体は backend が所有 |
 | Operation history | PostgreSQL | 長期監査とは分離 |
+| Job、Command、Lease、Attempt | PostgreSQL | Execution authority と履歴 |
 | Audit log | Append-only sink | 外部転送を推奨 |
 
 ## 5. 整合性モデル
@@ -149,6 +167,8 @@ Host capability は「OS名」ではなく、機能と制約として Scheduler 
 - 強い整合性が必要な容量予約は、世代番号または行ロックで競合を検出する。
 - Agent message は重複、遅延、順序逆転を前提とする。
 - observed state は generation と observation timestamp を持つ。
+- Agentの実行Resultと、resourceの収束成功を分離する。
+- Execution outcomeのUNKNOWNをFAILEDと区別し、stale ResultをLease token、attempt、authority generationでfencingする。
 
 ## 6. Compute
 
@@ -157,6 +177,7 @@ Host capability は「OS名」ではなく、機能と制約として Scheduler 
 - Domain XML は正規化された内部モデルから生成し、ユーザー入力 XML を直接通さない。
 - VM delete は Port、Volume、allocation の依存関係を明示的に処理する。
 - Host maintenance は新規配置停止、退避計画、残存資源確認の順で進める。
+- migration可否は製品全体のbooleanではなく、VMとsource/destinationの組合せごとにcold、live、restart-on-other-host、noneとして評価する。
 
 ## 7. Network
 
@@ -166,6 +187,8 @@ Host capability は「OS名」ではなく、機能と制約として Scheduler 
 - OVN Geneve overlay: Tenant ごとに重複可能なアドレス空間と論理 L2/L3 を提供。
 
 KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し、各ホストの `ovn-controller` と OVS が dataplane を構成します。OVN は論理 L2/L3、overlay、security group に相当する抽象化を提供します。
+
+KIMのauthorityはNFVI-PoP内のvirtual network resource、provider network binding、virtual router、tenant overlay、VM connectivityまでです。WAN path、transport network、inter-PoP connectivity、物理switch lifecycleはWIMまたは外部Network/PIMの責務です。
 
 ## 8. Storage
 
@@ -182,6 +205,10 @@ KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し
 - leader が必要な処理は lease と fencing token を使用する。
 - clock skew を監視し、順序性に wall clock のみを使わない。
 - Control Plane 喪失時も既存 VM と dataplane は稼働を継続する。
+- 同一SiteのHA failoverはcommitted PostgreSQL authority dataのRPO 0を目標とする。
+- backup/PITRを用いるDRはRPO 5分、RTO 60分を別目標として扱う。
+
+詳細は [HA / DR Architecture](ha-dr.md) を参照します。
 
 ## 10. 障害時の基本動作
 
@@ -212,7 +239,7 @@ KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し
 | Control Plane / Agent | Go | Proposed |
 | API | REST + OpenAPI 3.1 | Proposed |
 | Database | PostgreSQL | Proposed |
-| Durable messaging | NATS JetStream | Proposed |
+| Internal durable messaging | NATS JetStream | Proposed。Agent transportには直接使用しない標準案 |
 | Hypervisor API | libvirt | Accepted in principle |
 | Network | OVN + Open vSwitch | Proposed |
 | Shared storage | Ceph RBD | Proposed |
@@ -230,6 +257,14 @@ KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し
 初期候補は Ubuntu/Debian 系、RHEL-compatible 系、SUSE 系です。具体的な version はリリースごとのサポートマトリクスで固定します。
 
 ## 14. 参照資料
+
+- [責任境界](responsibility-boundaries.md)
+- [Placement Architecture](placement-architecture.md)
+- [Execution Architecture](execution-architecture.md)
+- [Agent Protocol Architecture](agent-protocol.md)
+- [HA / DR Architecture](ha-dr.md)
+- [System-wide Failure Model](failure-model.md)
+- [Extensibility Architecture](extensibility-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

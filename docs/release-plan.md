@@ -1,7 +1,7 @@
 # リリース計画
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 
 日付ではなく、検証可能な exit criteria で段階を進めます。具体的な日程はチーム体制と対象 OS の決定後に設定します。
 
@@ -16,6 +16,15 @@
 - Threat model
 - 対応予定 OS と component version 方針
 - Agent の OS Integration Adapter 契約と support tier
+- Responsibility Boundary
+- Placement Architecture と transactional final admission
+- Operation / Job / Command / Lease / Attempt のExecution model
+- Agent GatewayとAgent transport境界
+- PostgreSQL authorityのHA/DR model
+- System-wide Failure Modelとfault injection matrix
+- Extensibility Architecture、Core invariant、extension conformance contract
+- Architecture InvariantsとRequirement-to-Test Traceability Matrix
+- 12 failure classのFault Injection Matrix
 
 ### Exit criteria
 
@@ -23,6 +32,12 @@
 - 主要な未決事項が ADR または open question として追跡される。
 - VM create/delete、Host loss、Control Plane loss の設計レビューが完了する。
 - 少なくとも2系統の Linux ディストリビューションで同じ Control Plane build を用いた preflight と VM lifecycle を検証する。
+- Identity、Host configuration、Network、NFVO/VNFM/WIMのauthority境界がADRで承認される。
+- placement競合、lease expiry、stale result、outcome unknown、DB failover/restoreのfailure scenarioがテスト設計に落ちる。
+- 各failure classにDetect/Contain/Fence/Observe/Recover/Reconcile/Escalateと禁止操作が割り当てられる。
+- 初期extension pointがCore authorityを迂回しないことをcontract testで検証できる。
+- 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
+- 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
 ## Phase 1: Developer Preview
 
@@ -43,6 +58,9 @@
 - Host 切断時に新規配置されず、復旧後に状態が収束する。
 - clean install と uninstall 手順が自動試験される。
 - 最初の Validated OS 組合せと、Compatible/Unsupported の判定方法が公開される。
+- dry admissionとtransactional final admissionの競合再選択を自動試験する。
+- write-before-execute journal、lease expiry、stale Result fencingを自動試験する。
+- Developer Preview対象Invariantのtest contractがImplemented状態になる。
 
 ## Phase 2: Technical Preview
 
@@ -106,6 +124,8 @@
 - API backward compatibility check
 - migration forward/backward test
 - vulnerability、license、secret scan
+- Architecture invariant/traceability coverage check
+- critical Fault Injection subsetとExtension Conformance suite
 - signed artifact と SBOM
 - performance regression check
 - documentation link check

@@ -1,0 +1,86 @@
+# Agent Protocol Architecture
+
+- 状態: Draft
+- 更新日: 2026-08-09
+
+## 1. 決定対象
+
+内部Message BusとHost側コンポーネント（仮称Agent）の通信境界を分離します。標準案ではAgentをNATS JetStreamへ直接接続しません。
+
+Gateway/transport障害時の横断規則は [System-wide Failure Model](failure-model.md) に従います。
+
+```mermaid
+flowchart LR
+    Workflow["Workflow / Dispatcher"] --> Bus[("Internal Durable Bus")]
+    Bus --> Gateway["Agent Gateway / Command Service"]
+    Gateway -->|"outbound-established mTLS session"| Agent["Host-side component (temporary name: Agent)"]
+    Agent -->|"result / inventory / heartbeat"| Gateway
+    Gateway --> DB[("PostgreSQL Authority")]
+```
+
+## 2. 境界
+
+### Internal Bus
+
+- Control Plane内のwake-up、work distribution、backpressureに使用する。
+- Host credential、Tenant credential、Agent固有consumerを発行しない。
+- Bus deliveryをCommand execution authorityとして扱わない。
+
+### Agent Gateway / Command Service
+
+- Agent mTLS identityを検証し、certificateからHost identityを導出する。
+- Lease authorityをPostgreSQL transactionから発行する。
+- typed Command schema、size、version、capabilityを検証する。
+- Inventory、heartbeat、Resultを受け付け、bounded responseを返す。
+- Busのsubject/credentialをAgentへ露出しない。
+
+### Agent
+
+- outbound connectionだけを必要とする。
+- request body/headerの自己申告Host IDをauthorityに使わない。
+- 一つのHost identityとcredentialをInventory/Command/Resultで共有する。
+- closed capability setを通知し、未知Commandを拒否する。
+
+## 3. Transport
+
+最初のtransport候補はHTTPS long pollingまたはbidirectional streamです。Job/Command/Lease/Attempt semanticsはtransportから独立させます。
+
+必須特性:
+
+- TLS 1.3、mutual authentication、証明書rotation
+- bounded message、strict schema、unknown field rejection
+- request ID、protocol version、capability version
+- connection loss後のbounded backoffとfull resync
+- proxy/load balancer越しでもPostgreSQL lease authorityを維持
+- application-level replay/stale result protection
+
+## 4. Trust and Authorization
+
+Agent credentialはHost identityを証明しますが、操作許可そのものではありません。Command leaseには以下がすべて必要です。
+
+- 有効なHost credential
+- registered/enabled Host
+- advertised typed capability
+- armed Host Operation Authority generation
+- active immutable Command
+- PostgreSQLが発行するcurrent Lease
+
+Agent compromise時のblast radiusは、そのHost向けCommandとそのHostからのobserved dataに限定します。Agentから任意publishや他HostのCommand取得を許可しません。
+
+## 5. NATS Direct接続を採る場合の条件
+
+将来AgentをNATSへ直接接続する場合は、別ADRで少なくともsubject-level authorization、credential lifecycle、per-Host isolation、publish allow-list、replay、consumer ownership、compromised Agent threat modelを定義し、Agent Gateway案より優れることを検証します。
+
+## 6. Gateway障害時のAgent動作
+
+Agent GatewayまたはControl Planeへ接続できない場合、Agentはfail-safeに動作します。
+
+- 既存VM、Port、Volumeを維持し、自律的なreconcile/mutation/rollbackを開始しない。
+- 新しいLeaseなしにCommandを実行しない。cached Commandを再実行しない。
+- Lease取得済みでも実行開始前にlocal lease deadlineを過ぎたCommandは開始しない。
+- backend mutation開始後の通信断では処理を推測でcancel/rollbackせず、typed operationを安全な境界まで完了しResultをjournalする。
+- Result配送に失敗した場合、同じResult/token/attemptを期限内に再送する。Lease失効後は新しいmutationを開始せず、observationとjournal evidenceを次回接続時に報告する。
+- Inventory/heartbeatはbounded local queueに保持できるが、古いobservationをcurrentとして表示しない。
+- Gateway復旧だけでHost Operation Authorityをarmしない。
+
+AgentはControl Plane不在時の自律オーケストレーターではありません。安全性に必要な局所処理を除き、authorityなしのdesired state変更を行いません。

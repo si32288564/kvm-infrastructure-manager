@@ -1,0 +1,215 @@
+# System-wide Failure Model
+
+- 状態: Draft
+- 更新日: 2026-08-09
+
+## 1. 目的
+
+KIM全体で障害を同じ意味論により扱います。目的は障害を隠すことではなく、不確実な状態を正しく表現し、authorityの拡散と誤った破壊操作を防ぎ、証拠に基づいて収束させることです。
+
+## 2. System-wide Invariants
+
+1. 通信成功をbackend mutation成功と同一視しない。
+2. timeoutを未実行または失敗の証明として扱わない。
+3. UNKNOWNをFAILEDへ変換せず、履歴を上書きしない。
+4. stale identity、generation、Lease、Result、observationはcurrent authorityを進めない。
+5. desired state、allocation、attachment、execution authorityはPostgreSQL commitだけで確定する。
+6. backend observationだけで未知resourceを自動adoptまたは自動削除しない。
+7. 認証・認可・audit authorityが不明なmutationはfail closedとする。
+8. Control Plane障害中も既存workload/dataplaneを不用意に変更しない。
+9. recoveryはDetect、Contain、Fence、Observe、Recover、Reconcile、Escalateの順序と証拠を保持する。
+
+## 3. Failure Handling Lifecycle
+
+```mermaid
+flowchart LR
+    Detect --> Contain
+    Contain --> Fence
+    Fence --> Observe
+    Observe --> Decide{"Outcome provable?"}
+    Decide -->|"yes"| Recover
+    Decide -->|"no"| Escalate
+    Recover --> Reconcile
+    Reconcile --> Verify
+    Verify --> Closed
+    Verify -->|"still ambiguous"| Escalate
+```
+
+### Detect
+
+bounded health、deadline、generation gap、lease expiry、backend error class、missing heartbeat、integrity checkで検出します。
+
+### Contain
+
+影響scopeへの新規mutationを停止し、既存workloadを維持します。障害を別Tenant/Host/backendへ拡散させません。
+
+### Fence
+
+credential、authority generation、Lease、leader token、attachment generationなどを失効させ、stale actorがauthorityを進めることを防ぎます。
+
+### Observe
+
+read-back、Inventory full resync、backend native state、journal、accepted Result、audit evidenceを収集します。単一の観測だけで結論を出さない場合があります。
+
+### Recover
+
+Command typeごとのtyped recoveryだけを行います。汎用retry、汎用rollback、推測ベースのcleanupは行いません。
+
+### Reconcile
+
+current authorityとtrusted observationを比較し、新しいevidence/eventとして収束を記録します。
+
+### Escalate
+
+安全な自動判断ができない場合、resourceをblocked/quarantinedに保ち、operator action、診断情報、許可された選択肢を提示します。
+
+## 4. Failure Record
+
+横断的なFailure/Alarm表現は最低限以下を持ちます。
+
+- failure ID、class、scope、severity
+- detected at、last observed at
+- request/operation/job/command/attempt correlation
+- resource identity、desired/observed generation、authority generation
+- bounded reason codeとevidence reference
+- containment/fencing state
+- safe automatic actionsとprohibited actions
+- recovery state、verification evidence、operator action requirement
+
+秘密情報、生backend error、他Tenantのresource identityを公開表現へ含めません。
+
+## 5. Failure Classes
+
+### 5.1 Client Failure
+
+例: timeout、再送、切断、stale ETag、応答喪失。
+
+- Detect: request cancellation、duplicate idempotency key、precondition failure。
+- Contain/Fence: idempotency scope、ETag、request digest。
+- Recover:元Operation/receiptを返す。新しいmutationを暗黙作成しない。
+- Escalate:同じkeyで異なるpayloadはconflict。
+
+### 5.2 API / Control Plane Failure
+
+例: process crash、worker interruption、partial service outage。
+
+- Detect: health/readiness、started workの期限超過、leader lease。
+- Contain/Fence: stateless replica、fencing token、started AttemptをUNKNOWNとして追記。
+- Recover: PostgreSQL authorityから未完workを再駆動。
+- Prohibited: memory上の進捗だけを根拠にsuccessへ進めない。
+
+### 5.3 Database Failure
+
+例: failover、commit応答喪失、quorum喪失、corruption。
+
+- Detect: transaction error class、primary generation、integrity/replication health。
+- Contain/Fence: mutation受付停止、old primary fencing。
+- Recover:同じidempotency keyでcommit済みか照会。HAはRPO 0を維持。
+- Escalate:corruption/site lossはDR recovery modeへ移行。
+
+### 5.4 Internal Message Failure
+
+例: duplicate、delay、reordering、consumer crash、Bus outage。
+
+- Detect: delivery metadata、work age、consumer health。
+- Contain/Fence: Bus messageをexecution authorityにしない。
+- Recover:PostgreSQL authorityから再駆動し、handlerを冪等化。
+- Prohibited:Bus ackだけでJobを成功にしない。
+
+### 5.5 Agent Gateway / Transport Failure
+
+例: session断、Gateway replica障害、Result response loss。
+
+- Detect: session/heartbeat、delivery deadline。
+- Contain/Fence:新Leaseを発行せず、失効LeaseのResultをstale拒否。
+- Recover:受理済み同一Resultだけreceiptを再送。Agentはobservation/journal evidenceを再送。
+- Prohibited:接続復旧だけでHost authorityをarmしない。
+
+### 5.6 Agent Failure
+
+例: process crash、journal write failure、credential expiry、adapter panic。
+
+- Detect:heartbeat、health file、journal started record、credential status。
+- Contain/Fence:capabilityをunavailableにし新Commandを停止。
+- Recover:write-before-execute journalとbackend read-backで解決。
+- Escalate:実行有無を証明できなければAttempt outcomeをUNKNOWNとする。
+
+### 5.7 Host Failure
+
+例: power loss、kernel panic、management partition、clock異常。
+
+- Detect:Agent/Host heartbeat、BMC/外部evidence、network observation。
+- Contain/Fence:Hostをineligibleにし、新規配置とmutationを停止。
+- Recover:再起動後full inventory。再作成はsource fencingとstorage/network条件を必須とする。
+- Prohibited:heartbeat lossだけで同じdiskを別Hostへattachしない。
+
+### 5.8 libvirt / QEMU Failure
+
+例: synchronous error、daemon restart、QEMU crash、operation timeout。
+
+- Detect:typed adapter result、libvirt event、domain read-back。
+- Contain/Fence:resource identity/domain UUID/generationを固定。
+- Recover:command-specific read-backとverification。
+- Escalate:mutation outcomeやrollbackを証明できなければUNKNOWN。
+
+### 5.9 Network Backend Failure
+
+例: OVN DB quorum loss、transaction conflict、controller lag、dataplane drift。
+
+- Detect:NB/SB transaction status、chassis binding、Port/dataplane observation。
+- Contain/Fence:affected network/gatewayへの新規bindingを停止。
+- Recover:KIM所有intentだけをgeneration付きで再適用し、dataplaneを検証。
+- Prohibited:未知OVN objectや物理networkを自動削除しない。
+
+### 5.10 Storage Backend Failure
+
+例: Ceph timeout、attachment結果不明、local volume loss、fencing failure。
+
+- Detect:backend result、attachment read-back、Ceph health、Host observation。
+- Contain/Fence:Volume/attachment generationをblockし、反対操作を停止。
+- Recover:identityとsingle-writer/fencingを証明後にtyped resolverを実行。
+- Prohibited:detach timeout直後に別Hostへattachしない。
+
+### 5.11 Split-brain / Stale Authority
+
+例:old DB primary、old leader、old Host authority、stale Lease/Result、stale inventory。
+
+- Detect:generation、term、token、certificate/credential generation。
+- Contain/Fence:単調増加generationとfencing tokenを全mutation/resultで検証。
+- Recover:current authorityから再同期。
+- Prohibited:wall clockまたは接続状態だけでauthorityを選ばない。
+
+### 5.12 Identity / Audit Failure
+
+例:IdP unavailable、JWKS stale、certificate失効状態不明、audit sink unavailable。
+
+- Detect:token/certificate validation、trust generation、audit outbox health。
+- Contain/Fence:新規privileged mutationをfail closed。
+- Recover:last-known-good trustは明示された期限内の既存sessionにだけ使用する。
+- Escalate:audit durabilityを確保できない管理操作は受付けない。
+
+## 6. Failure Matrix
+
+| Scope | Existing workload | New mutation | Automatic recovery | Escalation condition |
+|---|---|---|---|---|
+| API replica loss | 継続 | healthy replicaで受付 | authorityから再駆動 | quorum/DB unavailable |
+| DB quorum loss | 継続 | 停止 | quorum復旧 | corruption/old primary unfenced |
+| Bus loss | 継続 | durable acceptance後に待機 | DBから再駆動 | work age上限超過 |
+| Gateway loss | 継続 | Host配送停止 | session再確立 | in-flight outcome unknown |
+| Agent loss | 継続 | 対象Host停止 | journal/read-back | mutation証明不能 |
+| Host loss | 不明または停止 | 対象Host停止 | fencing後に限定 | storage/device ownership不明 |
+| Network backend loss | compute継続、connectivity degradedの可能性 | 対象network停止 | intent再適用 | external/unknown object競合 |
+| Storage backend loss | I/O影響の可能性 | attachment停止 | typed resolver | single-writer証明不能 |
+
+## 7. Verification and Fault Injection
+
+Phase 0で各failure classに以下を関連付けます。
+
+- detection signalとbounded error code
+- containment/fencing assertion
+- prohibited action assertion
+- recovery preconditionとverification evidence
+- automated test、fault injection、runbook owner
+
+最低限、commit応答喪失、Lease expiry後の遅延Result、Agent crash before/after journal、Gateway partition、DB failover、Host loss、libvirt timeout、OVN conflict、Ceph attachment timeout、stale authorityをsystem testへ含めます。
+

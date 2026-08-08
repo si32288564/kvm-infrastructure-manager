@@ -11,10 +11,12 @@ VM、Network、Volume の操作は複数 backend にまたがり、秒から分�
 
 - 書き込み API は desired state と Operation を永続化して `202 Accepted` を返す。
 - Workflow が Operation を step に分解する。
+- OperationとHost executionを分離し、Job、Command、Lease、AttemptをADR-0007のモデルで永続化する。
 - Reconciler が desired/observed 差分を継続的に収束させる。
 - message delivery は at-least-once を前提にする。
 - idempotency key、resource generation、command journal で重複を制御する。
 - 結果不明の破壊的操作は自動で逆操作せず、状態照会または operator action を要求する。
+- Execution outcomeのUNKNOWNをOperationの一般的なFAILEDへ変換しない。
 
 ## Consequences
 
@@ -29,4 +31,3 @@ VM、Network、Volume の操作は複数 backend にまたがり、秒から分�
 - 状態機械、retry policy、compensation の設計が必要になる。
 - 即時一貫性ではなく eventual consistency を UI と API 利用者へ明示する必要がある。
 - Operation data の保持・削除ポリシーが必要になる。
-

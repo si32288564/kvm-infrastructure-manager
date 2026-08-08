@@ -1,7 +1,7 @@
 # 製品ビジョン
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 
 ## 1. ビジョン
 
@@ -17,7 +17,7 @@ KIM は単なる libvirt フロントエンドではありません。ホスト�
 
 ### Tenant Administrator
 
-テナント内のユーザー、クォータ、イメージおよび利用状況を管理します。
+外部 Identity Provider で認証された Principal に対する Tenant/Project membership、Role Binding、クォータ、イメージおよび利用状況を管理します。ユーザーアカウント自体は管理しません。
 
 ### Workload Operator
 
@@ -49,6 +49,7 @@ KIM が所有する責務:
 - 物理ホストと仮想資源の対応関係および容量の管理
 - VM イメージ、フレーバー、配置ポリシーの管理
 - テナント、クォータ、認可および監査
+- 外部 Principal と Tenant/Project の membership および Role Binding
 - Fault、Performance、Capacity 情報の公開
 - 外部オーケストレーター向け API
 
@@ -60,21 +61,27 @@ KIM が初期リリースで所有しない責務:
 - WAN 全体のパス制御
 - 課金および請求
 - ベアメタル OS プロビジョニング
+- User lifecycle、password、MFA、Identity federation、Credential authority
+- 汎用 package installation、任意設定ファイル変更、OS patch management
+
+Identity、Tenancy、Authorization は別の責務です。外部 Identity Platform が Principal を認証し、KIM はその Principal とリソース所有境界を結び付け、KIM resource に対する認可を評価します。
 
 ## 5. ハイパーバイザー OS の柔軟性
 
 KIM は特定の Linux ディストリビューションを製品アーキテクチャの前提にしません。Ubuntu、Debian、RHEL-compatible、SUSE 系など、KVM/libvirt を実用的に提供できる一般的な Linux を採用可能にします。
 
-ディストリビューション間の以下の差異は、ホスト側コンポーネント（仮称 Agent）が吸収します。
+ディストリビューション間の以下の差異は、ホスト側コンポーネント（仮称 Agent）が検出・正規化します。
 
-- package、service、filesystem layout
+- package prerequisite、service、filesystem layout
 - SELinux、AppArmor、firewall
 - libvirt/QEMU の機能および設定差
 - NIC、bridge、OVS、SR-IOV の検出と設定
-- LVM、Ceph client、HugePages、CPU/NUMA tuning
+- LVM、Ceph client、HugePages、CPU/NUMA tuning の状態と capability
 - ログ、監査、診断情報の収集方法
 
 「採用可能」と「製品サポート済み」は区別します。アーキテクチャは広く受け入れ、リリースごとに自動試験済みの OS/version/component 組合せをサポートマトリクスとして公開します。
+
+KIM は discovery と preflight/validation を所有します。OS変更を行う場合は、KIM resource を成立させるために定義された限定的な typed infrastructure remediation に限ります。任意 package、service、kernel parameter、設定ファイルを操作する汎用 Configuration Management は提供しません。
 
 ## 6. 初期市場仮説
 

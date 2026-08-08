@@ -1,7 +1,7 @@
 # 要件定義
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 - 対象: Product Beta までの要求を含む
 
 ## 1. 前提
@@ -17,15 +17,16 @@
 
 ## 2. 機能要件
 
-### 2.1 Identity、Tenant、Quota
+### 2.1 Tenancy、Authorization、Quota
 
 | ID | 要件 | 優先度 |
 |---|---|---|
-| IAM-001 | 外部 OIDC Provider でユーザーを認証できる | Must |
-| IAM-002 | system、tenant、project のスコープで RBAC を評価できる | Must |
+| IAM-001 | 外部 OIDC Provider が認証した Principal を検証できる | Must |
+| IAM-002 | system、tenant、project のスコープで membership と RBAC を評価できる | Must |
 | IAM-003 | vCPU、メモリ、VM、Volume、Storage、Port ごとにクォータを設定できる | Must |
-| IAM-004 | Service Account と短寿命 Credential を発行できる | Should |
+| IAM-004 | 外部 Identity Platform が発行した Service Identity を Project と Role Binding に関連付けられる | Should |
 | IAM-005 | 複数 IdP を同時に利用できる | Could |
+| IAM-006 | User lifecycle、password、MFA、Identity federation、Credential 発行を KIM の責務に含めない | Must |
 
 ### 2.2 Host、Inventory、Capacity
 
@@ -40,6 +41,8 @@
 | HST-007 | OS、kernel、QEMU、libvirt、service manager、security module の差異を Agent adapter で吸収できる | Must |
 | HST-008 | Agent が Host capability と制約を正規化して Control Plane へ報告できる | Must |
 | HST-009 | 未対応または不完全な Host 環境を安全に拒否し、不足条件を診断できる | Must |
+| HST-010 | discovery、preflight、validation と Host mutation を明確に分離する | Must |
+| HST-011 | Host mutation は versioned typed infrastructure remediation に限定し、任意 package/service/config 操作を許可しない | Must |
 
 ### 2.3 Image、Flavor
 
@@ -63,16 +66,19 @@
 | CMP-006 | 共有ストレージ利用時に live migration を実行できる | Should |
 | CMP-007 | SR-IOV VF と PCI passthrough を割り当てられる | Should |
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
+| CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 
 ### 2.5 Scheduler
 
 | ID | 要件 | 優先度 |
 |---|---|---|
-| SCH-001 | capacity、Host 状態、trait、placement constraint で候補を絞り込む | Must |
-| SCH-002 | 配置決定と容量確保を競合なく実行する | Must |
-| SCH-003 | 配置理由と除外理由を説明可能な形で保存する | Must |
+| SCH-001 | eligibility/admission を scoring から分離し、pure evaluation として候補適格性を判定する | Must |
+| SCH-002 | 選択候補に対して transactional final admission と容量予約を競合なく実行する | Must |
+| SCH-003 | 適格性、除外理由、score、選択理由、final admission 結果を保存する | Must |
 | SCH-004 | NUMA topology と CPU Pinning を考慮する | Should |
 | SCH-005 | カスタム重み付けポリシーを追加できる | Could |
+| SCH-006 | final admission の競合失敗時に同じ request snapshot の残候補を再選択できる | Must |
+| SCH-007 | dry admission は状態を変更せず、capacity を予約しない | Must |
 
 ### 2.6 Network
 
@@ -106,6 +112,11 @@
 | OPS-003 | 一時障害を分類し、上限付きで安全に再試行できる | Must |
 | OPS-004 | Webhook または Event Stream で状態変更を通知できる | Should |
 | OPS-005 | Operator が安全な Operation を再実行または中止できる | Should |
+| OPS-006 | Operation と実行配送を分離し、Job、Command、Lease、Attempt を永続化する | Must |
+| OPS-007 | Command Lease は期限、owner、token、attempt index、authority generation を持つ | Must |
+| OPS-008 | Agent は Command を実行する前に durable journal へ記録する | Must |
+| OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
+| OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
 ### 2.9 Fault、Performance、Audit
 
@@ -126,7 +137,9 @@
 | NFR-AVL-001 | Control Plane API の月間可用性目標を 99.95% とする |
 | NFR-AVL-002 | 単一 Control Plane ノード障害で API 提供を継続する |
 | NFR-AVL-003 | Control Plane と Agent の通信断中も既存 VM は稼働を継続する |
-| NFR-AVL-004 | Control Plane RPO 5分以内、RTO 60分以内を GA 目標とする |
+| NFR-AVL-004 | 同一 Site の HA failover は committed authority data の RPO 0 を目標とする |
+| NFR-AVL-005 | Disaster Recovery は backup RPO 5分以内、Control Plane RTO 60分以内を GA 目標とする |
+| NFR-AVL-006 | Restore 後に backend observation、quarantine、adoption を用いて authority を安全に再構築できる |
 
 ### Performance and Scale
 
@@ -145,6 +158,7 @@
 | NFR-SEC-002 | Agent はノード固有の短寿命 Identity を使用する |
 | NFR-SEC-003 | Tenant 間の API、Network、Storage 分離を試験する |
 | NFR-SEC-004 | リリースごとに SBOM、署名、脆弱性レポートを生成する |
+| NFR-SEC-005 | Agent は内部 Message Bus credential を保持せず、専用 Agent Gateway と mTLS session で通信することを標準案とする |
 
 ### Operability and Compatibility
 
@@ -157,6 +171,28 @@
 | NFR-OPS-005 | 新しい Linux ディストリビューション対応に Control Plane の OS 条件分岐を必要としない |
 | NFR-OPS-006 | deb、rpm、および検証用の自己完結型配布方式を用意する |
 
+### Robustness and Failure Semantics
+
+| ID | 目標 |
+|---|---|
+| NFR-ROB-001 | 全failure classについてDetect、Contain、Fence、Observe、Recover、Reconcile、Escalateを定義する |
+| NFR-ROB-002 | timeout、Lease expiry、通信断をbackend mutation失敗または未実行の証明として扱わない |
+| NFR-ROB-003 | UNKNOWN outcomeの履歴を上書きせず、verification evidenceと後続decisionを追記する |
+| NFR-ROB-004 | stale identity、generation、Lease、Result、observationがcurrent authorityを進めない |
+| NFR-ROB-005 | recovery不能時はresourceをblocked/quarantinedに保ち、推測ベースの破壊操作を行わない |
+| NFR-ROB-006 | commit応答喪失、partition、process crash、Host loss、backend timeout、stale authorityをfault injectionで検証する |
+
+### Extensibility
+
+| ID | 目標 |
+|---|---|
+| NFR-EXT-001 | extension contractはversion、capability、limits、timeout、error、side-effect、verificationを定義する |
+| NFR-EXT-002 | extensionはCore DB、内部Message Bus、authorization、audit、Lease authorityを迂回できない |
+| NFR-EXT-003 | Agent operation moduleは閉じたtyped Commandとnarrow backend interfaceだけを受け取る |
+| NFR-EXT-004 | capabilityをversion、constraints、generation、health、support tierとして公開する |
+| NFR-EXT-005 | extensionのregister、ready、drain、upgrade、remove lifecycleを安全に実行できる |
+| NFR-EXT-006 | extensionごとに共通conformance testとrelease certificationを実行する |
+
 ## 4. 受入れの考え方
 
 各要件は、実装 Issue への分割時に以下を必須とします。
@@ -167,3 +203,6 @@
 - メトリクスとアラート
 - アップグレード時の互換性
 - 自動テストのレベル
+- Architecture Invariant IDとAcceptance/Fault/Conformance Test ID
+
+Must requirementに未追跡行がある場合、実装Phaseへ進めません。追跡状態は [Architecture Traceability Matrix](traceability-matrix.md) を正本とします。

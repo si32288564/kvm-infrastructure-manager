@@ -1,0 +1,114 @@
+# Acceptance Test Catalog
+
+- 状態: Draft
+- 更新日: 2026-08-09
+
+## 1. 目的
+
+Architecture Traceability Matrixが参照する通常Acceptance/Performance Testの最低契約を定義します。具体的なfixture、実行環境、test fileは実装時に同じIDへ関連付けます。
+
+## 2. Identity / Authorization
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-AUTH-001 | 外部IdPの有効/無効tokenを検証し、KIMがUser/Credential rowを発行しない |
+| AT-AUTH-002 | issuer+subjectを安定PrincipalとしてMembership/Role Bindingへ関連付ける |
+| AT-AUTH-003 | system/tenant/project action matrixがdeny-by-defaultで評価される |
+| AT-AUTH-004 | 複数issuerの同一subjectを別Principalとして安全に扱う |
+| AT-QUOTA-001 | concurrent allocationでもQuota超過をtransactionで一件だけ拒否し、部分usageを残さない |
+
+## 3. Host / Agent
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-HST-001 | Agent register/approve/disable/deleteとHost state transitionを認可・監査付きで行う |
+| AT-HST-002 | CPU/NUMA/memory/HugePages/NIC/storage/libvirt inventoryとgenerationを正規化する |
+| AT-HST-003 | aggregate/AZ/trait変更がplacement snapshotへversion付きで反映される |
+| AT-AGT-001 | shell/argv/unknown Command/arbitrary libvirt XML/path payloadをschema境界で拒否する |
+| AT-AGT-002 | Agent artifact/configにBus credential/subject accessがなくGateway mTLSだけを使用する |
+| AT-AGT-003 | identity/capability/armed authority/current Leaseの一つでも欠ければCommandを取得・実行できない |
+| AT-AGT-006 | 2系統以上のLinuxで同じControl Plane contractへ正規化し、OS名分岐を要求しない |
+| AT-AGT-007 | typed remediation allow-list外のpackage/service/config/kernel変更を拒否する |
+
+## 4. API / Data / Operations
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-API-001 | mutation APIが202+Operationを返し、request処理中にHost/backendへ接続しない |
+| AT-API-002 | 同一idempotency key+payloadの並行再送が単一Operation/resourceへ収束する |
+| AT-API-003 | 同一idempotency key+異なるpayloadが409 conflictになる |
+| AT-DATA-001 | desired/allocation/Job/Command/idempotencyの一要素失敗で全transactionがrollbackする |
+| AT-DATA-002 | desired/observed generationを独立保持し、stale observationをcurrent表示しない |
+| AT-OPS-001 | Operation状態、進捗、correlation、bounded failure reasonを照会できる |
+| AT-OPS-005 | retry/cancelが許可状態とauthorityを検証し、unsafe actionを拒否する |
+| AT-EVT-001 | event/webhookをdurable outboxから再送し、重複IDとredaction contractを維持する |
+
+## 5. Execution
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-EXEC-001 | concurrent Lease要求で一つだけがactive Leaseを取得する |
+| AT-EXEC-002 | LeaseにHost owner/token/attempt/expiry/authority generationがbindされる |
+| AT-EXEC-003 | Agent journalがbackend mutation前にdurably記録され、同じCommandを再実行しない |
+| AT-EXEC-004 | accepted Resultの同一再送は同じreceipt、異なるdigestはconflictになる |
+| AT-EXEC-005 | UNKNOWN Attemptを改変せず、verification evidenceと後続eventを追記する |
+| AT-EXEC-006 | successful Result後もJobはverifyingで、matching observation後だけsucceededになる |
+| AT-EXEC-007 | terminal Job/Attempt/Event履歴がimmutableである |
+
+## 6. Placement / Migration
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-PLC-001 | ineligible Hostは任意の高scoreでもselected setへ入らない |
+| AT-PLC-002 | dry evaluation前後でDB/backend/Bus/Agent stateが完全に不変である |
+| AT-PLC-003 | stale dry resultをfinal admissionで再評価して拒否する |
+| AT-PLC-004 | CPU/NUMA/HugePages/PCI/network/storage/quota claimを不可分commitする |
+| AT-PLC-005 | concurrent claim conflictで部分予約を残さず残候補を再選択する |
+| AT-PLC-006 | final admission transaction中にbackend call/message dispatchがない |
+| AT-PLC-007 | VM binding差によりcold/live/restart/noneが候補Hostごとに変わる |
+| AT-PLC-008 | affinity/anti-affinity/PCI/SR-IOV/NUMA constraintをeligibilityで評価する |
+| AT-PLC-009 | eligibility reason、score、rank、final conflict、reselectionを説明できる |
+
+## 7. Compute / Image / Network / Storage
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-CMP-001 | VM create/start/stop/reboot/deleteがdesired→execution→observationで収束する |
+| AT-CMP-008 | console accessが短寿命、一回用途、Project scope、監査付きである |
+| AT-IMG-001 | qcow2/raw image lifecycle、visibility、Project accessを検証する |
+| AT-IMG-002 | checksum/signature不一致imageをcache/boot前に拒否する |
+| AT-FLV-001 | FlavorのCPU/RAM/disk/NUMA/HugePages/pinning要求をplacementへ完全伝播する |
+| AT-NET-001 | KIM virtual network操作がWAN/physical switch authorityを変更しない |
+| AT-NET-002 | VLAN/Geneve/DHCP/security group/L3 intentがgeneration付きで収束する |
+| AT-NET-006 | SR-IOV Port assignmentをPCI/device/network eligibilityと不可分に扱う |
+| AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
+| AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
+
+## 8. Security / Audit / Documentation
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-SEC-001 | authentication/authorization/audit durabilityの一つでも失敗すればmutationをcommitしない |
+| AT-SEC-002 | response/log/metric/diagnosticへsecret、生error、他Tenant identityを漏らさない |
+| AT-SEC-003 | TLS/mTLS、certificate rotation/revocation、Tenant API/Network/Storage isolationを検証する |
+| AT-AUD-001 | 認証・認可・mutationにactor/scope/resource/decision/result/correlation監査がある |
+| AT-AUD-002 | 診断bundleが必要evidenceを含み、secretと非許可identityを除外する |
+| AT-O11Y-001 | metrics/alarm/trace correlationを公開し、high-cardinality identityやsecretを含めない |
+| AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
+| AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
+
+## 9. HA / Upgrade / Packaging
+
+| ID | Acceptance Contract |
+|---|---|
+| AT-HA-001 | 単一Control Plane node lossでAPIを継続しcommitted authorityを失わない |
+| AT-UPG-001 | N-1→N upgrade/rollback中にAPI/Agent contractと既存VMを維持する |
+| AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
+
+## 10. Performance Tests
+
+| ID | Performance Contract |
+|---|---|
+| PT-SCALE-001 | 100 Host、5,000 VM、10,000 Portでinventory/reconciliationを継続する |
+| PT-API-001 | 通常負荷のread API p95が500 ms以下である |
+| PT-OPS-001 | 50 concurrent mutation Operationでauthority/invariant違反なくdispatch p95目標を測定する |

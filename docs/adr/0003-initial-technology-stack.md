@@ -16,7 +16,7 @@ Control Plane と Host Agent は、長期保守、静的配布、並行処理、
 | Control Plane / Agent | Go |
 | Public API | REST、JSON、OpenAPI 3.1 |
 | Database | PostgreSQL |
-| Durable messaging | NATS JetStream |
+| Internal durable messaging | NATS JetStream |
 | Hypervisor | QEMU/KVM、libvirt |
 | Virtual network | OVN、Open vSwitch |
 | Local storage | LVM |
@@ -38,6 +38,7 @@ Control Plane と Host Agent は、長期保守、静的配布、並行処理、
 - Go により Control Plane と Agent の共通型、静的 binary、並行処理モデルを共有できます。
 - PostgreSQL を一貫性が必要な metadata と allocation の System of Record とします。
 - NATS JetStream の運用、version compatibility、quorum 設計が製品サポート範囲に加わります。
+- NATS JetStreamはControl Plane内部用途とし、Agent transportはAgent Gatewayで分離する標準案です。
 - OVN と Ceph は強力ですが、製品全体のサポートマトリクスと障害解析範囲を広げます。
 
 ## Alternatives to validate
@@ -46,4 +47,3 @@ Control Plane と Host Agent は、長期保守、静的配布、並行処理、
 - Message Bus を RabbitMQ または PostgreSQL queue で代替する案
 - Kubernetes を Control Plane の必須基盤とする案
 - Developer Preview では overlay を外し VLAN のみに限定する案
-

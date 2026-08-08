@@ -1,7 +1,7 @@
 # セキュリティ設計
 
 - 状態: Draft
-- 更新日: 2026-08-08
+- 更新日: 2026-08-09
 
 ## 1. セキュリティ目標
 
@@ -17,7 +17,8 @@
 flowchart LR
     Internet["Operator / External Systems"] -->|TLS + OIDC| API["Public API Zone"]
     API -->|mTLS| CP["Control Plane Zone"]
-    CP -->|mTLS outbound channel| Agent["Compute Host Agent"]
+    CP --> Gateway["Agent Gateway / Command Service"]
+    Gateway -->|mTLS outbound-established session| Agent["Compute Host Agent"]
     Agent -->|Unix socket + OS policy| Libvirt["libvirt / QEMU"]
     CP -->|scoped credential| OVN["OVN Control Plane"]
     Agent -->|scoped secret| Ceph["Ceph RBD"]
@@ -25,8 +26,8 @@ flowchart LR
 
 ## 3. Identity と権限
 
-- 人間ユーザーは外部 IdP の OIDC を使用する。
-- Service Account は用途、Project、有効期限を限定する。
+- 人間ユーザーは外部 IdP の OIDC を使用し、User lifecycle、password、MFA、federationは外部Identity Platformが所有する。
+- Service Identity/Credentialは外部Identity Platformが発行し、KIMはPrincipalとProject/Role Bindingだけを保持する。
 - Control Plane workload と Agent は相互 TLS の workload identity を持つ。
 - Agent bootstrap credential は一回用途とし、登録後にノード固有証明書へ交換する。
 - system administrator、infrastructure operator、tenant administrator、member、viewer を初期 role とする。
@@ -40,7 +41,9 @@ flowchart LR
 - command schema、許可操作、入力上限を Agent 側でも検証する。
 - image は checksum と署名ポリシーを通過した後にキャッシュする。
 - Host 上の秘密情報を診断バンドルとログから除外する。
-- SELinux、AppArmor、firewall、service manager の差異は OS Integration Adapter が安全な既定値へ正規化する。
+- SELinux、AppArmor、firewall、service manager の状態と評価結果を OS Integration Adapter が正規化する。変更は明示されたtyped remediationだけに限定する。
+- Agentは内部Message Bus credentialを持たず、Agent Gatewayとのoutbound mTLS sessionを標準境界とする。
+- Agent credentialはHost identityを証明するが操作authorityではない。Command Leaseにはarmed authority generationを必要とする。
 
 ## 5. Network と Tenant 分離
 
