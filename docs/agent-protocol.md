@@ -1,11 +1,11 @@
 # Agent Protocol Architecture
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. 決定対象
 
-内部Message BusとHost側コンポーネント（仮称Agent）の通信境界を分離します。標準案ではAgentをNATS JetStreamへ直接接続しません。
+内部 Message Bus と KIM Host Agent の通信境界を分離します。KIM Host Agent を NATS JetStream へ直接接続しません。
 
 Gateway/transport障害時の横断規則は [System-wide Failure Model](failure-model.md) に従います。
 

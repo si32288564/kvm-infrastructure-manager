@@ -1,6 +1,6 @@
 # 要件定義
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 - 対象: Product Beta までの要求を含む
 
@@ -9,7 +9,7 @@
 - 単一 NFVI-PoP を最初の管理単位とする。
 - Control Plane は 3 ノード HA 構成を標準とする。
 - Compute Host は KVM/libvirt を利用できる一般的な Linux ディストリビューションを使用する。
-- OS 固有の差異はホスト側コンポーネント（仮称 Agent）の adapter で吸収する。
+- OS 固有の差異は KIM Host Agent の adapter で吸収する。
 - 初期検証規模は 100 ホスト、5,000 VM とする。
 - 外部 IdP との OIDC 連携を標準認証方式とする。
 
@@ -43,6 +43,9 @@
 | HST-009 | 未対応または不完全な Host 環境を安全に拒否し、不足条件を診断できる | Must |
 | HST-010 | discovery、preflight、validation と Host mutation を明確に分離する | Must |
 | HST-011 | Host mutation は versioned typed infrastructure remediation に限定し、任意 package/service/config 操作を許可しない | Must |
+| HST-012 | KIM の core management function は Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求しない | Must |
+| HST-013 | KIM Host Agent は標準 interface を使用し、KIM metadata がなくても underlying resource を通常の標準 interface から扱える状態を維持する | Must |
+| HST-014 | KIM を hypervisor distribution または KIM 専用 KVM/QEMU/libvirt build の提供主体にしない | Must |
 
 ### 2.3 Host Lifecycle、Baseline、Compliance
 
@@ -491,6 +494,8 @@
 | NFR-OPS-010 | API、Agent protocol、Command/Event、extension、backend/Hostのcompatibility matrixをreleaseごとに検証する |
 | NFR-OPS-011 | canary failure、coordinator crash、response loss、rollback failureをfault injectionする |
 | NFR-OPS-012 | offline upgradeでもartifact provenance、SBOM、signature、互換性検証を弱めない |
+| NFR-OPS-013 | Control Plane を containerized artifact として導入できる |
+| NFR-OPS-014 | Kubernetes を Control Plane の必須実行基盤とせず、小規模・offline 環境向けの非 Kubernetes deployment を許可する |
 
 ### Robustness and Failure Semantics
 

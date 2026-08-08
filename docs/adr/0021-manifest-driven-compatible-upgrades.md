@@ -1,6 +1,6 @@
 # ADR-0021: Manifest駆動の互換性gateで製品upgradeを行う
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-09
 
 ## Context

@@ -1,11 +1,13 @@
 # リリース計画
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 日付ではなく、検証可能な exit criteria で段階を進めます。具体的な日程はチーム体制と対象 OS の決定後に設定します。
 
 ## Phase 0: Architecture Baseline
+
+- 状態: Exited (2026-08-09)
 
 ### 成果物
 
@@ -72,6 +74,7 @@ Phase 0では検証契約を`Planned`以上にすることを求めます。実�
 ### Scope
 
 - 単一 Control Plane
+- containerized Control Plane artifact と supported non-Kubernetes deployment
 - Host Agent 登録と inventory
 - manual Enrollment approval、Host Profile/Baseline Assignment、read-only Compliance
 - provenance付きidentity evidence収集とEvaluator artifact/input digest付きResult

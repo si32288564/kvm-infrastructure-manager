@@ -1,6 +1,6 @@
 # Architecture Invariants
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. 目的
@@ -90,6 +90,9 @@
 | INV-AGT-005 | Gateway復旧またはAgent再起動だけでHost authorityをarmしない | FI-GATEWAY-002 |
 | INV-AGT-006 | OS差分はAgent adapterで正規化し、Control Planeをdistribution名で分岐させない | AT-AGT-006 |
 | INV-AGT-007 | Host mutationは閉じたtyped remediationに限定し、汎用Configuration Managementを提供しない | AT-AGT-007 |
+| INV-AGT-008 | KIM core functionはLinux KVM、QEMU、libvirtのpatch、fork、proprietary modificationを要求しない | AT-AGT-008 |
+| INV-AGT-009 | KIM metadataの有無によってunderlying resourceを標準libvirt/QEMU/KVM interfaceから扱えなくしない | AT-AGT-009 |
+| INV-AGT-010 | KIM Host AgentはGoをprimary implementation languageとし、cgo/native helperをnarrow audited boundaryに限定する | AT-AGT-010 |
 
 ## 8. Network and Storage
 
@@ -277,6 +280,7 @@
 |---|---|---|
 | INV-DOC-001 | Requirements、Accepted ADR、Architectureの矛盾を暗黙解釈せず、実装を停止して解消する | AT-DOC-001 |
 | INV-DOC-002 | 重要判断の変更はADR、Requirements、Architecture、test traceを同じchange setで更新する | AT-DOC-002 |
+| INV-DOC-003 | 日本語spacing lintはcode、URL、identifier、API path、約物を除外し、未reviewのrepository-wide自動修正を行わない | AT-DOC-003 |
 
 ## 17. Upgrade and Compatibility
 

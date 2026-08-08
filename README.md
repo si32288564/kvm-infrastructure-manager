@@ -26,8 +26,9 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 5. テナント分離、最小権限、監査可能性を初期設計に含める。
 6. バージョンアップ、バックアップ、障害解析を製品機能として扱う。
 7. ハイパーバイザー OS 固有の差異はホスト側コンポーネントで吸収し、Control Plane へ持ち込まない。
+8. Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求せず、標準 interface を通じて管理する。
 
-本文書では、ホスト上で動作するコンポーネントのアーキテクチャ上の仮称を「Agent」とします。正式なコンポーネント名は別途決定します。
+ホスト上で動作するコンポーネントの正式名称は「KIM Host Agent」（本文中では Host Agent または Agent）とします。
 
 ## ドキュメント
 
@@ -49,7 +50,10 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 - [Time and Clock Semantics Architecture](docs/time-and-clock-semantics.md)
 - [PKI and Trust Lifecycle Architecture](docs/pki-and-trust-lifecycle-architecture.md)
 - [設計文書の正本と変更規則](docs/document-governance.md)
+- [日本語ドキュメント表記規約](docs/writing-conventions.md)
 - [Phase 0 Exit Review](docs/phase-0-exit-review.md)
+- [ADR Decision Gate Review](docs/adr-decision-gate-review.md)
+- [v1 Gap Analysis](docs/v1-gap-analysis.md)
 - [System-wide Failure Model](docs/failure-model.md)
 - [Extensibility Architecture](docs/extensibility-architecture.md)
 - [Architecture Invariants](docs/architecture-invariants.md)

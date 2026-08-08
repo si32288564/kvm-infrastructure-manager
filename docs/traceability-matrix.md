@@ -1,6 +1,6 @@
 # Architecture Traceability Matrix
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. 目的
@@ -32,6 +32,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HST-002, HST-004, HST-006 | architecture, domain-model | ADR-0001 | INV-DATA-002 | AT-HST-002 | Planned |
 | HST-005 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-001, INV-HGR-007 | AT-HST-003, AT-HGR-001, AT-HGR-007 | Planned |
 | HST-007, HST-008, HST-009, HST-010, HST-011 | architecture, extensibility-architecture | ADR-0004, ADR-0011 | INV-AGT-006, INV-AGT-007, INV-EXT-004 | AT-AGT-006, AT-AGT-007, XCT-AGENT-001 | Planned |
+| HST-012, HST-013, HST-014 | product-vision, architecture | ADR-0003, ADR-0004 | INV-AGT-008, INV-AGT-009, INV-AGT-010 | AT-AGT-008, AT-AGT-009, AT-AGT-010 | Planned |
 
 ## 5. Host Lifecycle / Baseline / Compliance
 
@@ -230,6 +231,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-SEC-001, NFR-SEC-002, NFR-SEC-003, NFR-SEC-004, NFR-SEC-005 | security, agent-protocol | ADR-0005, ADR-0008 | INV-SEC-001, INV-SEC-002, INV-AGT-002 | AT-SEC-001, AT-SEC-002, AT-SEC-003, AT-AGT-002 | Planned |
 | NFR-SEC-006, NFR-SEC-007, NFR-SEC-008, NFR-SEC-009, NFR-SEC-010 | pki-and-trust-lifecycle-architecture, security, agent-protocol | ADR-0005, ADR-0008, ADR-0023 | INV-PKI-001, INV-PKI-005, INV-PKI-006, INV-PKI-016, INV-PKI-021, INV-PKI-022, INV-PKI-023 | AT-PKI-001, AT-PKI-005, AT-PKI-006, AT-PKI-015, AT-PKI-020, AT-PKI-022, AT-PKI-023, FI-PKI-003, FI-PKI-016, FI-PKI-017, FI-PKI-018 | Planned |
 | NFR-OPS-001, NFR-OPS-003, NFR-OPS-004, NFR-OPS-005, NFR-OPS-006 | architecture, release-plan, extensibility-architecture | ADR-0003, ADR-0004, ADR-0011 | INV-AGT-006, INV-EXT-006 | AT-OFFLINE-001, XCT-CAP-001 | Planned |
+| NFR-OPS-013, NFR-OPS-014 | product-vision, architecture, release-plan | ADR-0003 | — | AT-DEPLOY-001, AT-DEPLOY-002 | Planned |
 | NFR-OPS-002, NFR-OPS-007, NFR-OPS-008, NFR-OPS-009, NFR-OPS-010, NFR-OPS-011, NFR-OPS-012 | upgrade-and-compatibility-architecture, data-persistence-architecture, release-plan | ADR-0018, ADR-0021 | INV-UPG-001, INV-UPG-004, INV-UPG-005, INV-UPG-006, INV-UPG-007, INV-UPG-016, INV-UPG-017 | AT-UPG-001, AT-UPG-008, AT-UPG-010, AT-UPG-019, AT-UPG-023, FI-UPG-005, FI-UPG-010, FI-UPG-011, FI-UPG-013, FI-UPG-015 | Planned |
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
 | NFR-ROB-007, NFR-ROB-008 | time-and-clock-semantics, failure-model | ADR-0010, ADR-0022 | INV-TIM-002, INV-TIM-005, INV-TIM-006, INV-TIM-019 | FI-TIME-001, FI-TIME-002, FI-TIME-003, FI-TIME-006, FI-TIME-015, AT-TIM-022 | Planned |

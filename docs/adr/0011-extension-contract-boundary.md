@@ -1,6 +1,6 @@
 # ADR-0011: ExtensionはCore authorityを迂回しない
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-09
 
 ## Context

@@ -1,6 +1,6 @@
 # ADR-0023: Trust Domainを分離しcredentialをgenerationでfenceする
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-09
 
 ## Context

@@ -1,38 +1,42 @@
 # Phase 0 Architecture Baseline Exit Review
 
-- 状態: Conditional Hold
-- 対象commit: `45a94cc` (`docs: define pki trust lifecycle architecture`)
+- 状態: Passed
+- Initial audit commit: `45a94cc` (`docs: define pki trust lifecycle architecture`)
+- Decision Gate finalization base: `8c1f9a9` (`docs: add phase 0 architecture exit review`)
 - Review実施日: 2026-08-09
 - 対象: Phase 0 Architecture Baseline
+- Formal exit: Exited on 2026-08-09 after Decision Gate finalization
 
 ## 1. 判定
 
-Architecture内容の横断整合性は **PASS** とします。authority、failure、recovery、resource admission、upgrade、time、trustの主要contract間に、実装を直ちに停止すべき未解消のCritical/High contradictionは検出しませんでした。
+Architecture 内容の横断整合性は **PASS** とします。authority、failure、recovery、resource admission、upgrade、time、trust の主要 contract 間に、実装を直ちに停止すべき未解消の Critical/High contradiction は検出しませんでした。
 
-正式なPhase 0 exitは **HOLD** とします。これはArchitecture内容の不足ではなく、次のgovernance gateが未完了だからです。
+当初の formal exit は governance gate のため HOLD でした。次の closure を個別 review と同一 change set で完了したため、正式な Phase 0 exit を **PASS / EXITED** とします。
 
-1. 23件のADRがすべて`Proposed`であり、Accepted ADRが0件である。
-2. Phase 0期限のOpen Questionが24件あり、Closedまたは明示的Deferredになっていない。
-3. 正本となる主要文書が`Draft`であり、ADR承認後のBaseline昇格が未実施である。
+1. ADR-0001〜0023 を Decision/Consequences と全 contract で個別照合し、23件を Accepted としました。
+2. Phase 0 期限の Open Question 24件を、17件 Closed、7件 owner/理由/target gate 付き Deferred としました。
+3. 標準 KVM neutrality、KIM Host Agent の Go 方針、writing convention を正本・Invariant・Test Contract へ追加しました。
+4. 主要文書を `Baseline` へ昇格しました。
 
-Exit Reviewは上記を自動承認・自動クローズしません。承認者が判断した後、同一change setでADR、Open Question、関連Architectureの状態を更新します。
+Decision の証跡は [ADR Decision Gate Review](adr-decision-gate-review.md)、未決事項の処理は [Open Questions](open-questions.md)、v1 の初回比較は [v1 Gap Analysis](v1-gap-analysis.md) を正本とします。
 
 ## 2. Evidence Snapshot
 
 | Evidence | Snapshot | 判定 |
 |---|---:|---|
-| Requirements | 372件 | scope確認済み |
-| Must requirements | 298件 | traceability対象 |
-| Traceability entries | 200件、すべて`Planned` | Phase 0 contractとしてPASS、実装evidenceではない |
-| Architecture Invariants | 257件 | 検証ID付与済み |
-| Acceptance / Performance tests | 299件 | contract定義済み |
+| Requirements | 377件 | scope 確認済み |
+| Must requirements | 301件 | traceability 対象 |
+| Traceability entries | 202件、すべて`Planned` | Phase 0 contract として PASS、実装 evidence ではない |
+| Architecture Invariants | 261件 | 検証 ID 付与済み |
+| Acceptance / Performance tests | 305件 | contract 定義済み |
 | Fault Injection tests | 187件 | contract定義済み |
 | Extension Conformance tests | 61件 | contract定義済み |
-| ADR | 23件、すべて`Proposed` | BLOCKER |
-| Phase 0 Open Questions | 24件 | BLOCKER |
+| ADR | 23件、すべて`Accepted` | PASS |
+| Phase 0 Open Questions | Closed 17件、Deferred 7件 | PASS |
+| v1 Gap | 33件 | Initial baseline 完了 |
 | duplicate/undefined ID、broken local link | 0件 | PASS |
 
-数値は対象commitの文書を機械検査したsnapshotです。件数そのものを品質目標にはせず、正本間の矛盾と未追跡をgateにします。
+数値は Decision Gate finalization change set の文書を機械検査した snapshot です。件数そのものを品質目標にはせず、正本間の矛盾と未追跡を gate にします。
 
 ## 3. Exit Criteria Audit
 
@@ -41,9 +45,9 @@ Exit Reviewは上記を自動承認・自動クローズしません。承認者
 | Requirement ownerと検証方法 | PASS | RequirementsとTraceability Matrix |
 | 主要設計とfailure scenario | PASS | Architecture、Failure Model、Fault Injection Matrix |
 | 全MustのArchitecture/ADR/Invariant/Test trace | PASS | 未追跡0件 |
-| Phase 0 decision ADRの承認 | BLOCKED | 23件をレビューしAccepted/Rejected/Supersededへ遷移する |
-| Phase 0 Open Questionの解決 | BLOCKED | 24件をClosedまたはowner/target gate付きDeferredへ遷移する |
-| Baseline文書の状態昇格 | BLOCKED | ADR/Open Question処理後にDraftからBaselineへ昇格する |
+| Phase 0 decision ADR の承認 | PASS | Accepted 23、Rejected 0、Superseded 0 |
+| Phase 0 Open Question の解決 | PASS | Closed 17、owner/reason/target gate 付き Deferred 7 |
+| Baseline 文書の状態昇格 | PASS | normative Phase 0 文書を Baseline へ昇格 |
 | 実装済みsystem test | NOT APPLICABLE | Phase 1以降のexit evidenceへ分離した |
 
 ## 4. Authority Owner Audit
@@ -122,7 +126,9 @@ credential、transport connectivity、clock validity、backend observationの単
 
 ExtensionはCore DBへの直接write、内部Bus credential、独自Lease/identity、arbitrary shell/XML/SQL、監査迂回を許されません。C0-C3 trust class、out-of-process boundary、versioned contract、conformance testによりCore invariantを維持します。
 
-KIMの製品identityはKVM/libvirtであり、任意hypervisor抽象化を目的にしません。一方、一般的なLinux distributionのpackage、service manager、security module、firewall、tuning差異はHost Agent内のOS Integration Adapterが吸収します。新しいdistribution対応のためControl PlaneへOS名による分岐を追加しないため、「KVMを特殊化しない」ことと「Host OSを固定しない」ことは両立しています。
+KIM の製品 identity は標準 KVM/QEMU/libvirt であり、任意 hypervisor abstraction や KIM 専用 hypervisor distribution を目的にしません。core management function は upstream/standard component の patch、fork、proprietary modification を要求しません。KIM metadata は標準 interface からの manageability を失わせません。
+
+一般的な Linux distribution の package、service manager、security module、firewall、tuning 差異は KIM Host Agent 内の OS Integration Adapter が吸収します。新しい distribution 対応のため Control Plane へ OS 名による分岐を追加しないため、標準 KVM neutrality と Host OS portability は両立しています。
 
 ## 10. Designed and Undecided
 
@@ -135,15 +141,15 @@ KIMの製品identityはKVM/libvirtであり、任意hypervisor抽象化を目的
 - Persistence/DR、Upgrade/Compatibility、Time、PKI lifecycle
 - Invariant、traceability、acceptance/fault/conformance test contract
 
-### Phase 0 exit前に決定または明示的延期が必要
+### 後続 gate へ明示的 Deferred
 
-- 23件のProposed ADRの採否
-- Phase 0期限の24 Open Questions
-- 初期Validated OS、deployment/package profile、正式Agent component名
-- 初期network/dataplane/group/availability/enrollment policy profile
-- Architecture文書のBaseline昇格とreview approver記録
+- 初期 Validated OS combination
+- PMD assignment の初期 certified mode
+- Enrollment evidence と policy-auto enrollment の deployment profile
+- HostGroup initial catalog と binding priority range
+- public Failure Domain class と topology disclosure profile
 
-Technical Preview以降のcapacity値、運用default、certification matrix、SLO tuningは、Architecture invariantを変えない限り後続gateで決定できます。
+これらは owner と Developer/Technical Preview gate を持ち、Phase 0 Architecture invariant を変更しない support/certification/tuning profile です。正式な component 名は KIM Host Agent として Closed 済みです。
 
 ## 11. Findings and Closure
 
@@ -152,29 +158,33 @@ Technical Preview以降のcapacity値、運用default、certification matrix、S
 | P0ER-001 | Phase 0 exitに実装済み2-distribution system testが混在 | Medium | Phase 1 exitへ移動済み |
 | P0ER-002 | generation/Lease/UNKNOWNの共通scope規則がdomain文書へ分散 | Medium | Cross-domain Semantic Registryを追加済み |
 | P0ER-003 | Document Governanceの採番重複とUpgrade/Time/PKI gate不足 | Low | 修正済み |
-| P0ER-004 | 23 ADRがすべてProposed | High / Gate blocker | 承認reviewが必要 |
-| P0ER-005 | Phase 0期限Open Questionが24件未処理 | High / Gate blocker | closeまたは明示的deferが必要 |
-| P0ER-006 | 主要文書がDraft | Medium / Gate blocker | P0ER-004/005後にBaseline昇格 |
+| P0ER-004 | 23 ADR がすべて Proposed | High / Gate blocker | 個別 review 後に23件 Accepted、解消済み |
+| P0ER-005 | Phase 0 期限 Open Question が24件未処理 | High / Gate blocker | Closed 17、明示的 Deferred 7、解消済み |
+| P0ER-006 | 主要文書が Draft | Medium / Gate blocker | Baseline 昇格、解消済み |
+| P0ER-007 | 標準 KVM 非特殊化が上位 Invariant で未固定 | High | Product Vision、ADR-0004、HST-012〜014、INV-AGT-008/009 へ追加済み |
+| P0ER-008 | KIM Host Agent の primary language/native boundary が曖昧 | Medium | ADR-0003、Architecture、INV-AGT-010、AT-AGT-010 へ追加済み |
+| P0ER-009 | 日本語/ASCII spacing rule と安全な lint rollout が未定義 | Low | Writing Conventions、INV-DOC-003、AT-DOC-003 へ追加済み |
 
-## 12. Formal Exit Procedure
+## 12. Formal Exit Completion
 
-1. ADR-0001からADR-0023をDecision Gate順にレビューし、Accepted/Rejected/Supersededを記録する。
-2. Phase 0期限のOpen QuestionをClosed、またはowner、理由、次のtarget gateを持つDeferredへ更新する。
-3. Accepted ADRとArchitecture/Requirement間の最終diffを機械検査する。
-4. 本Reviewのblockerを閉じ、対象commitを更新して承認者と承認日を記録する。
-5. 主要文書をDraftからBaselineへ昇格し、Phase 0をExitedへ変更する。
+1. ADR-0001〜0023: completed、23 Accepted。
+2. Phase 0 Open Questions: completed、17 Closed / 7 Deferred。
+3. Requirement/Architecture/Invariant/Test、local link、duplicate/undefined ID check: passed。
+4. Exit findings: all blockers closed。
+5. Normative documents: Baseline promoted。
+
+Phase 0 formal exit の残 blocker は **0件** です。Deferred profile は各 target gate の blocker であり、Phase 0 を再度 HOLD にしません。
 
 ## 13. v1 Gap Analysis Entry
 
-Gap Analysisはこのcandidate baselineを比較軸として開始できます。ただしProposed ADRを不可逆な実装authorityとして扱いません。比較は少なくとも次の軸で行います。
+Gap Analysis は [kvm-topology v1 to KIM Gap Analysis](v1-gap-analysis.md) として開始済みです。v1 commit `c481388` の code/schema/test/package を確認し、33件を分類しました。
 
-- public API/resource model、tenant/authz/quota
-- PostgreSQL schema/authority/evidence/outbox/inbox
-- Operation/Job/Command/Lease/AttemptとAgent protocol
-- Placement、Host lifecycle/grouping/compliance
-- Compute、NFV dataplane、Network、Storage
-- Availability、fencing、recovery、DR
-- Upgrade、Time、PKI、extension/security boundary
-- observability、audit、test coverage、packaging/supportability
+- Existing: 3
+- Reusable: 4
+- Partial: 18
+- Missing: 6
+- Conflicting: 2
 
-各Gapは`Existing / Partial / Missing / Conflicting / Reusable`、target phase、dependency、migration/discard decision、関連Requirement/Invariant/Test IDを持たせます。
+主要 reuse は Go Agent Core、durable spool/journal、Job/Command/Lease/Attempt、stale Result fencing、Host authority generation、typed libvirt adapter、PKI primitive、PostgreSQL transaction/outbox、fault fixture、Debian/systemd packaging です。
+
+主要 conflict は Agent→Controller direct transport と legacy `executor_credential_*` authority です。前者は Agent Gateway へ再配置し、後者は active authority として discard して必要な history だけを archive evidence とします。

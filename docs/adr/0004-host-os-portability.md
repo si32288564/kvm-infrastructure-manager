@@ -1,6 +1,6 @@
 # ADR-0004: ハイパーバイザー OS の差異をホスト側で吸収する
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-08
 
 ## Context
@@ -11,7 +11,7 @@ KIM は、特定ベンダーまたは特定 Linux ディストリビューショ
 
 ## Decision
 
-- OS 固有の差異はホスト側コンポーネント（仮称 Agent）内の OS Integration Adapter が吸収する。
+- OS 固有の差異は KIM Host Agent 内の OS Integration Adapter が吸収する。
 - Control Plane と Agent protocol は OS 非依存の command、capability、desired/observed state のみを扱う。
 - Scheduler は distribution 名ではなく、正規化された capability、trait、constraint で判断する。
 - Virtualization、Network、Storage、OS Integration を Agent 内で別 adapter とする。
@@ -19,7 +19,10 @@ KIM は、特定ベンダーまたは特定 Linux ディストリビューショ
 - Discoveryとpreflight/validationをAgentの必須責務とし、Host mutationから分離する。
 - Host mutationを提供する場合は、KIM resource成立に必要なversioned typed infrastructure remediationだけに限定する。
 - 新しい Linux 対応のために Control Plane へ OS 名の条件分岐を追加しない。
-- Agent という名称は仮称であり、製品上の正式名称は別途決定する。
+- ホスト側コンポーネントの正式名称を KIM Host Agent とする。
+- KIM の core management function に Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求しない。
+- KIM Host Agent は標準 interface を使用し、KIM metadata を underlying resource の標準 manageability を失わせる lock-in に使用しない。
+- KIM は hypervisor distribution または KIM 専用 KVM/QEMU/libvirt build の提供主体にならない。
 
 ## Support Policy
 
@@ -55,3 +58,5 @@ KIM は、特定ベンダーまたは特定 Linux ディストリビューショ
 - 任意package名、service名、shell、argv、file path、設定内容、kernel argumentをControllerから受け取らない。
 - OS package installation、patching、任意設定変更、reboot orchestrationを汎用Configuration Managementとして実装しない。
 - typed remediationは対象resource、precondition、authority generation、bounded result、read-back verificationを必須とする。
+- KIM 固有 metadata は correlation/reconciliation 用に限定し、標準 libvirt/QEMU/KVM interface からの inspection または通常操作を妨げない。
+- OS Integration Adapter は distribution 差異を正規化するが、標準 component を KIM 専用 fork へ置換しない。

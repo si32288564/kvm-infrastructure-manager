@@ -1,6 +1,6 @@
 # Upgrade and Compatibility Architecture
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. 目的

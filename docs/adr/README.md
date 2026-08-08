@@ -15,6 +15,8 @@
 
 ## 一覧
 
+Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個別照合済みの `Accepted` としました。詳細は [ADR Decision Gate Review](../adr-decision-gate-review.md) を参照します。
+
 - [ADR-0001: Control Plane と Host Agent を分離する](0001-control-plane-host-agent.md)
 - [ADR-0002: 非同期 Operation と reconciliation を採用する](0002-operation-and-reconciliation.md)
 - [ADR-0003: 初期技術スタック](0003-initial-technology-stack.md)

@@ -1,6 +1,6 @@
 # Acceptance Test Catalog
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. 目的
@@ -29,6 +29,9 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AGT-003 | identity/capability/armed authority/current Leaseの一つでも欠ければCommandを取得・実行できない |
 | AT-AGT-006 | 2系統以上のLinuxで同じControl Plane contractへ正規化し、OS名分岐を要求しない |
 | AT-AGT-007 | typed remediation allow-list外のpackage/service/config/kernel変更を拒否する |
+| AT-AGT-008 | upstream/標準Linux KVM、QEMU、libvirt packageだけでKIM core lifecycleを実行し、KIM専用patch/forkを依存関係に含めない |
+| AT-AGT-009 | KIMが作成・管理するVM/deviceを標準libvirt/QEMU/KVM interfaceでinspectionでき、KIM metadataがunderlying standard operationを封鎖しない |
+| AT-AGT-010 | Agent artifact/build reviewでGoがprimary daemonであり、cgo/wrapper/native helperが列挙済みnarrow interfaceと独立testへ限定される |
 
 ## 4. Host Lifecycle / Baseline / Compliance
 
@@ -284,6 +287,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-O11Y-001 | metrics/alarm/trace correlationを公開し、high-cardinality identityやsecretを含めない |
 | AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
 | AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
+| AT-DOC-003 | 日本語spacing lintがproseの違反候補を検出し、code fence/inline code/URL/link destination/identifier/API path/約物を変更対象にしない |
 
 ## 15. HA / Upgrade / Packaging
 
@@ -319,6 +323,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-027 | Event/evidence payload retention/holdとdecoder artifact referenceをManifestで追跡し参照中GCを拒否する |
 | AT-UPG-028 | Feature Gate DAGのcycle/conflictを拒否しtopological activationとdependency closure逆順rollbackを行う |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
+| AT-DEPLOY-001 | Control Plane の署名済み containerized artifact を manifest と support profile に従って導入できる |
+| AT-DEPLOY-002 | Kubernetes を使用しない supported deployment でも同一 Control Plane binary、schema、authority semantics を維持する |
 
 ## 16. Time and Clock Semantics
 

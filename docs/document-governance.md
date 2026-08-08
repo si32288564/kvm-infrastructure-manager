@@ -1,6 +1,6 @@
 # 設計文書の正本と変更規則
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. 目的
@@ -18,6 +18,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 | Open Questions / Proposed ADR | 未確定事項。実装authorityではない |
 | Release Plan | exit criteriaと品質gate |
 | Phase 0 Exit Review | 特定commitを対象にした横断監査とgate判定。参照先の正本を置き換えない |
+| Writing Conventions | 日本語文書の表記、例外、段階的lint適用規則 |
 | Release Manifest / Compatibility Matrix | 出荷artifact、upgrade path、contract range、support/rollback boundaryのrelease正本 |
 | Architecture Invariants / Traceability | 実装禁止条件とRequirement-to-Test coverage |
 | Fault Injection / Conformance Contract | 検証可能なfailure/extension test authority |
@@ -44,6 +45,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 8. Lease、freshness、retention、credential、calendar/correlationのtime semanticsへの影響
 9. Trust Domain、Certificate Profile、revocation、rollover、offline/DR trustへの影響
 10. Architecture InvariantとFault/Conformance test ID
+11. Writing Conventionとlint対象範囲への影響
 
 ADR本文に詳細なAPI schemaや運用手順を複製せず、Architectureまたは専用contract文書へリンクします。
 

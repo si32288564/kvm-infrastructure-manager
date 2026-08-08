@@ -1,13 +1,15 @@
 # 製品ビジョン
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. ビジョン
 
-通信・エッジおよびオンプレミスの運用者が、OpenStack 全体を導入せずに、KVM ベースの仮想インフラを安全かつ予測可能に運用できる VIM を提供します。
+通信・エッジおよびオンプレミスの運用者が、OpenStack 全体を導入せずに、標準 KVM ベースの仮想インフラを安全かつ予測可能に運用できる VIM を提供します。
 
 KIM は単なる libvirt フロントエンドではありません。ホスト群のインベントリ、配置判断、ネットワーク、ストレージ、テナント境界、クォータ、非同期処理、障害収束、監査を一つの製品境界として扱います。
+
+KIM は「KVM を KIM 専用 hypervisor に変える製品」ではありません。Linux KVM、QEMU、libvirt の標準 interface を使用して production-grade に管理する neutral Infrastructure Control Plane です。
 
 ## 2. 想定利用者
 
@@ -82,7 +84,7 @@ Identity、Tenancy、Authorization は別の責務です。外部 Identity Platf
 
 KIM は特定の Linux ディストリビューションを製品アーキテクチャの前提にしません。Ubuntu、Debian、RHEL-compatible、SUSE 系など、KVM/libvirt を実用的に提供できる一般的な Linux を採用可能にします。
 
-ディストリビューション間の以下の差異は、ホスト側コンポーネント（仮称 Agent）が検出・正規化します。
+ディストリビューション間の以下の差異は、KIM Host Agent が検出・正規化します。
 
 - package prerequisite、service、filesystem layout
 - SELinux、AppArmor、firewall
@@ -95,7 +97,17 @@ KIM は特定の Linux ディストリビューションを製品アーキテク
 
 KIM は discovery と preflight/validation を所有します。OS変更を行う場合は、KIM resource を成立させるために定義された限定的な typed infrastructure remediation に限ります。任意 package、service、kernel parameter、設定ファイルを操作する汎用 Configuration Management は提供しません。
 
+### 標準 KVM neutrality
+
+- KIM の core management function は、Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求しません。
+- KIM-managed Host は標準的な KVM/QEMU/libvirt Host であり、KIM Host Agent は libvirt API、QMP を抽象化した libvirt contract、sysfs/procfs、netlink、OVSDB 等の公開・標準 interface を狭い adapter 経由で使用します。
+- KIM 固有 metadata は identity correlation、reconciliation、diagnostics のために付与できますが、metadata の有無によって標準 interface から resource を扱えなくする実装を禁止します。
+- KIM は hypervisor distribution、独自 KVM build、独自 QEMU distribution を製品境界に含めません。
+- OS Integration Adapter は distribution 差異を正規化する境界であり、標準 KVM を fork する仕組みではありません。
+
 ## 6. 初期市場仮説
+
+Control Plane は containerized artifact として提供しますが、Kubernetes を必須基盤にしません。同じ Control Plane binary と authority semantics を Kubernetes 上、または小規模・offline 環境向けの supported non-Kubernetes deployment で使用できるようにします。KIM Host Agent は deb、rpm、検証用 self-contained artifact を提供します。
 
 - 通信事業者またはサービスプロバイダーのエッジ拠点
 - OpenStack より小さい運用面積を求めるオンプレミス環境

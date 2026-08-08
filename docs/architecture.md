@@ -1,6 +1,6 @@
 # システムアーキテクチャ
 
-- 状態: Draft
+- 状態: Baseline
 - 更新日: 2026-08-09
 
 ## 1. アーキテクチャ目標
@@ -112,7 +112,7 @@ flowchart TB
 
 ### Host Agent
 
-「Host Agent」はアーキテクチャ上の仮称であり、正式なコンポーネント名は未決定です。
+正式名称を「KIM Host Agent」とし、本文では Host Agent または Agent と略記します。primary implementation language は Go です。
 
 - 各 Compute Host 上で system service として動作する。
 - Unix socket の `qemu:///system` を通じてローカル libvirt を操作する。
@@ -120,6 +120,8 @@ flowchart TB
 - Inventory、heartbeat、observed state、operation result を報告する。
 - 任意 XML の実行を受け付けず、versioned command schema のみ処理する。
 - 再起動後も重複実行を防げる command journal を持つ。
+- outbound mTLS session、inventory/observation loop、durable journal、Command/Lease/deadline processing を Go の structured concurrency で実装し、単一 binary として配布可能にする。
+- native API が必要な箇所では minimal cgo または narrow wrapper を許可する。低レイヤ処理に不可欠な場合だけ小さな native helper を分離し、Agent 全体を C/C++ 実装に置き換えない。
 
 ### Host Lifecycle and Compliance
 
@@ -177,6 +179,10 @@ OS Integration Adapter は最低限、以下のdiscovery/validation契約を実�
 - preflight、readiness、capability、remediation hint の報告
 
 Host capability は「OS名」ではなく、機能と制約として Scheduler へ公開します。新しいディストリビューション対応で Control Plane に OS 名による条件分岐を追加してはいけません。
+
+KIM の core management function は upstream/standard Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求しません。Agent は標準 interface と versioned adapter contract を通じて Host を管理します。KIM metadata は correlation のために付与できますが、underlying VM/device を標準 libvirt/QEMU/KVM interface から扱えなくしてはなりません。OS Integration Adapter はこの neutrality を維持したまま OS 差異を吸収します。
+
+KIM は hypervisor distribution を構築・配布する責務を持ちません。Validated support matrix は標準 component の組合せと KIM adapter/capability contract の検証結果を表し、KIM 専用 fork の存在を前提にしません。
 
 OS変更は別のtyped infrastructure remediation境界です。任意package/service/configuration/kernel argumentを操作する汎用Configuration Managementを提供しません。KIM resource成立に必要な限定操作だけが、明示authority、precondition、verification、bounded rollbackを伴って実行できます。
 
@@ -309,16 +315,16 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 
 | 領域 | 初期候補 | 状態 |
 |---|---|---|
-| Control Plane / Agent | Go | Proposed |
-| API | REST + OpenAPI 3.1 | Proposed |
-| Database | PostgreSQL | Proposed |
-| Internal durable messaging | NATS JetStream | Proposed。Agent transportには直接使用しない標準案 |
-| Hypervisor API | libvirt | Accepted in principle |
-| Network | OVN + Open vSwitch | Proposed |
-| NFV dataplane acceleration | OVS-DPDK | Proposed |
-| Shared storage | Ceph RBD | Proposed |
-| Identity | OIDC | Proposed |
-| Telemetry | Prometheus + OpenTelemetry | Proposed |
+| Control Plane / KIM Host Agent | Go | Accepted。Agent は primary Go、native boundary は minimal |
+| API | REST + OpenAPI 3.1 | Accepted |
+| Database | PostgreSQL | Accepted |
+| Internal durable messaging | NATS JetStream | Accepted。Agent transport には直接使用しない |
+| Hypervisor API | libvirt | Accepted |
+| Network | OVN + Open vSwitch | Accepted |
+| NFV dataplane acceleration | OVS-DPDK | Accepted |
+| Shared storage | Ceph RBD | Accepted |
+| Identity | OIDC | Accepted |
+| Telemetry | Prometheus + OpenTelemetry | Accepted |
 
 ## 13. OS サポートモデル
 

@@ -1,6 +1,6 @@
 # ADR-0018: 永続データをclassifyし安全なschema evolutionとrestoreを行う
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-09
 
 ## Context

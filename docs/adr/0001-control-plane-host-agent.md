@@ -1,6 +1,6 @@
 # ADR-0001: Control Plane と Host Agent を分離する
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-08
 
 ## Context
@@ -30,7 +30,7 @@ KIM は複数 KVM Host を管理します。Control Plane が各 Host の remote
 
 - Agent の配布、証明書、アップグレード互換性が必要になる。
 - Control Plane と Agent のプロトコル互換性試験が必要になる。
-- 二重の desired/observed state 管理が必要になる。
+- Control Plane の desired state と Host の observed state/journal を同期管理する必要がある。
 
 ## Alternatives
 

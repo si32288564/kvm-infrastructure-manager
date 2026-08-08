@@ -7,12 +7,12 @@
 
 | ID | 論点 | 現在の仮定 | 決定期限 |
 |---|---|---|---|
-| Q-001 | 最初の顧客セグメント | 通信・エッジ事業者 | Phase 0 |
-| Q-002 | 最初の Validated Linux 組合せ | Ubuntu/Debian 系と RHEL-compatible 系を最低1つずつ検証 | Phase 0 |
-| Q-003 | 導入形態 | containerized Control Plane、deb/rpm/self-contained Agent | Phase 0 |
-| Q-004 | Control Plane orchestration | Kubernetes 必須にはしない | Phase 0 |
+| Q-001 | 最初の顧客セグメント | 通信・エッジ事業者 | Closed (Phase 0) |
+| Q-002 | 最初の Validated Linux 組合せ | Ubuntu/Debian 系と RHEL-compatible 系を最低1つずつ検証 | Developer Preview (Deferred) |
+| Q-003 | 導入形態 | containerized Control Plane、deb/rpm/self-contained Agent | Closed (Phase 0) |
+| Q-004 | Control Plane orchestration | Kubernetes 必須にはしない | Closed (Phase 0) |
 | Q-005 | Message Bus | NATS JetStream | Prototype 前 |
-| Q-006 | Network MVP | VLAN と OVN Geneve | Phase 0 |
+| Q-006 | Network MVP | VLAN と OVN Geneve | Closed (Phase 0) |
 | Q-007 | DHCP/L3 実装 | OVN native services | Technical Preview 前 |
 | Q-008 | Storage MVP | local LVM、Ceph RBD は次段階 | Developer Preview 前 |
 | Q-009 | Database HA の提供範囲 | 外部 PostgreSQL をサポートし、bundled HA は別途判断 | Technical Preview 前 |
@@ -22,43 +22,43 @@
 | Q-013 | 製品名 KVM Infrastructure Manager（KIM）の商標・競合 | 調査が必要 | Product Beta 前 |
 | Q-014 | ARM64 対応 | GA 初版では対象外 | Product Beta 前 |
 | Q-015 | Multi-PoP | GA 初版では独立 Site として管理、横断配置は対象外 | Product Beta 前 |
-| Q-016 | ホスト側コンポーネントの正式名称 | Agent はアーキテクチャ上の仮称 | Phase 0 |
+| Q-016 | ホスト側コンポーネントの正式名称 | KIM Host Agent（本文では Host Agent または Agent） | Closed (Phase 0) |
 | Q-017 | SUSE 系を最初の Validated set に含めるか | Compatible として設計し、認定時期は未決定 | Technical Preview 前 |
-| Q-018 | Identity ownership | 外部IdP/Identity Platformがidentity/credentialを所有し、KIMはbindingのみ | Phase 0 |
-| Q-019 | Host remediation boundary | discovery/preflightを必須、mutationは限定typed remediationのみ | Phase 0 |
-| Q-020 | Agent transport | 内部Busを直接公開せずAgent Gateway経由を標準案とする | Phase 0 |
-| Q-021 | Execution model | Operation / Job / Command / Lease / Attemptを独立domainとして採用 | Phase 0 |
-| Q-022 | Placement model | Eligibility / Admission / Scoring / transactional Reservationを採用 | Phase 0 |
-| Q-023 | Database HA/DR | HA RPO 0とbackup/DR RPO 5分を分離 | Phase 0 |
-| Q-024 | Network boundary | virtual networkはKIM、WAN/inter-PoP/physical switchは外部authority | Phase 0 |
-| Q-025 | Failure severity model | resource/scope/severityとAlarm mappingを定義 | Phase 0 |
-| Q-026 | Control Plane adapter isolation | 副作用を持つ外部adapterはout-of-processを優先 | Phase 0 |
+| Q-018 | Identity ownership | 外部IdP/Identity Platformがidentity/credentialを所有し、KIMはbindingのみ | Closed (Phase 0) |
+| Q-019 | Host remediation boundary | discovery/preflightを必須、mutationは限定typed remediationのみ | Closed (Phase 0) |
+| Q-020 | Agent transport | 内部Busを直接公開せずAgent Gateway経由を標準案とする | Closed (Phase 0) |
+| Q-021 | Execution model | Operation / Job / Command / Lease / Attemptを独立domainとして採用 | Closed (Phase 0) |
+| Q-022 | Placement model | Eligibility / Admission / Scoring / transactional Reservationを採用 | Closed (Phase 0) |
+| Q-023 | Database HA/DR | HA RPO 0とbackup/DR RPO 5分を分離 | Closed (Phase 0) |
+| Q-024 | Network boundary | virtual networkはKIM、WAN/inter-PoP/physical switchは外部authority | Closed (Phase 0) |
+| Q-025 | Failure severity model | resource/scope/severityとAlarm mappingを定義 | Closed (Phase 0) |
+| Q-026 | Control Plane adapter isolation | 副作用を持つ外部adapterはout-of-processを優先 | Closed (Phase 0) |
 | Q-027 | Extension SDK/API surface | 最初は内部contractとconformance kit、第三者SDK公開時期は未決定 | Technical Preview 前 |
-| Q-028 | Extension trust class assignment | 初期extensionをC0/C1/C2/C3へ正式割当 | Phase 0 |
+| Q-028 | Extension trust class assignment | 初期extensionをC0/C1/C2/C3へ正式割当 | Closed (Phase 0) |
 | Q-029 | Traceability automation | Markdown ID検証から開始し、machine-readable manifestへの移行時期を決定 | Developer Preview 前 |
 | Q-030 | OVS/DPDK first Validated versions | distribution/OVS/DPDK/NIC driverの組合せを決定 | Developer Preview 前 |
-| Q-031 | PMD assignment policy | automatic/pinned/mixedの初期support範囲 | Phase 0 |
-| Q-032 | DPDK HugePage ownership | Host-wide reserved poolとKIM allocation ledgerのauthority境界 | Phase 0 |
+| Q-031 | PMD assignment policy | automatic/pinned/mixedの初期support範囲 | Developer Preview (Deferred) |
+| Q-032 | DPDK HugePage ownership | Host-wide reserved poolとKIM allocation ledgerのauthority境界 | Closed (Phase 0) |
 | Q-033 | Dataplane disruption policy | ovs-vswitchd restartのimpact/drain/maintenance workflow | Technical Preview 前 |
 | Q-034 | Performance policy classes | queue/latency/throughput requirementをTenant APIへ公開する粒度 | Technical Preview 前 |
-| Q-035 | Enrollment trust evidence profile | provenance/conflict modelは確定。初期Validated環境で必須にする独立source class、attestation方式、manual fallbackを決定 | Phase 0 |
-| Q-036 | Policy-auto enrollment/arming | manual approvalなしで許可するSite/Host classとguardrail | Phase 0 |
+| Q-035 | Enrollment trust evidence profile | provenance/conflict modelは確定。初期Validated環境で必須にする独立source class、attestation方式、manual fallbackを決定 | Developer Preview (Deferred) |
+| Q-036 | Policy-auto enrollment/arming | manual approvalなしで許可するSite/Host classとguardrail | Technical Preview (Deferred) |
 | Q-037 | Initial Host Profiles/Baselines | general-compute、nfv-sriov、nfv-ovs-dpdkのcontrol set | Developer Preview 前 |
 | Q-038 | Compliance evidence retention | Control Result/evidence/auditの保持期間と容量 | Technical Preview 前 |
 | Q-039 | External remediation transport/profile | authority/evidence contractは確定。初期adapterのevent/API transport、IdP identity、evidence retention profileを決定 | Technical Preview 前 |
 | Q-040 | Decommission authority | credential revoke、drain exception、physical wipe境界のoperator policy | Product Beta 前 |
-| Q-041 | Initial HostGroup dimensions | placement pool、site/rack/power、owner、baseline ringの初期dimension/cardinality | Phase 0 |
+| Q-041 | Initial HostGroup dimensions | placement pool、site/rack/power、owner、baseline ringの初期dimension/cardinality | Developer Preview (Deferred) |
 | Q-042 | Selector source authority | 初期CMDB/asset source、freshness、manual fallback、external assertion identity | Developer Preview 前 |
 | Q-043 | Public Placement Scope | Tenant/NFVOへ公開するAZ/pool model、stable name、Project access policy | Technical Preview 前 |
-| Q-044 | Group binding precedence | initial Profile/Baseline binding priority rangeとdirect Host override運用 | Phase 0 |
+| Q-044 | Group binding precedence | initial Profile/Baseline binding priority rangeとdirect Host override運用 | Developer Preview (Deferred) |
 | Q-045 | Maintenance failure-domain policy | dimension別concurrency、minimum ready、membership drift時のpause/continue条件 | Technical Preview 前 |
-| Q-046 | Initial Availability classes | 公開するInfrastructure/Workload/Manual classとdefault禁止方針 | Phase 0 |
+| Q-046 | Initial Availability classes | 公開するInfrastructure/Workload/Manual classとdefault禁止方針 | Closed (Phase 0) |
 | Q-047 | Fencing evidence profile | BMC/storage/clusterごとのconfirmation source、timeout、FENCE_UNKNOWN runbook | Technical Preview 前 |
 | Q-048 | Infrastructure recovery scope | local disk、SR-IOV/PCI、DPDK、shared Volume別のinitial restart-on-other-host support | Technical Preview 前 |
 | Q-049 | NFVO/VNFM fault contract | WORKLOAD_MANAGED event mapping、delivery SLO、ack/replay/correlation profile | Technical Preview 前 |
 | Q-050 | Availability Rebind policy | existing VM bulk rebindのcanary、approval、maintenance、rollback条件 | Product Beta 前 |
 | Q-051 | Northbound resilience profile | 対象NFVO/VNFMのmember/role/separation modelとCore API mapping | Technical Preview 前 |
-| Q-052 | Public Failure Domain classes | rack、chassis、power-feed等の公開class、min domain、情報秘匿profile | Phase 0 |
+| Q-052 | Public Failure Domain classes | rack、chassis、power-feed等の公開class、min domain、情報秘匿profile | Technical Preview (Deferred) |
 | Q-053 | Resilience member replacement | old VM/source UNKNOWN時のNFVO retry、slot fencing、operator escalation | Technical Preview 前 |
 | Q-054 | Recovery budget defaults | Site/Pool/backend別concurrency、rate/burst、queue age、backoff初期値 | Technical Preview 前 |
 | Q-055 | Recovery priority/fairness | 公開priority class、Project fair-share、aging、emergency override approval | Product Beta 前 |
@@ -101,28 +101,55 @@
 | Q-092 | PKI DR/key custody | CA/Secret Provider key backup、new Site reissue、old Site/issuer fencing、revocation sequence recoveryを決定 | Technical Preview 前 |
 | Q-093 | Cross-domain trust | NFVO/VNFM/WIM/backend/customer PKIのexplicit relationship、name constraint、trust exposureを決定 | Product Beta 前 |
 
-## 最初に確定すべき判断
+## Phase 0 Close / Defer Register
 
-1. 対象顧客と最優先ユースケース
-2. 最初の Validated Linux 組合せと support tier
-3. Kubernetes 依存を許容するか
-4. VLAN、overlay、SR-IOV のリリース優先順位
-5. local storage と Ceph のサポート境界
-6. ETSI API の適合目標と接続対象 NFVO
-7. Agent Gatewayのtransport（long pollingまたはstream）
-8. typed infrastructure remediationの初期許可操作
-9. fault injection環境とfailure scenario owner
-10. 初期releaseで正式に公開するextension points
-11. release blocker invariantと手動検証owner
-12. OVS-DPDKのinitial resource schemaとsupport matrix
-13. Enrollment/Baseline/Complianceのinitial policyとControl catalog
-14. Initial HostGroup dimension、binding precedence、公開Placement Scope
-15. Initial Availability class、fencing evidence、managed recovery support scope
-16. Northbound resilience profileとRecovery budget/fairness defaults
-17. Failure Campaign correlation profileとcanonical BudgetScopeKey schema
-18. Data retention、schema compatibility、backup/PITRのinitial product profile
-19. Ceph RBD fencing、Local LVM、Storage force operationのinitial support profile
-20. Storage encryption/degraded/durabilityとNetwork IPAM/OVN/Gateway/Securityのinitial profile
-21. Gateway failure-domain/WIM/IPAM pressureとUpgrade compatibility/rollout/rollbackのinitial profile
-22. Clock source/uncertainty、Lease/Agent deadline、calendar/retention/correlationのinitial time profile
-23. CA topology/profile、bootstrap/renewal/revocation、emergency/offline/DR trustのinitial PKI profile
+### Closed
+
+| ID | Decision | Owner | 根拠 |
+|---|---|---|---|
+| Q-001 | 最初の顧客セグメントを通信・エッジ事業者とする | Product Management | Product Vision、README |
+| Q-003 | Control Plane は containerized、KIM Host Agent は deb/rpm/self-contained artifact を提供する | Release Engineering | NFR-OPS-001/006、Release Plan |
+| Q-004 | Kubernetes を Control Plane の必須基盤にしない | Architecture | Product Vision、ADR-0003 |
+| Q-006 | Network MVP を VLAN、次段階の overlay を OVN Geneve とする | Network | NET-002/003、ADR-0020 |
+| Q-016 | 正式名称を KIM Host Agent とする | Product Management | ADR-0001/0004、Agent Protocol Architecture |
+| Q-018 | Principal identity/credential は外部 Identity Platform、KIM は Tenant/Project authorization を所有する | Security / IAM | ADR-0005、IAM-001〜006 |
+| Q-019 | discovery/preflight と Host mutation を分離し、mutation は closed typed remediation に限定する | Host Lifecycle | ADR-0004/0013、INV-AGT-007 |
+| Q-020 | Agent は Agent Gateway へ outbound mTLS 接続し、内部 Message Bus を公開しない | Agent / Security | ADR-0008、INV-AGT-002 |
+| Q-021 | Operation / Job / Command / Lease / Attempt を独立 domain とする | Execution | ADR-0002/0007、INV-EXEC-001〜008 |
+| Q-022 | dry Eligibility/Admission、Scoring/Selection、transactional Final Admission を採用する | Placement | ADR-0006、INV-PLC-001〜006 |
+| Q-023 | Site HA RPO 0 と DR RPO 5分/RTO 60分を分離する | Data / SRE | ADR-0009、NFR-AVL-004/005 |
+| Q-024 | KIM は virtual network/provider binding、WIM/外部 authority は WAN/inter-PoP/physical network を所有する | Network | ADR-0020、INV-NET-001/019 |
+| Q-025 | failure を resource/scope/severity と Alarm mapping で表現する | Reliability | ADR-0010、Failure Model |
+| Q-026 | side effect を持つ Control Plane adapter は out-of-process C2 boundary を優先する | Extensibility / Security | ADR-0011、INV-EXT-001〜006 |
+| Q-028 | C0 Core、C1 Restricted Module、C2 Isolated Service、C3 External Integration を採用する | Extensibility | ADR-0011、Extensibility Architecture |
+| Q-032 | DPDK/workload HugePage を同一 Host allocation ledger と Final Admission で競合管理する | Dataplane / Placement | ADR-0012、INV-DPL-002/004 |
+| Q-046 | Infrastructure Managed、Workload Managed、Manual を availability class とし、implicit/default recovery を禁止する | Availability | ADR-0015、INV-AVR-001、INV-HGR-014 |
+
+### Deferred
+
+| ID | 理由 | Owner | 次の Target Gate |
+|---|---|---|---|
+| Q-002 | Architecture invariant ではなく実機 certification/support matrix。Ubuntu/Debian 系と RHEL-compatible 系を各1以上という検証目標は維持する | Release Engineering / Host Integration | Developer Preview |
+| Q-031 | PMD resource semantics は確定済みで、automatic/pinned/mixed の Validated 範囲は性能 certification profile | Dataplane | Developer Preview |
+| Q-035 | provenance/conflict contract は確定済みで、初期 source class、TPM、manual fallback は環境別 certification profile | Security / Host Lifecycle | Developer Preview |
+| Q-036 | fail-closed invariant は確定済みで、manual approval なしに許可する Site/Host class は deployment security profile | Security / Host Lifecycle | Technical Preview |
+| Q-041 | type/dimension/cardinality semantics は確定済みで、初期 catalog 値は deployment/operations profile | Placement / Operations | Developer Preview |
+| Q-044 | unique highest priority と conflict=BLOCKED は確定済みで、数値 range と direct override は運用 profile | Host Lifecycle / Operations | Developer Preview |
+| Q-052 | raw topology 非公開と hard constraint は確定済みで、公開 class/min-domain/秘匿範囲は Northbound certification profile | Northbound API / Placement | Technical Preview |
+
+Deferred は Phase 0 Architecture invariant の未決定を意味しません。owner は target gate までに product profile と certification evidence を確定します。
+
+## 後続 Gate で最初に確定する Product Profile
+
+1. Developer Preview の Validated Linux combination、package、support tier
+2. Agent Gateway transport と typed remediation の初期許可 operation
+3. Image/Flavor、VLAN/IPAM、Local LVM の Developer Preview support boundary
+4. PMD assignment、Enrollment evidence、HostGroup catalog/binding の初期 profile
+5. Traceability automation、Release Manifest、schema/upgrade compatibility profile
+6. Technical Preview の OVN、Ceph fencing、HA/PITR、policy-auto enrollment profile
+7. Northbound resilience、Failure Domain、Recovery budget/campaign correlation profile
+8. Storage encryption/degraded/durability と Network Gateway/WIM/Security profile
+9. Time source/uncertainty/deadline/calendar/retention profile
+10. CA topology、certificate/revocation、emergency/offline/DR trust profile
+
+各項目は上表の既存 Q-ID、owner、target gate で追跡します。Phase 0 で Closed 済みの Architecture Decision を再度 Open Question として扱いません。

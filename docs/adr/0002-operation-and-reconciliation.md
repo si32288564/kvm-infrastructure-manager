@@ -1,6 +1,6 @@
 # ADR-0002: 非同期 Operation と reconciliation を採用する
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-08
 
 ## Context

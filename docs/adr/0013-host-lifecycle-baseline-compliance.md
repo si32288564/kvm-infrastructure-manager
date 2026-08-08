@@ -1,6 +1,6 @@
 # ADR-0013: ZTPとContinuous ComplianceをHost Lifecycleへ統合する
 
-- 状態: Proposed
+- 状態: Accepted
 - 日付: 2026-08-09
 
 ## Context
