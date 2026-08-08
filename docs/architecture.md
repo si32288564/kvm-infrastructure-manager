@@ -1,0 +1,238 @@
+# システムアーキテクチャ
+
+- 状態: Draft
+- 更新日: 2026-08-08
+
+## 1. アーキテクチャ目標
+
+- 部分障害が発生しても、要求された状態へ安全に収束する。
+- Control Plane を水平冗長化し、Compute Host の障害から分離する。
+- テナント境界と管理権限をすべての資源操作で一貫して適用する。
+- compute、network、storage の実装を backend adapter で交換可能にする。
+- 外部 API と内部実装を分離し、ETSI 対応を段階的に拡張する。
+
+## 2. コンテキスト
+
+```mermaid
+flowchart TB
+    Operator["Infrastructure Operator"]
+    Tenant["Tenant / Workload Operator"]
+    NFVO["NFVO / VNFM / OSS"]
+    IdP["OIDC Identity Provider"]
+    Product["KVM Infrastructure Manager"]
+    Host["KVM Compute Hosts"]
+    Network["Physical Network / OVN"]
+    Storage["Local LVM / Ceph RBD"]
+    Monitoring["Monitoring and Log Platform"]
+
+    Operator --> Product
+    Tenant --> Product
+    NFVO --> Product
+    Product --> IdP
+    Product --> Host
+    Product --> Network
+    Product --> Storage
+    Product --> Monitoring
+```
+
+## 3. 論理コンポーネント
+
+```mermaid
+flowchart TB
+    Client["API Client / UI / NFVO"] --> Gateway["API Gateway"]
+    Gateway --> IAM["Authentication and Authorization"]
+    Gateway --> API["Resource API"]
+    API --> DB[("PostgreSQL")]
+    API --> Workflow["Workflow / Operation Service"]
+    Workflow --> Bus[("Durable Message Bus")]
+    Scheduler["Placement Scheduler"] --> DB
+    Reconciler["Resource Reconcilers"] --> DB
+    Reconciler --> Bus
+    Inventory["Inventory and Capacity"] --> DB
+    Bus --> Agent1["Host Agent"]
+    Bus --> AgentN["Host Agent"]
+    Agent1 --> Libvirt1["libvirt / QEMU-KVM"]
+    AgentN --> LibvirtN["libvirt / QEMU-KVM"]
+    Agent1 --> OVS1["OVS / ovn-controller"]
+    AgentN --> OVSN["OVS / ovn-controller"]
+    NetworkCtl["Network Controller Adapter"] --> OVNDB[("OVN Northbound DB")]
+    StorageCtl["Storage Adapter"] --> RBD["Ceph RBD / LVM"]
+```
+
+### API Gateway / Resource API
+
+- REST/OpenAPI の公開面を提供する。
+- 認証、認可、rate limit、request ID、idempotency key を処理する。
+- 書き込み要求を検証し、desired state と Operation を同一トランザクションで永続化する。
+- libvirt や OVN の完了を同期的に待たない。
+
+### Workflow / Operation Service
+
+- 複数資源にまたがる長時間処理を状態機械として管理する。
+- retryable、terminal、operator-action-required を区別する。
+- 各ステップに補償処理を定義するが、破壊的な自動補償は明示的な安全条件を必要とする。
+
+### Resource Reconciler
+
+- desired state と observed state の差分を検出する。
+- at-least-once delivery を前提とし、各処理を冪等にする。
+- 定期 reconciliation とイベント駆動 reconciliation の両方を使用する。
+- 外部で作られた未知の資源は直ちに削除せず、drift として報告する。
+
+### Placement Scheduler
+
+1. Host 状態、AZ、trait、機能、容量による filter。
+2. NUMA、HugePages、PCI、affinity などの constraint 評価。
+3. spread、残容量、キャッシュ locality などによる weigh。
+4. DB 上で allocation generation を検証しながら容量を claim。
+5. 配置判断と除外理由を記録。
+
+### Host Agent
+
+「Host Agent」はアーキテクチャ上の仮称であり、正式なコンポーネント名は未決定です。
+
+- 各 Compute Host 上で system service として動作する。
+- Unix socket の `qemu:///system` を通じてローカル libvirt を操作する。
+- Control Plane へ outbound の mTLS 接続を確立する。
+- Inventory、heartbeat、observed state、operation result を報告する。
+- 任意 XML の実行を受け付けず、versioned command schema のみ処理する。
+- 再起動後も重複実行を防げる command journal を持つ。
+
+### Host OS Portability Layer
+
+Control Plane と Agent protocol は OS 非依存の正規化モデルのみを扱います。ディストリビューション固有の処理は Agent 内の adapter 境界に閉じ込めます。
+
+```mermaid
+flowchart LR
+    CP["Control Plane"] -->|"OS-neutral command"| Agent["Host-side component (temporary name: Agent)"]
+    Agent --> Core["Reconciliation Core"]
+    Core --> Virt["Virtualization Adapter"]
+    Core --> OS["OS Integration Adapter"]
+    Core --> Net["Network Adapter"]
+    Core --> Store["Storage Adapter"]
+    Virt --> Libvirt["libvirt / QEMU-KVM"]
+    OS --> Platform["package / service / MAC / firewall / tuning"]
+    Net --> HostNet["OVS / NIC / SR-IOV"]
+    Store --> HostStore["LVM / Ceph client"]
+```
+
+OS Integration Adapter は最低限、以下の契約を実装します。
+
+- distribution、version、kernel、service manager、security module の検出
+- package prerequisite と設定ファイル位置の解決
+- service lifecycle、log、audit、diagnostic の正規化
+- firewall、SELinux/AppArmor、device permission の適用
+- HugePages、CPU isolation、IOMMU、NUMA などの Host tuning
+- preflight、readiness、capability、remediation hint の報告
+
+Host capability は「OS名」ではなく、機能と制約として Scheduler へ公開します。新しいディストリビューション対応で Control Plane に OS 名による条件分岐を追加してはいけません。
+
+## 4. データ所有権
+
+| データ | System of Record | 備考 |
+|---|---|---|
+| Tenant、Quota、Policy | PostgreSQL | Control Plane が所有 |
+| VM desired state | PostgreSQL | API が更新 |
+| VM runtime state | libvirt/QEMU | Agent が observed state として同期 |
+| Placement allocation | PostgreSQL | Scheduler が世代管理 |
+| Logical network intent | PostgreSQL | Network Controller が OVN へ反映 |
+| Network dataplane state | OVN/OVS | observed state を収集 |
+| Volume metadata | PostgreSQL | 実体は backend が所有 |
+| Operation history | PostgreSQL | 長期監査とは分離 |
+| Audit log | Append-only sink | 外部転送を推奨 |
+
+## 5. 整合性モデル
+
+- API metadata と Operation 作成には ACID transaction を使用する。
+- 外部 backend との間は eventual consistency とする。
+- 書き込み API は成功時に `202 Accepted` と Operation を返す。
+- 強い整合性が必要な容量予約は、世代番号または行ロックで競合を検出する。
+- Agent message は重複、遅延、順序逆転を前提とする。
+- observed state は generation と observation timestamp を持つ。
+
+## 6. Compute
+
+- libvirt Domain は KIM の VM に一対一で対応する。
+- libvirt metadata に KIM resource ID、tenant ID、generation を格納する。
+- Domain XML は正規化された内部モデルから生成し、ユーザー入力 XML を直接通さない。
+- VM delete は Port、Volume、allocation の依存関係を明示的に処理する。
+- Host maintenance は新規配置停止、退避計画、残存資源確認の順で進める。
+
+## 7. Network
+
+初期製品では以下の二方式を扱います。
+
+- Provider VLAN: 物理ネットワークへ直接接続するワークロード向け。
+- OVN Geneve overlay: Tenant ごとに重複可能なアドレス空間と論理 L2/L3 を提供。
+
+KIM の Network Controller Adapter が OVN Northbound DB に intent を反映し、各ホストの `ovn-controller` と OVS が dataplane を構成します。OVN は論理 L2/L3、overlay、security group に相当する抽象化を提供します。
+
+## 8. Storage
+
+- Backend capability を共通モデルで公開する。
+- Local LVM は簡易構成と ephemeral/local workload に使用する。
+- Ceph RBD は共有 block storage、snapshot、clone、live migration の標準候補とする。
+- Secret は DB へ平文保存せず、Secret Provider と libvirt secret を介して使用する。
+- Volume attachment は fencing と世代管理により二重接続を防止する。
+
+## 9. Control Plane HA
+
+- API、Scheduler、Reconciler、Workflow Worker は stateless replica とする。
+- PostgreSQL と Message Bus は quorum を持つ構成を前提とする。
+- leader が必要な処理は lease と fencing token を使用する。
+- clock skew を監視し、順序性に wall clock のみを使わない。
+- Control Plane 喪失時も既存 VM と dataplane は稼働を継続する。
+
+## 10. 障害時の基本動作
+
+| 障害 | 動作 |
+|---|---|
+| Agent 切断 | Host を unreachable とし、新規配置を停止。既存 VM は変更しない |
+| OS adapter の preflight 失敗 | Host を unsupported または degraded とし、不足機能と修正候補を表示する |
+| Host 障害 | VM を unknown とし、共有ストレージと fencing 条件が満たされた場合のみ再作成を許可 |
+| Message 重複 | command ID と generation で同一結果を返す |
+| OVN 不整合 | drift を検出し、所有資源のみ再適用する |
+| Storage timeout | attachment 状態を照会し、結果不明のまま反対操作を行わない |
+| DB failover | client が上限付き retry。処理は idempotency key で重複を防ぐ |
+
+## 11. 配置形態
+
+### Developer
+
+単一 Control Plane、PostgreSQL、Message Bus、1〜2 Compute Host。
+
+### Production
+
+3 Control Plane、HA PostgreSQL、3-node Message Bus、外部 IdP、監視基盤、2台以上の gateway、複数 Compute Host。
+
+## 12. 技術候補
+
+| 領域 | 初期候補 | 状態 |
+|---|---|---|
+| Control Plane / Agent | Go | Proposed |
+| API | REST + OpenAPI 3.1 | Proposed |
+| Database | PostgreSQL | Proposed |
+| Durable messaging | NATS JetStream | Proposed |
+| Hypervisor API | libvirt | Accepted in principle |
+| Network | OVN + Open vSwitch | Proposed |
+| Shared storage | Ceph RBD | Proposed |
+| Identity | OIDC | Proposed |
+| Telemetry | Prometheus + OpenTelemetry | Proposed |
+
+## 13. OS サポートモデル
+
+| 区分 | 意味 |
+|---|---|
+| Validated | CI とリリース認定試験を通過し、製品サポート対象 |
+| Compatible | Agent preflight を通過し動作可能だが、組合せとして未認定 |
+| Unsupported | 必須 capability を満たさない、または既知の非互換がある |
+
+初期候補は Ubuntu/Debian 系、RHEL-compatible 系、SUSE 系です。具体的な version はリリースごとのサポートマトリクスで固定します。
+
+## 14. 参照資料
+
+- [libvirt API concepts](https://libvirt.org/api.html)
+- [libvirt Remote support](https://www.libvirt.org/remote)
+- [OVN Architecture](https://www.ovn.org/en/architecture/)
+- [Ceph Block Device](https://docs.ceph.com/en/latest/rbd/)
+- [Using libvirt with Ceph RBD](https://docs.ceph.com/en/latest/rbd/libvirt/)
