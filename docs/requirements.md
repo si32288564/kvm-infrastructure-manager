@@ -91,8 +91,30 @@
 | HGR-014 | Tenantへraw infrastructure Groupではなくexposure policy付きPlacement Scopeだけを公開する | Must |
 | HGR-015 | active membership/reference/rollout/maintenance/policy bindingを持つGroupを削除しない | Must |
 | HGR-016 | Group変更だけで既存workloadを暗黙移動、停止、再構成せずdrift/action-requiredとして扱う | Must |
+| HGR-017 | READY/placement可能なHostが全active Placement Pool membershipsから一つのeffective Availability Policyを解決できることを必須とする | Must |
 
-### 2.5 Image、Flavor
+### 2.5 Availability Responsibility and Managed Recovery
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| AVR-001 | immutable versioned AvailabilityPolicyとresponsibility、Host failure action、fencing/storage/recovery/failure-domain条件を管理する | Must |
+| AVR-002 | responsibilityをINFRASTRUCTURE_MANAGED、WORKLOAD_MANAGED、MANUALに分類する | Must |
+| AVR-003 | Host failure actionをRESTART_ON_OTHER_HOST、EVACUATE、NO_AUTOMATIC_ACTIONに分類し、responsibilityとの不正な組合せを拒否する | Must |
+| AVR-004 | AvailabilityPolicyをPLACEMENT_POOLだけからversioned GroupPolicyBindingで参照する | Must |
+| AVR-005 | binding欠損、stale、同priority conflictでHost Effective Availability Policyが一意に解決できないHostをREADY/Placement不適格にする | Must |
+| AVR-006 | Final AdmissionでPolicy/Pool/membership generationをVM/Allocationのimmutable AvailabilityBindingへ保存する | Must |
+| AVR-007 | Group/Policy変更だけで既存VMのAvailabilityBindingを変更せず、明示Rebind Operationと新revisionを要求する | Must |
+| AVR-008 | Host failureをfailure epochとして検出、確認、fence、policy decision、recover、verifyの証拠付きstateで管理する | Must |
+| AVR-009 | WORKLOAD_MANAGEDではFault/Eventを通知するがKIMから自動restart、evacuate、replacementを開始しない | Must |
+| AVR-010 | MANUALではauthorized Manual Recovery DecisionまでKIMから自動VM mutationを開始しない | Must |
+| AVR-011 | INFRASTRUCTURE_MANAGED recoveryでsource fencing、storage single-writer、VM/resource eligibility、failure-domain、transactional admissionを必須とする | Must |
+| AVR-012 | fencing、attachment、resource ownership、Availability BindingのいずれかがUNKNOWNならautomatic recoveryを開始しない | Must |
+| AVR-013 | Recovery Operationをfailure epoch、VM、Availability Binding revision、actionで冪等化し、stale epoch/resultをfenceする | Must |
+| AVR-014 | EVACUATEをHost-scoped planからVM単位Operationへ分解し、部分成功、capacity不足、個別BLOCKEDを表現する | Must |
+| AVR-015 | recovery destinationでcurrent Placement Pool/Policy compatibility、Compliance、capacity、Failure Domainを再評価しsilent fallbackしない | Must |
+| AVR-016 | Host failure/recovery Eventをresponsibilityにかかわらずdurableに通知し、delivery failureでresponsibilityを変更しない | Must |
+
+### 2.6 Image、Flavor
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -102,7 +124,7 @@
 | FLV-001 | vCPU、RAM、root disk、追加仕様を Flavor として管理できる | Must |
 | FLV-002 | NUMA、HugePages、CPU Pinning を Flavor で要求できる | Should |
 
-### 2.6 Compute
+### 2.7 Compute
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -116,7 +138,7 @@
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 
-### 2.7 Scheduler
+### 2.8 Scheduler
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -128,7 +150,7 @@
 | SCH-006 | final admission の競合失敗時に同じ request snapshot の残候補を再選択できる | Must |
 | SCH-007 | dry admission は状態を変更せず、capacity を予約しない | Must |
 
-### 2.8 Network
+### 2.9 Network
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -140,7 +162,7 @@
 | NET-006 | SR-IOV Port を VM に接続できる | Should |
 | NET-007 | Network state と実データプレーンの不整合を検出できる | Must |
 
-### 2.9 NFV Dataplane
+### 2.10 NFV Dataplane
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -160,7 +182,7 @@
 | DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
 | DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
 
-### 2.10 Storage
+### 2.11 Storage
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -171,7 +193,7 @@
 | STO-005 | snapshot と clone を利用できる | Should |
 | STO-006 | backend 能力差を capability として公開できる | Must |
 
-### 2.11 Operation、Event、Notification
+### 2.12 Operation、Event、Notification
 
 | ID | 要件 | 優先度 |
 |---|---|---|
@@ -186,7 +208,7 @@
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 
-### 2.12 Fault、Performance、Audit
+### 2.13 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
 |---|---|---|

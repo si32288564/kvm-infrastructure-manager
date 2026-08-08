@@ -9,6 +9,8 @@ PostgreSQLは管理情報のキャッシュではなくauthorityです。High Av
 
 DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Model](failure-model.md) に従います。
 
+本書のControl Plane HA/DRと、Host failure時のmanaged VM recoveryは別問題です。VM recovery責任と動作は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従い、Control Plane failoverだけでVM restart/evacuateを開始しません。
+
 ## 2. Authority Data
 
 以下はcommitted stateを失うと自動再構築できない、または安全な所有判断ができない情報です。
@@ -22,6 +24,7 @@ DB以外を含む障害分類とcontainment/fencingは [System-wide Failure Mode
 - Host Operation Authority と監査outbox
 - Hardware Identity Evidence、Enrollment Policy、Host Profile/Baseline、Evaluator Artifact/Assignment、Compliance evidence/summary、External Remediation Request/Claim
 - HostGroup、Dimension、materialized Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope
+- Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Manual Recovery Decision
 
 backend observationだけでこれらを無条件に復元しません。
 

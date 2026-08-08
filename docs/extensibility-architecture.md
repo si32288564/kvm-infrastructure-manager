@@ -36,6 +36,7 @@ ExtensionはCore DBへ直接書き込み、内部Message Busをauthorityとし�
 | Storage Backend | LVM、Ceph RBD | capability、Volume/Attachment、fencing、snapshot |
 | Placement Rule | NUMA、PCI、locality、affinity | pure eligibility/scoring rule |
 | HostGroup Selector | CMDB/asset/inventory facts | pure membership proposal、provenance、no direct DB write |
+| Recovery Eligibility Rule | storage/device/failure-domain policy | pure bounded decision、no fencing/restart authority |
 | Identity Adapter | OIDC issuer/claim mapping | Principal verification/binding。credential発行はしない |
 | Northbound Adapter | ETSI IFA 005 profile | external modelとCore resource mapping |
 | Secret Provider | file/KMS/Vault系 | opaque reference、rotation、least privilege |
@@ -62,6 +63,8 @@ Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、a
 外部Configuration Management連携はC2 serviceまたはC3 integrationです。scoped External Remediation Requestとappend-only claimだけを交換し、Core DB、Agent credential、Command Lease、Host Operation Authorityを渡しません。外部completion claimはKIMのCompliance Resultではなく、fresh observationとC1 Evaluatorによる再評価をtriggerするだけです。
 
 HostGroup Selectorはpure C1 ruleまたはC2 external assertion adapterです。候補membershipとprovenanceだけを返し、Coreがcardinality/hierarchy/conflictを検証してPostgreSQLへmaterializeします。Selectorがmembership、Placement Scope、Group policyを直接writeしません。
+
+Recovery Eligibility Ruleはpure C1 ruleとし、VM Availability Binding、fencing/storage/device evidence、candidate snapshotからbounded eligibility/reasonだけを返します。responsibility変更、fencing完了宣言、Recovery Operation/Lease作成、backend mutationを行いません。
 
 ## 4. Contract Shape
 

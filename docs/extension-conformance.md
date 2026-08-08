@@ -118,6 +118,10 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-HGR-002 | external assertion adapterがsource identity、generation、freshness、integrity、bounded claimsを検証する |
 | XCT-HGR-003 | stale/conflicting/unknown selector inputを任意membershipへ丸めずUNKNOWN/conflictとして返す |
 | XCT-HGR-004 | selector/adapter upgradeがcontract version、input/output digest、compatibility、support tierを宣言する |
+| XCT-AVR-001 | Recovery Eligibility Ruleがpure/deterministicでbounded eligibility/reasonだけを返す |
+| XCT-AVR-002 | Rule/adapterがresponsibility、fencing state、Availability Binding、Recovery Operationを変更しない |
+| XCT-AVR-003 | UNKNOWN fencing/storage/device/policy evidenceをeligible/safeへ丸めない |
+| XCT-AVR-004 | rule version、supported Policy/evidence schema、fixture result、support tierを宣言する |
 
 ### C2
 

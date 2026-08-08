@@ -30,6 +30,7 @@ flowchart LR
 - workload shape と placement constraints
 - Host inventory generation と capability generation
 - HostGroup membership、policy、hierarchy generationとrequested Placement Scope
+- effective Availability Policy/GroupPolicyBinding generation。既存VM recoveryではAvailability Binding revisionとfailure epoch
 - allocation/reservation generation
 - network/storage locality requirements
 - migration の場合は source Host と current attachment/device state
@@ -54,6 +55,7 @@ backend mutation、Agent Command、Message publish、external API callも行い�
 - storage backend/access/locality
 - affinity/anti-affinity、AZ、trait、policy
 - Placement Pool membershipとfailure-domain path/freshness
+- effective Availability Policyの一意性とrequested/bound responsibility compatibility
 - quota と project policy
 - migration capability と destination compatibility
 
@@ -70,6 +72,8 @@ OVS-DPDK要求を持つshapeは [NFV Dataplane Resource Architecture](nfv-datapl
 Baseline blocking Controlはscoreではなくeligibilityで評価します。Host-wide violationは全候補用途を除外し、capability-scoped violationは該当workload requirementだけを除外します。Final AdmissionでCompliance generationとevidence freshnessを再検証します。詳細は [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md) に従います。
 
 HostGroupはcandidate scopeとfailure-domain ruleを提供しますが、Host固有eligibilityを上書きしません。materialized membership/policy/hierarchy generationをFinal Admissionで再検証し、stale/conflict時は部分予約を残さずreselectionします。Group aggregate capacityは表示用の導出値で、reservation authorityではありません。詳細は [Host Grouping Architecture](host-grouping-architecture.md) に従います。
+
+Availability Policy欠損/stale/conflictのHostはplacement不適格です。Final Admissionはeffective Policyを再解決し、VM/AllocationへAvailability Binding revisionを同じtransactionで保存します。Host failure recoveryはbound Policy/failure-domain constraintをPlacement Requestへ含め、current destination PoolのPolicy compatibilityも再評価します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従います。
 
 ## 4. Scoring
 
@@ -92,7 +96,7 @@ score は適格性を上書きしません。weight と計算根拠は versioned
 2. dry evaluation と同じadmission ruleとHostGroup membership/policy/hierarchy generationを最新authority stateへ再適用する。
 3. CPU、memory、HugePages、PCI、network、storage のclaimsを不可分に確保する。
    OVS-DPDK利用時はPMD/service CPU、DPDK socket memory、Port/RxQ、VM Dataplane Bindingも同じtransactionに含める。
-4. Quota usage、Reservation、Desired State、Job、Command intent、idempotency recordを同時にcommitする。
+4. Quota usage、Reservation、Availability Binding、Desired State、Job、Command intent、idempotency recordを同時にcommitする。
 
 一つでも満たせない場合は何もcommitしません。競合による不適格化は通常動作であり、同じ request snapshot でまだ有効な次候補を選び直します。policy/inventoryの意味が変わった場合は新しいevaluationへ戻します。
 

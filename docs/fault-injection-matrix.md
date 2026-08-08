@@ -64,6 +64,16 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-HGR-006 | 同priorityで異なるBaseline bindingを二Groupから適用する | assignment conflict | effective assignment未発行、Host BLOCKED | bindings、priority、group generations、reason | last-wins、任意Baseline適用 | authorized priority/binding conflict解消 |
 | FI-HGR-007 | active Placement/rollout/snapshot/policy referenceを持つGroupをretire/deleteする | active reference guard | DRAINING/RETIRED維持、delete拒否 | reference set、audit、lifecycle state | reference orphan、workload移動/削除 | reference終了/移行後のauthorized delete |
 | FI-HGR-008 | maintenance wave中にfailure-domain membershipを変更し同domain concurrency上限を超える | domain generation/concurrency mismatch | new maintenance authority停止、wave pause | snapshot/current domain、active maintenance、capacity | 追加Host drain/reboot | domain再評価とauthorized new wave/snapshot |
+| FI-AVR-001 | 同priorityのPlacement Poolが異なるAvailability PolicyをHostへ適用 | policy resolution conflict | Hostをplacement ineligible | pool/membership/binding generations、reason | score/DB順でPolicy選択 | binding/priorityを一意に解消 |
+| FI-AVR-002 | VM admission後にPool Availability PolicyをWORKLOADからINFRAへ変更 | current Pool/VM Binding revision差 | 既存VMは旧Binding維持、新規だけ新Policy | old/new Policy、Binding、audit | 既存VMの自動責任変更/restart | authorized Availability Rebind新revision |
+| FI-AVR-003 | Host heartbeat/Agentを失わせBMC/storage fencing evidenceを不明にする | failure suspected/confirmed、fence timeout | FENCE_UNKNOWN/BLOCKED、自動restart停止 | failure epoch、required/missing proof | heartbeatだけでFENCED、別Host起動 | trusted fencing proofまたはoperator escalation |
+| FI-AVR-004 | WORKLOAD_MANAGED VMのHost failureをconfirm/fence | bound responsibility decision | Fault/Event、VM unavailable/unknown | Binding、failure epoch、event outbox | Recovery Job/Command、replacement作成 | workload orchestratorの明示requestまたはservice recovery |
+| FI-AVR-005 | MANUAL VMのHost failure後、Decisionなしでworkerを再駆動 | ACTION_REQUIRED/no decision | mutation dispatch停止 | Binding、failure epoch、decision absence | automatic restart/evacuate | authorized Manual Recovery Decision |
+| FI-AVR-006 | INFRA recoveryのdestination起動後にResult responseをdropしold failure epoch Resultを遅延 | Attempt timeout/stale epoch | current outcome UNKNOWN、old Result拒否 | Recovery Operation、Lease/Attempt、observations | duplicate destination VM/反対cleanup | typed read-backで一意なruntime/attachmentを確認 |
+| FI-AVR-007 | source Volume attachment/single-writer fencingをUNKNOWNにする | attachment ownership unknown | recovery placement/attach停止 | backend/source/destination evidence | 別Hostattach、source detach推測 | single-writer ownership/fencing証明 |
+| FI-AVR-008 | recovery候補Hostを異responsibility Policyまたはfailure-domain違反Poolへ変更 | policy/domain incompatibility | candidate ineligible、silent fallback禁止 | bound/current Policy、domain path、reason | 責任変更、constraint無視 | compatible current candidateへfinal admission |
+| FI-AVR-009 | EVACUATE中に一VMをcapacity不足、一VMをUNKNOWN、一VMを成功させる | per-VM outcomes | plan partial/blocked、成功VM維持 | VM Operations/Attempts/reasons | 全体rollback、失敗VM成功扱い | 各VMがverified/blocked/escalated terminalへ収束 |
+| FI-AVR-010 | WORKLOAD_MANAGED Fault/Event sinkを停止する | outbox age/delivery failure | durable retry、responsibility維持 | event/outbox/Policy correlation | INFRA recovery fallback、event loss | sink復旧後同一eventを再送 |
 | FI-LIBVIRT-001 | libvirt mutation後にtimeoutを返す | backend timeout | Attempt UNKNOWN、read-back | Command/Attempt/evidence | 即時反対mutation | Domain UUID/stateで解決 |
 | FI-LIBVIRT-002 | libvirt daemon restart中にCommand | connection/event gap | Host capability一時停止 | Agent health、Attempt result | success推測 | reconnect+full resync+verification |
 | FI-NET-001 | OVN transaction conflictと未知objectを注入 | conflict/drift | affected network新規binding停止 | intent generation、unknown object evidence | 未知object/物理network削除 | KIM所有intentのみ再適用しdataplane確認 |
@@ -92,6 +102,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Agent | FI-AGENT-001..002 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
 | Host Grouping / Failure Domain | FI-HGR-001..008 |
+| Availability Responsibility / Managed Recovery | FI-AVR-001..010 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..002, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..002 |

@@ -42,6 +42,7 @@ NFVO、VNFM、OSS/BSS、CI/CD などから Northbound API を呼び出します�
 - KVM/libvirt を利用できる一般的な Linux ディストリビューションを、Control Plane を変更せずに採用できる。
 - Host参加からBaseline適用、Continuous Compliance、maintenance、decommissionまでを一つのlifecycleで管理できる。
 - HostGroupによりPlacement scope、Failure Domain、Baseline rollout、Maintenance waveを一貫したmembership generationで管理できる。
+- Placement PoolごとにKIM managed HA、NF/workload managed HA、manual recoveryの責任境界を明示できる。
 - オフライン環境にインストールし、アップグレードとロールバックを管理できる。
 
 ## 4. 製品境界

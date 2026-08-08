@@ -29,3 +29,4 @@
 - [ADR-0012: OVS-DPDK資源を第一級Placement Resourceとして扱う](0012-nfv-dataplane-resource-model.md)
 - [ADR-0013: ZTPとContinuous ComplianceをHost Lifecycleへ統合する](0013-host-lifecycle-baseline-compliance.md)
 - [ADR-0014: Host Groupを第一級resourceとして扱う](0014-first-class-host-groups.md)
+- [ADR-0015: Availability責任をPlacement Pool Policyとして固定する](0015-availability-responsibility.md)

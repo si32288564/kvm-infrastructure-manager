@@ -21,6 +21,7 @@ HostGroupは自由形式tagの別名ではありません。membership authority
 8. Group変更だけで既存workloadを暗黙移動・停止・再構成しない。
 9. infrastructure groupとTenant向け公開Placement Scopeを分離する。
 10. active referenceを持つGroupを直接削除しない。
+11. READY/placement可能なHostはactive Placement Pools全体から一つのeffective Availability Policyを解決できなければならない。
 
 ## 3. Resource Model
 
@@ -58,7 +59,7 @@ HostGroupRelation
 
 | Type | 用途 | 許される効果 |
 |---|---|---|
-| `PLACEMENT_POOL` | Host candidate scope、AZ相当の公開scope | eligibility filter、policy binding、capacity集約表示 |
+| `PLACEMENT_POOL` | Host candidate scope、AZ相当の公開scope | eligibility filter、placement/Availability policy binding、capacity集約表示 |
 | `FAILURE_DOMAIN` | Site/Rack/Chassis/Power/Fabric等の相関障害境界 | spread/anti-affinity、risk/impact分析 |
 | `OPERATIONAL_COHORT` | Baseline rollout、maintenance、support/owner単位 | rollout/maintenance target、alarm/operation scope |
 
@@ -137,6 +138,8 @@ Requested Placement Scope
 
 Groupに所属していてもHost固有Eligibilityを満たさなければ選択しません。Group weightやoperator preferenceはscoreだけを変え、eligibilityを上書きしません。
 
+READY/placement可能なHostはactive Placement Poolへ所属し、全active Pool bindingsから一つのeffective Availability Policyを解決できなければなりません。Pool membershipが複数でも構いませんが、Policy欠損/stale/conflictはHostをBLOCKED/eligibility=falseとします。requested scopeはeffective Policyを変更できず、compatibleであることだけを追加検証します。
+
 Final AdmissionはGroup membership/policy/hierarchy generationをHost/resource claimsと同じtransactionで再検証します。HostがGroupから外れた、GroupがDRAININGになった、failure-domain pathが変わった場合は部分予約を残さずreselectionへ戻ります。
 
 Group aggregate capacityはHost inventory/allocationから導出する表示値です。Group rowへ独立capacity ledgerを持たず、二重予約authorityにしません。
@@ -152,7 +155,7 @@ Group aggregate capacityはHost inventory/allocationから導出する表示値�
 
 HostGroupはHost Profile/Baselineの直接所有者ではなく、versioned `GroupPolicyBinding`を通じてAssignment候補を提供します。
 
-binding可能なpolicy kindはgroup type/dimensionのallow-listで制限します。初期原則ではProfile/Baseline bindingは`OPERATIONAL_COHORT`だけ、placement policyは`PLACEMENT_POOL`だけに許可し、`FAILURE_DOMAIN`から構成policyを暗黙継承しません。
+binding可能なpolicy kindはgroup type/dimensionのallow-listで制限します。初期原則ではProfile/Baseline bindingは`OPERATIONAL_COHORT`だけ、placement policyと`AVAILABILITY_POLICY`は`PLACEMENT_POOL`だけに許可し、`FAILURE_DOMAIN`から構成/Availability policyを暗黙継承しません。
 
 ```text
 GroupPolicyBinding
@@ -168,6 +171,8 @@ GroupPolicyBinding
 effective Profile/BaselineはHost direct bindingとGroup bindingsを一つのresolverで決定します。highest priorityが一意なら選択し、同priorityで互換でないbindingが競合した場合は`ASSIGNMENT_CONFLICT`としてHostをBLOCKEDにします。作成時刻やDB取得順のlast-winsを使いません。
 
 Group membership変更は新しいeffective assignment evaluationをtriggerしますが、Baselineを同期的にHostへ適用しません。Host LifecycleのPreflight、Convergence、Verificationを通ります。
+
+Availability Policyは別resolverで一意性を評価し、Final Admission時にVM/Allocationのimmutable Availability Bindingへ固定します。Group/Policy変更だけで既存VMのHost failure responsibilityを変更しません。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従います。
 
 ## 9. Baseline Rollout Scope
 

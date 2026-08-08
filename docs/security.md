@@ -52,6 +52,8 @@ flowchart LR
 - External remediation callbackはservice identity、request/generation binding、expiry、replay/idempotency、integrityを検証し、callbackだけでCompliance/READY/authorityを進めない。
 - HostGroup/membership/hierarchy/policy binding/exposureはSystem scope permissionで分離し、Agent/Tenant/未認証external assertionによる変更を許可しない。
 - Tenantには許可されたPlacement Scopeだけを公開し、raw Host membership、rack/power topology、operator/owner cohortを秘匿する。
+- AvailabilityPolicy publish/Pool binding/VM Rebind/Manual Recovery Decisionを別permissionとapprovalで保護し、Tenant/Agent/NFVO callbackによる責任変更を許可しない。
+- source fencing proofはtrusted BMC/storage/cluster等のtyped evidenceから検証し、heartbeat lossやAgent自己申告だけでFENCEDへ進めない。
 
 ## 5. Network と Tenant 分離
 

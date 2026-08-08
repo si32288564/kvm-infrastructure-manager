@@ -52,6 +52,11 @@
 | Q-043 | Public Placement Scope | Tenant/NFVOへ公開するAZ/pool model、stable name、Project access policy | Technical Preview 前 |
 | Q-044 | Group binding precedence | initial Profile/Baseline binding priority rangeとdirect Host override運用 | Phase 0 |
 | Q-045 | Maintenance failure-domain policy | dimension別concurrency、minimum ready、membership drift時のpause/continue条件 | Technical Preview 前 |
+| Q-046 | Initial Availability classes | 公開するInfrastructure/Workload/Manual classとdefault禁止方針 | Phase 0 |
+| Q-047 | Fencing evidence profile | BMC/storage/clusterごとのconfirmation source、timeout、FENCE_UNKNOWN runbook | Technical Preview 前 |
+| Q-048 | Infrastructure recovery scope | local disk、SR-IOV/PCI、DPDK、shared Volume別のinitial restart-on-other-host support | Technical Preview 前 |
+| Q-049 | NFVO/VNFM fault contract | WORKLOAD_MANAGED event mapping、delivery SLO、ack/replay/correlation profile | Technical Preview 前 |
+| Q-050 | Availability Rebind policy | existing VM bulk rebindのcanary、approval、maintenance、rollback条件 | Product Beta 前 |
 
 ## 最初に確定すべき判断
 
@@ -69,3 +74,4 @@
 12. OVS-DPDKのinitial resource schemaとsupport matrix
 13. Enrollment/Baseline/Complianceのinitial policyとControl catalog
 14. Initial HostGroup dimension、binding precedence、公開Placement Scope
+15. Initial Availability class、fencing evidence、managed recovery support scope

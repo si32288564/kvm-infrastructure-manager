@@ -70,8 +70,26 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HGR-013 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-011, FI-HGR-005, FI-HGR-008 | Planned |
 | HGR-014 | host-grouping-architecture, security | ADR-0014 | INV-HGR-011 | AT-HGR-012 | Planned |
 | HGR-016 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-012 | AT-HGR-014 | Planned |
+| HGR-017 | host-grouping-architecture, availability-responsibility-architecture, placement-architecture | ADR-0014, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Planned |
 
-## 7. Image / Flavor / Compute
+## 7. Availability Responsibility / Managed Recovery
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| AVR-001, AVR-002, AVR-003, AVR-004 | availability-responsibility-architecture, host-grouping-architecture | ADR-0014, ADR-0015 | INV-AVR-001 | AT-AVR-001, AT-AVR-002, AT-AVR-003, AT-AVR-004 | Planned |
+| AVR-005 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Planned |
+| AVR-006 | availability-responsibility-architecture, placement-architecture, domain-model | ADR-0006, ADR-0015 | INV-AVR-002 | AT-AVR-006 | Planned |
+| AVR-007 | availability-responsibility-architecture | ADR-0015 | INV-AVR-003 | AT-AVR-007, FI-AVR-002 | Planned |
+| AVR-008 | availability-responsibility-architecture, failure-model | ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-013 | AT-AVR-008, FI-AVR-003 | Planned |
+| AVR-009 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-004, INV-AVR-012 | AT-AVR-009, FI-AVR-004, FI-AVR-010 | Planned |
+| AVR-010 | availability-responsibility-architecture, security | ADR-0015 | INV-AVR-005 | AT-AVR-010, FI-AVR-005 | Planned |
+| AVR-011, AVR-012 | availability-responsibility-architecture, failure-model, placement-architecture | ADR-0006, ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-007, INV-AVR-008, INV-AVR-013 | AT-AVR-011, AT-AVR-012, FI-AVR-003, FI-AVR-007, FI-AVR-008, XCT-AVR-001, XCT-AVR-002, XCT-AVR-003, XCT-AVR-004 | Planned |
+| AVR-013 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015 | INV-AVR-009, INV-AVR-010 | AT-AVR-013, FI-AVR-006 | Planned |
+| AVR-014 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015 | INV-AVR-011 | AT-AVR-014, FI-AVR-009 | Planned |
+| AVR-015 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-AVR-008 | AT-AVR-015, FI-AVR-008 | Planned |
+| AVR-016 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-012 | AT-AVR-016, FI-AVR-010 | Planned |
+
+## 8. Image / Flavor / Compute
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -82,7 +100,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | CMP-005, CMP-006, CMP-009 | placement-architecture | ADR-0006 | INV-PLC-007 | AT-PLC-007 | Planned |
 | CMP-008 | api-principles, security | ADR-0005 | INV-SEC-001, INV-SEC-002 | AT-CMP-008 | Planned |
 
-## 8. Placement
+## 9. Placement
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -91,7 +109,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | SCH-003, SCH-005 | placement-architecture | ADR-0006 | INV-PLC-001 | AT-PLC-009 | Planned |
 | SCH-006 | placement-architecture | ADR-0006 | INV-PLC-005 | AT-PLC-005 | Planned |
 
-## 9. Network / Storage
+## 10. Network / Storage
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -111,7 +129,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | DPL-010, DPL-011 | nfv-dataplane-resource-architecture, execution-architecture | ADR-0007, ADR-0012 | INV-DPL-007, INV-DPL-008, INV-DPL-010 | AT-DPL-008, AT-DPL-009, FI-DPDK-003, FI-DPDK-005, XCT-DPDK-002, XCT-DPDK-003, XCT-DPDK-004 | Planned |
 | DPL-013, DPL-014, DPL-015 | nfv-dataplane-resource-architecture, failure-model | ADR-0010, ADR-0012 | INV-DPL-005, INV-DPL-009 | AT-DPL-011, AT-DPL-012, AT-DPL-013, FI-DPDK-001 | Planned |
 
-## 10. Operations / Observability / Audit
+## 11. Operations / Observability / Audit
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -122,7 +140,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | O11Y-001, O11Y-002, O11Y-003 | security, failure-model | ADR-0010 | INV-SEC-002 | AT-O11Y-001 | Planned |
 | AUD-001, AUD-002 | security, responsibility-boundaries | ADR-0005, ADR-0010 | INV-SEC-001, INV-SEC-002 | AT-AUD-001, AT-AUD-002 | Planned |
 
-## 11. Non-functional Requirements
+## 12. Non-functional Requirements
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
@@ -134,7 +152,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NFR-ROB-001, NFR-ROB-002, NFR-ROB-003, NFR-ROB-004, NFR-ROB-005, NFR-ROB-006 | failure-model | ADR-0010 | INV-FAIL-001, INV-FAIL-002, INV-FAIL-003 | FI-CLIENT-001, FI-CP-001, FI-DB-001, FI-BUS-001, FI-GATEWAY-001, FI-AGENT-001, FI-HOST-001, FI-LIBVIRT-001, FI-NET-001, FI-STORAGE-001, FI-SPLIT-001, FI-IDENTITY-001 | Planned |
 | NFR-EXT-001, NFR-EXT-002, NFR-EXT-003, NFR-EXT-004, NFR-EXT-005, NFR-EXT-006 | extensibility-architecture | ADR-0011 | INV-EXT-001, INV-EXT-002, INV-EXT-003, INV-EXT-004, INV-EXT-005, INV-EXT-006 | XCT-CONTRACT-001, XCT-BOUNDARY-001, XCT-BOUNDARY-002, XCT-BOUNDARY-003, XCT-FAIL-001, XCT-CAP-001, XCT-LIFE-001 | Planned |
 
-## 12. Coverage Gate
+## 13. Coverage Gate
 
 Phase 0完了条件:
 

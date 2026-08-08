@@ -11,6 +11,7 @@
 | Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
 | Host Lifecycle and Compliance | Hardware Identity Evidence、Enrollment Policy、Host Profile、Baseline、Control、Evaluator、Assignment、Compliance、External Remediation、Maintenance |
 | Host Grouping | Host Group、Dimension、Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope |
+| Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Manual Recovery Decision |
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet、Port、Router、Security Group |
@@ -31,6 +32,13 @@ erDiagram
     HOST_GROUP ||--o{ GROUP_POLICY_BINDING : binds
     HOST_GROUP ||--o{ GROUP_MEMBERSHIP_SNAPSHOT : snapshots
     HOST_GROUP ||--o| PLACEMENT_SCOPE : exposes
+    HOST_GROUP ||--o{ AVAILABILITY_POLICY_BINDING : binds
+    AVAILABILITY_POLICY ||--o{ AVAILABILITY_POLICY_BINDING : referenced_by
+    AVAILABILITY_POLICY ||--o{ AVAILABILITY_BINDING : resolves_to
+    VM ||--o{ AVAILABILITY_BINDING : governed_by
+    HOST ||--o{ HOST_FAILURE_EPOCH : fails_in
+    HOST_FAILURE_EPOCH ||--o{ VM_RECOVERY_OPERATION : plans
+    VM ||--o{ VM_RECOVERY_OPERATION : recovers
     HOST_PROFILE ||--o{ HOST : classifies
     HOST_BASELINE ||--o{ BASELINE_CONTROL : contains
     HOST ||--o{ HARDWARE_IDENTITY_EVIDENCE : identified_by
@@ -170,6 +178,8 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - Compliance ResultはEvaluator Artifact/input evidence digestへbindし、外部completion claimをResultへ直接変換しない。
 - HostGroup membershipはgeneration付きPostgreSQL authorityで、GroupはHost eligibility/capacity authorityを上書きしない。
 - rollout/maintenanceはimmutable Group Membership Snapshotへbindし、Group変更だけで既存workloadを変更しない。
+- placement可能なHost/request contextはeffective Availability Policyを一意に解決し、VMはFinal Admission時のAvailability Binding revisionを保持する。
+- WORKLOAD_MANAGED/MANUAL VMをKIMが自動restartせず、INFRASTRUCTURE_MANAGEDもfencing/admission/verificationを迂回しない。
 - 同じ idempotency scope/key の要求は同じ Operation または同じ結果を返す。
 - observed generation が desired generation を超えることを許可しない。
 - backend で結果不明の操作に対して、破壊的な逆操作を自動実行しない。

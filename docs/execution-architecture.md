@@ -126,3 +126,9 @@ Retry policyはCommand typeとoutcome reasonごとに閉じて定義します。
 - attempt、deadline、backoffに上限を設ける。
 - UNKNOWNのまま反対操作を発行しない。
 - newer desired revisionは旧Jobをsupersedeできるが、実世界のoutcome確認を省略しない。
+
+## 9. Host Failure Recovery
+
+Host failure recoveryも専用のmutation経路を作らず、`HostFailureEpoch -> RecoveryPlan -> VMRecoveryOperation -> Job/Command/Lease/Attempt -> Observation`として本Execution modelを使用します。
+
+Recovery idempotencyはfailure epoch、VM、Availability Binding revision、actionへbindします。old epoch/binding/fencing proofのCommand/Resultはcurrent recovery authorityを進めません。`WORKLOAD_MANAGED`と`MANUAL`はPolicy decisionだけでJob/Commandを自動作成せず、`INFRASTRUCTURE_MANAGED`もsource fencingとtransactional final admission後にだけdispatchします。

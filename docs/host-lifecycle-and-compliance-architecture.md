@@ -53,7 +53,7 @@ stateDiagram-v2
     DECOMMISSIONING --> DECOMMISSIONED
 ```
 
-Lifecycle stateとCompliance statusは別です。Hostが`READY`になるには、active Baseline Assignment、current evidence、placement-blocking controlがないことが必要です。
+Lifecycle stateとCompliance statusは別です。Hostが`READY`になるには、active Baseline Assignment、current evidence、placement-blocking controlがないことに加え、active Placement Pool membershipと一意なHost Effective Availability Policyが必要です。
 
 ## 4. Identity Bootstrap and Enrollment
 

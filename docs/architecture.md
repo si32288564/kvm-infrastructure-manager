@@ -48,6 +48,9 @@ flowchart TB
     Scheduler["Placement Scheduler"] --> DB
     Grouping["Host Grouping / Scope Service"] --> DB
     Grouping --> Scheduler
+    Recovery["Availability / Failure Recovery Service"] --> DB
+    Recovery --> Scheduler
+    Recovery --> Workflow
     Reconciler["Resource Reconcilers"] --> DB
     Reconciler --> Bus
     Inventory["Inventory and Capacity"] --> DB
@@ -127,6 +130,12 @@ credentialはidentityだけを証明します。mutation authorityはEnrollment�
 HostGroupをSystem scopeの第一級resourceとして管理し、Placement Pool、Failure Domain、Operational Cohortを型分離します。membershipはgeneration付きでPostgreSQLへmaterializeし、Placement final admissionで再検証します。Baseline rolloutとMaintenance waveは開始時のimmutable membership snapshotへbindします。
 
 HostGroupはHost capability、Compliance、resource capacityを上書きせず、Group変更だけで既存workloadを暗黙変更しません。Tenantにはexposure policy付きPlacement Scopeだけを公開します。詳細は [Host Grouping Architecture](host-grouping-architecture.md) を参照します。
+
+### Availability Responsibility and Managed Recovery
+
+Placement Poolへimmutable Availability Policyをbindし、Host failure responsibilityをInfrastructure Managed、Workload Managed、Manualへ分類します。Final Admission時のeffective PolicyをVM Availability Bindingへ固定し、Group/Policy変更だけで既存VMの責任を変更しません。
+
+Workload ManagedではFault/Eventを通知して自動restartせず、Infrastructure Managedではsource fencing、VM/resource eligibility、transactional admission、Execution、observationを通じて別Hostへ復旧します。Manualは明示Decisionを要求します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) を参照します。
 
 ### Host OS Portability Layer
 
@@ -294,6 +303,7 @@ restart-requiredなDPDK設定は通常VM createに混ぜず、maintenance author
 - [NFV Dataplane Resource Architecture](nfv-dataplane-resource-architecture.md)
 - [Host Lifecycle and Compliance Architecture](host-lifecycle-and-compliance-architecture.md)
 - [Host Grouping Architecture](host-grouping-architecture.md)
+- [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

@@ -29,6 +29,7 @@
 - Host Lifecycle、Enrollment、Baseline、Continuous Compliance、Decommission model
 - Hardware Identity Evidence policy、Evaluator Artifact rollout、External Remediation trust contract
 - HostGroup、Failure Domain、Placement Scope、rollout/maintenance snapshot model
+- Availability Responsibility、VM Binding、Host Failure Epoch、Managed Recovery model
 
 ### Exit criteria
 
@@ -43,6 +44,7 @@
 - PMD CPU、DPDK memory、Port/RxQを含むdataplane admissionが既存placement invariantsへtraceされる。
 - identityからauthorityまでのEnrollment/Baseline/Compliance gateがfailure/test matrixへtraceされる。
 - HostGroup membership generationがPlacement final admissionとrollout/maintenance snapshotへtraceされる。
+- Workload/Infrastructure/Manual responsibilityがfencing、Placement、Execution、Fault/Event testへtraceされる。
 - 全Must requirementがArchitecture、ADR、Invariant、Testへtraceされる。
 - 全InvariantにAT/FI/XCTの検証IDがあり、未追跡をCIで検出できる。
 
@@ -55,6 +57,7 @@
 - manual Enrollment approval、Host Profile/Baseline Assignment、read-only Compliance
 - provenance付きidentity evidence収集とEvaluator artifact/input digest付きResult
 - explicit HostGroup、Placement Pool、materialized membership generation
+- Availability Policy/Pool bindingとVM Availability Bindingのread-only表示
 - Image、Flavor、VM lifecycle
 - 基本 scheduler
 - VLAN network
@@ -75,6 +78,7 @@
 - DPDK claimのdry/final admissionとworkload resource競合をfixtureで検証する。
 - authenticatedだけのHostがREADY/armedにならず、Critical driftがplacementをblockすることを検証する。
 - dry/final間のHostGroup membership変更を検出し、stale Hostへ予約しないことを検証する。
+- Availability Policy欠損/競合HostをPlacementせず、WORKLOAD_MANAGED障害で自動restartしないことを検証する。
 
 ## Phase 2: Technical Preview
 
@@ -84,6 +88,7 @@
 - OIDC、Tenant、RBAC、Quota
 - policy-based Enrollment、safe typed convergence、continuous drift detection
 - selector-based HostGroup、Failure Domain placement、immutable rollout snapshot
+- Host Failure Epoch、WORKLOAD_MANAGED event、MANUAL decision workflow
 - OVN overlay、Subnet、Port、Security Group
 - Ceph RBD、Volume、Snapshot
 - NUMA、HugePages、CPU Pinning
@@ -108,6 +113,7 @@
 - Baseline rollout、maintenance-required/external remediation、decommission workflow
 - Evaluator shadow/canary rolloutとExternal Remediation request/claim + KIM再観測
 - Group-based maintenance wave、failure-domain concurrency、Placement Scope exposure
+- INFRASTRUCTURE_MANAGED restart/evacuate、fencing/storage eligibility、Availability Rebind rollout
 - NFVO integration profile
 - ローリングアップグレード
 - offline bundle、SBOM、artifact signing

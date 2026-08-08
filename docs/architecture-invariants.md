@@ -137,8 +137,27 @@
 | INV-HGR-011 | Tenantへraw infrastructure Group/failure topologyを公開せず許可されたPlacement Scopeだけを公開する | AT-HGR-012 |
 | INV-HGR-012 | Group変更だけで既存workloadを暗黙移動、停止、再構成しない | AT-HGR-014 |
 | INV-HGR-013 | active membership/reference/snapshot/policy bindingを持つGroupを削除しない | FI-HGR-007 |
+| INV-HGR-014 | READY/placement可能なHostは全active Placement Poolsから一つのeffective Availability Policyを解決できなければならない | AT-AVR-005 |
 
-## 11. Security, Audit, and Failure
+## 11. Availability Responsibility and Recovery
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-AVR-001 | AvailabilityPolicy versionはimmutableで、responsibilityとHost failure actionの不正な組合せをpublishしない | AT-AVR-001 |
+| INV-AVR-002 | Final Admissionはeffective Policy/Pool/membership generationをVM Availability Bindingとresource claimへ不可分にcommitする | AT-AVR-006 |
+| INV-AVR-003 | Group/Policy変更だけで既存VM Availability Bindingを変更せず、明示Rebindで新revisionを作る | FI-AVR-002 |
+| INV-AVR-004 | WORKLOAD_MANAGED VMへKIMが自動restart、evacuate、replacement mutationを開始しない | FI-AVR-004 |
+| INV-AVR-005 | MANUAL VMへauthorized Manual Recovery DecisionなしにKIMがrecovery mutationを開始しない | FI-AVR-005 |
+| INV-AVR-006 | INFRASTRUCTURE_MANAGED recoveryはPolicy要求を満たすsource fencing proofなしに開始しない | FI-AVR-003 |
+| INV-AVR-007 | fencing、single-writer attachment、resource ownership、Availability BindingのUNKNOWNを推測で安全扱いしない | FI-AVR-007 |
+| INV-AVR-008 | recovery destinationはcurrent Placement/Compliance/capacity/failure-domainとbound Policy compatibilityを再評価する | FI-AVR-008 |
+| INV-AVR-009 | Recovery Operationはfailure epoch、VM、Availability Binding revision、actionへ冪等にbindする | AT-AVR-013 |
+| INV-AVR-010 | stale failure epoch、Binding、fencing proof、Lease、Resultはcurrent recovery authorityを進めない | FI-AVR-006 |
+| INV-AVR-011 | EVACUATEはVM単位Operationへ分解し、一VMの失敗/UNKNOWNを他VMの推測rollbackへ波及させない | FI-AVR-009 |
+| INV-AVR-012 | Fault/Event delivery failureを理由にAvailability responsibility/actionを変更しない | FI-AVR-010 |
+| INV-AVR-013 | heartbeat/Agent lossだけでHost source fencing完了を確定しない | FI-AVR-003 |
+
+## 12. Security, Audit, and Failure
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -150,7 +169,7 @@
 | INV-HA-001 | 同一Site HA failoverはcommitted authority RPO 0を目標とする | FI-DB-001 |
 | INV-DR-001 | restore後の未知resourceはquarantineし、明示adoption前にmutationしない | FI-DR-001 |
 
-## 12. Extensions
+## 13. Extensions
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
@@ -161,7 +180,7 @@
 | INV-EXT-005 | UNKNOWNをFAILED/SUCCEEDEDへ丸めるadapterを受け入れない | XCT-FAIL-001 |
 | INV-EXT-006 | capability消失時は新規利用を停止し、既存resourceを暗黙変更しない | XCT-CAP-001 |
 
-## 13. Documentation
+## 14. Documentation
 
 | ID | Invariant | 主な検証 |
 |---|---|---|
