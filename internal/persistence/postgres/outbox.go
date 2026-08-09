@@ -171,6 +171,25 @@ func MarkOutboxDeliveredTx(ctx context.Context, tx pgx.Tx, claim OutboxClaim, ac
 	return appendOutboxDeliveryEventTx(ctx, tx, claim, "DELIVERY_ACKNOWLEDGED", acknowledgement)
 }
 
+// MarkOutboxDeadLetterTx terminally quarantines a poison intent. It is not
+// used for uncertain transport outcomes or missing downstream capacity.
+func MarkOutboxDeadLetterTx(ctx context.Context, tx pgx.Tx, claim OutboxClaim, reason map[string]any) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE kim.outbox_messages
+		SET state = 'DEAD_LETTER', claim_owner = NULL, claim_generation = NULL,
+			claim_expires_at = NULL
+		WHERE message_id = $1 AND state = 'CLAIMED'
+		  AND claim_owner = $2 AND claim_generation = $3
+	`, claim.MessageID, claim.Owner, claim.ClaimGeneration)
+	if err != nil {
+		return fmt.Errorf("dead-letter outbox message: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrStaleOutboxClaim
+	}
+	return appendOutboxDeliveryEventTx(ctx, tx, claim, "DEAD_LETTERED", reason)
+}
+
 func appendOutboxDeliveryEventTx(ctx context.Context, tx pgx.Tx, claim OutboxClaim, eventType string, payload map[string]any) error {
 	if claim.MessageID == "" || claim.Owner == "" || claim.ClaimGeneration < 1 {
 		return errors.New("complete outbox claim identity is required")

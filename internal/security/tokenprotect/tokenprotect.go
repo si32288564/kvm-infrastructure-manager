@@ -11,6 +11,11 @@ import (
 	"errors"
 )
 
+var (
+	ErrKeyUnavailable = errors.New("protected capability key is unavailable")
+	ErrAuthentication = errors.New("protected capability authentication failed")
+)
+
 type ProtectedValue struct {
 	KeyID      string `json:"key_id"`
 	Algorithm  string `json:"algorithm"`
@@ -62,8 +67,11 @@ func (protector AESGCM) Unprotect(ctx context.Context, protected ProtectedValue,
 	if err := context.Cause(ctx); err != nil {
 		return nil, err
 	}
-	if protected.KeyID != protector.KeyID || protected.Algorithm != "AES-256-GCM" || len(additionalData) == 0 {
-		return nil, errors.New("protected capability key/algorithm/additional-data mismatch")
+	if protected.KeyID != protector.KeyID {
+		return nil, ErrKeyUnavailable
+	}
+	if protected.Algorithm != "AES-256-GCM" || len(additionalData) == 0 {
+		return nil, ErrAuthentication
 	}
 	aead, err := protector.aead()
 	if err != nil {
@@ -79,7 +87,7 @@ func (protector AESGCM) Unprotect(ctx context.Context, protected ProtectedValue,
 	}
 	plaintext, err := aead.Open(nil, nonce, ciphertext, additionalData)
 	if err != nil {
-		return nil, errors.New("protected capability authentication failed")
+		return nil, ErrAuthentication
 	}
 	return plaintext, nil
 }

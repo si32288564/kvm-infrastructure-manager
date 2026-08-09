@@ -167,7 +167,7 @@ func TestExecutionAuthorityLeaseResultAndVerificationPostgreSQLIntegration(t *te
 		t.Fatal(err)
 	}
 	protector := tokenprotect.AESGCM{KeyID: "delivery-key-1", Key: bytes.Repeat([]byte{9}, 32)}
-	deliveryGrant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: delivery.CommandID, HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute, DeliveryProtector: protector})
+	deliveryGrant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: delivery.CommandID, HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute, ExecutionTimeout: 30 * time.Second, DeliveryProtector: protector})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestExecutionAuthorityLeaseResultAndVerificationPostgreSQLIntegration(t *te
 	if _, err := pool.Exec(ctx, `INSERT INTO kim.outbox_messages (message_id,aggregate_type,aggregate_id,event_type,schema_version,payload_digest,payload) VALUES ($1,'COMMAND',$2,'COMMAND_LEASE_DELIVERY_REQUESTED','kim.internal.command-lease-delivery/v1',$3,$4)`, "command-lease-delivery/"+conflictingDelivery.CommandID+"/1", conflictingDelivery.CommandID, digestBytes(bogusPayload), bogusPayload); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: conflictingDelivery.CommandID, HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute, DeliveryProtector: protector}); !errors.Is(err, ErrCommandEvidenceConflict) {
+	if _, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: conflictingDelivery.CommandID, HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute, ExecutionTimeout: 30 * time.Second, DeliveryProtector: protector}); !errors.Is(err, ErrCommandEvidenceConflict) {
 		t.Fatalf("conflicting delivery intent error = %v", err)
 	}
 	assertExecutionState(t, ctx, pool, conflictingDelivery.CommandID, "PENDING", "DISPATCHABLE", 0)

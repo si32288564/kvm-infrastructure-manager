@@ -349,6 +349,9 @@
 | OPS-017 | Host Agent process は PostgreSQL で SessionAccepted された generation だけを local durable ledger へ記録し、rejected/failed attempt では generation を消費せず、process restart 後は最後の accepted generation の次だけを提案する | Must |
 | OPS-018 | Worker process は elapsed Command Lease を bounded batch で検出し、各 Command を Host-scoped PostgreSQL transaction で再検証して UNKNOWN へ進め、expiry を non-execution proof として扱わない | Must |
 | OPS-019 | production Command Lease Grant は raw Lease token を DB/Outbox に保存せず、Secret Provider key revision と grant identity に bind した protected capability を含む durable delivery intent を Lease authority と同一 PostgreSQL transaction で commit する | Must |
+| OPS-020 | Worker は protected Command delivery Outbox を bounded claim し、stable message ID を持つ internal NATS JetStream message として publish する。JetStream PubAck は Bus の durable acceptance だけを証明し、Gateway delivery、Agent receipt、backend execution を証明しない | Must |
+| OPS-021 | Agent Gateway は internal Bus message を PostgreSQL Inbox で dedupe し、current Lease、Host authority generation、session generation、credential/readiness/capability binding を再検証してからだけ current Outbound Registry へ route する | Must |
+| OPS-022 | 同一 message ID/digest の Bus redelivery は current authority を再検証した上で stable Agent envelope を再 route できる。異なる digest は quarantine し、live session 不在または route outcome 不明は ACK せず redelivery へ戻す | Must |
 
 ### 2.16 Fault、Performance、Audit
 

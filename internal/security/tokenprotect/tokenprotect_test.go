@@ -3,6 +3,7 @@ package tokenprotect
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -22,5 +23,9 @@ func TestAESGCMRoundTripBindsAdditionalData(t *testing.T) {
 	}
 	if _, err := protector.Unprotect(context.Background(), protected, []byte("command-2")); err == nil {
 		t.Fatal("protected token accepted for different Command")
+	}
+	wrongRevision := AESGCM{KeyID: "delivery-key-2", Key: bytes.Repeat([]byte{8}, 32)}
+	if _, err := wrongRevision.Unprotect(context.Background(), protected, []byte("command-1")); !errors.Is(err, ErrKeyUnavailable) {
+		t.Fatalf("wrong key revision error = %v", err)
 	}
 }

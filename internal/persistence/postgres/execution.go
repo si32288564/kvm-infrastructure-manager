@@ -55,6 +55,7 @@ type CommandLeaseRequest struct {
 	CommandID               string
 	HostAuthorityGeneration int64
 	Duration                time.Duration
+	ExecutionTimeout        time.Duration
 	DeliveryProtector       tokenprotect.Protector
 }
 
@@ -70,6 +71,7 @@ type CommandLeaseDeliveryIntent struct {
 	SessionGeneration       int64                       `json:"session_generation"`
 	TokenDigest             string                      `json:"token_digest"`
 	ProtectedToken          tokenprotect.ProtectedValue `json:"protected_token"`
+	ExecutionTimeoutMillis  int64                       `json:"execution_timeout_millis"`
 	ExpiresAt               time.Time                   `json:"expires_at"`
 }
 
@@ -361,6 +363,9 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 	if request.CommandID == "" || request.HostAuthorityGeneration < 1 || request.Duration <= 0 || request.Duration > time.Hour {
 		return CommandLeaseGrant{}, errors.New("complete bounded Command Lease request is required")
 	}
+	if request.DeliveryProtector != nil && (request.ExecutionTimeout <= 0 || request.ExecutionTimeout >= request.Duration || request.ExecutionTimeout > time.Hour) {
+		return CommandLeaseGrant{}, errors.New("protected delivery requires an execution timeout shorter than the Lease")
+	}
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return CommandLeaseGrant{}, err
@@ -473,7 +478,7 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 		grant.HostAuthorityGeneration, grant.SessionGeneration = authority.AuthorityGeneration, authority.SessionGeneration
 		grant.Token = token
 		if request.DeliveryProtector != nil {
-			intent := CommandLeaseDeliveryIntent{SchemaVersion: "kim.internal.command-lease-delivery/v1", CommandID: request.CommandID, LeaseGeneration: leaseGeneration, AttemptIndex: attemptIndex, HostID: hostID, HostAuthorityGeneration: authority.AuthorityGeneration, SessionGeneration: authority.SessionGeneration, TokenDigest: tokenDigest, ProtectedToken: protectedToken, ExpiresAt: grant.ExpiresAt}
+			intent := CommandLeaseDeliveryIntent{SchemaVersion: "kim.internal.command-lease-delivery/v1", CommandID: request.CommandID, LeaseGeneration: leaseGeneration, AttemptIndex: attemptIndex, HostID: hostID, HostAuthorityGeneration: authority.AuthorityGeneration, SessionGeneration: authority.SessionGeneration, TokenDigest: tokenDigest, ProtectedToken: protectedToken, ExecutionTimeoutMillis: request.ExecutionTimeout.Milliseconds(), ExpiresAt: grant.ExpiresAt}
 			payload, err := json.Marshal(intent)
 			if err != nil {
 				return err

@@ -88,6 +88,9 @@
 | INV-EXEC-016 | local session generation ledger は SessionAccepted 後だけ fsync/atomic rename で進み、rejected/failed attempt、reconnect timer、process start だけでは generation を消費または authority として確定しない | AT-EXEC-014、FI-AGENT-006 |
 | INV-EXEC-017 | Worker の Lease expiry scan は discovery に限定し、各 Lease の current state/DB time/Host authority scope を transaction で再検証してから既存 UNKNOWN semantics を適用する | AT-EXEC-015、FI-TRANSPORT-001 |
 | INV-EXEC-018 | Command Lease delivery Outbox は plaintext Lease token を永続化せず、AEAD key ID/algorithm/nonce/ciphertext と token digest だけを保持し、Lease Grant と intent の一方だけを commit しない | AT-EXEC-016、FI-BUS-003 |
+| INV-EXEC-019 | NATS/JetStream message、PubAck、consumer ACK は mutation authority、Agent receipt、backend execution evidence のいずれにもならず、PostgreSQL current authority の再検証を迂回しない | AT-EXEC-017、FI-BUS-004 |
+| INV-EXEC-020 | Gateway は Inbox acceptance 済みの duplicate でも current Lease/Host/session authority を毎回再検証し、stale authority または generation mismatch を Outbound Registry へ渡さない | AT-EXEC-018、FI-BUS-005 |
+| INV-EXEC-021 | Gateway live-stream route が失敗または不明な Bus message を ACK せず、同一 message identity/digest/envelope で redelivery する。digest conflict は quarantine し自動 merge しない | AT-EXEC-019、FI-BUS-006 |
 
 ## 7. Agent and Host
 

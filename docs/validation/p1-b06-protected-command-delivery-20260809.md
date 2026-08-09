@@ -46,12 +46,13 @@ Outbox intent は Command、Lease generation、Attempt、Host authority generati
 | pre-existing conflicting Outbox ID | `ErrCommandEvidenceConflict`: PASS |
 | conflict transaction state | Command `PENDING`、Job `DISPATCHABLE`、Attempt 0 を維持: PASS |
 
-## 5. Remaining Work
+## 5. Follow-up Status
 
 - production Secret Provider からの delivery key revision/rotation/revocation
-- bounded Outbox publisher と internal NATS subject/schema
-- Gateway Inbox dedupe、current session revalidation、OutboundRegistry routing
-- publish/ACK response loss、Gateway restart、old session generation の end-to-end fixture
+- bounded Outbox publisher と internal NATS subject/schema: [P1-B07](p1-b07-worker-gateway-delivery-20260809.md) で実装
+- Gateway Inbox dedupe、current session revalidation、OutboundRegistry routing: [P1-B07](p1-b07-worker-gateway-delivery-20260809.md) で実装
+- publish/PubAck response loss と live session redelivery: [P1-B07](p1-b07-worker-gateway-delivery-20260809.md) で PostgreSQL integration PASS
+- real NATS cluster/Gateway process restart/old session generation の multi-process fixture
 - delivered/dead-letter/quarantine operator workflow
 
-本増分は durable delivery authority の最初の半分を完成させる。NATS adapter と Gateway consumer が入るまでは Worker → Gateway runtime topology complete を意味しない。
+本増分は protected delivery authority の前半を記録する。後半の Worker → Gateway runtime topology は P1-B07 で実装した。

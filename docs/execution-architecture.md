@@ -75,6 +75,24 @@ Desired、Operation、Job、Command intent、allocation、idempotency recordを�
 
 Command rowをlockし、owner、token、expiry、attempt indexを設定し、Attempt startedを同じtransactionでcommitします。
 
+production delivery では raw token を Secret Provider key revision と Command ID AAD で保護し、Lease Grant、Attempt、current state、protected Outbox intent を同じ transaction で commit します。
+
+### Worker to Gateway delivery
+
+```text
+protected PostgreSQL Outbox
+  ↓ bounded claim + current authority revalidation
+NATS JetStream durable message
+  ↓ Gateway durable consumer
+PostgreSQL Inbox dedupe + current Lease/Host/session revalidation
+  ↓ current Outbound Registry generation check
+Agent gRPC stream
+```
+
+NATS は Control Plane 内部の delivery transport であり authority source ではありません。JetStream PubAck は message が Bus に durably accepted されたことだけを示します。consumer ACK は Gateway が terminal decision または live-stream route acceptance まで処理したことだけを示し、Agent Receipt や backend execution を証明しません。
+
+Gateway は同一 Inbox message の redelivery 時も current authority を再検証します。Inbox `ACCEPTED` は将来の route authority を固定しません。同一 message ID/digest は stable Agent envelope で再 route でき、異なる digest は quarantine します。live session 不在、stream write failure、route evidence commit failure は NAK/redelivery とし、未実行を推測しません。current Lease/Host/session authority が stale の場合は terminal に処理し、Agent へ渡しません。
+
 ### Result acceptance
 
 Host identity、token、attempt、expiry、authority generationを検証し、Result、Attempt outcome、Job transition、Eventを同じtransactionでcommitします。

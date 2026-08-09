@@ -207,6 +207,9 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-014 | rejected/failed session attempt が local generation を消費せず、SessionAccepted 後の durable ledger を process restart で回収して次 generation だけを提案する |
 | AT-EXEC-015 | kim-worker が expired active Lease を bounded batch で検出し、競合時は stale candidate を無視しながら各 current Lease/Attempt を UNKNOWN へ一度だけ進める |
 | AT-EXEC-016 | protected delivery を要求した Lease Grant が同じ transaction で一つの Outbox intent を作り、payload に plaintext token を含まず、correct key/AAD だけで original token を復元でき、intent conflict 時は Lease/Attempt/current state を全 rollback する |
+| AT-EXEC-017 | bounded Worker publisher が protected Outbox intent を current authority で再検証し、stable NATS message ID で publish し、JetStream PubAck 後だけ Outbox を delivered にする |
+| AT-EXEC-018 | Gateway が Bus payload を Inbox へ受理し、current Lease/Host/session generation を再検証してから current Outbound Registry へ route し、同一 duplicate を同じ Agent envelope で安全に再 route する |
+| AT-EXEC-019 | live session 不在時は NAK/redelivery、復旧後は route、authority fence 後は Agent へ渡さず terminal ACK、同一 message ID の異 digest は quarantine となる |
 
 ## 11. Placement / Migration
 
