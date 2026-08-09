@@ -77,6 +77,92 @@ type InternalDeliveryInboxDecision struct {
 	Lease     contract.CommandLease
 }
 
+type CommandVerificationDeliveryIntent struct {
+	SchemaVersion        string          `json:"schema_version"`
+	CommandID            string          `json:"command_id"`
+	AttemptIndex         int             `json:"attempt_index"`
+	HostID               string          `json:"host_id"`
+	SessionGeneration    int64           `json:"session_generation"`
+	CommandType          string          `json:"command_type"`
+	CommandSchemaVersion string          `json:"command_schema_version"`
+	TargetResourceID     string          `json:"target_resource_id"`
+	CommandPayload       json.RawMessage `json:"command_payload"`
+	CommandPayloadDigest string          `json:"command_payload_digest"`
+}
+
+const CommandVerificationDeliverySchema = "kim.internal.command-verification-delivery/v1"
+
+func EnqueuePendingCommandVerifications(ctx context.Context, db TxBeginner, limit int) (int, error) {
+	if db == nil || limit < 1 || limit > 1000 {
+		return 0, errors.New("bounded verification enqueue configuration is required")
+	}
+	created := 0
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT command.command_id,current.current_attempt_index,command.host_id,session.session_generation,
+			       command.command_type,command.schema_version,command.target_resource_id,command.payload,command.payload_digest
+			FROM kim.execution_commands command
+			JOIN kim.execution_commands_current current USING(command_id)
+			JOIN kim.agent_transport_sessions_current session ON session.host_id=command.host_id AND session.state='CURRENT'
+			JOIN kim.host_session_authorizations_current auth ON auth.host_id=command.host_id AND auth.session_generation=session.session_generation AND auth.authorization_state='AUTHORIZED'
+			WHERE current.command_state='UNKNOWN'
+			ORDER BY current.updated_at,command.command_id
+			LIMIT $1 FOR UPDATE OF current SKIP LOCKED
+		`, limit)
+		if err != nil {
+			return err
+		}
+		var intents []CommandVerificationDeliveryIntent
+		for rows.Next() {
+			var intent CommandVerificationDeliveryIntent
+			intent.SchemaVersion = CommandVerificationDeliverySchema
+			if err := rows.Scan(&intent.CommandID, &intent.AttemptIndex, &intent.HostID, &intent.SessionGeneration, &intent.CommandType, &intent.CommandSchemaVersion, &intent.TargetResourceID, &intent.CommandPayload, &intent.CommandPayloadDigest); err != nil {
+				rows.Close()
+				return err
+			}
+			intents = append(intents, intent)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, intent := range intents {
+			payload, err := json.Marshal(intent)
+			if err != nil {
+				return err
+			}
+			messageID := fmt.Sprintf("command-verification/%s/%d/%d", intent.CommandID, intent.AttemptIndex, intent.SessionGeneration)
+			tag, err := tx.Exec(ctx, `
+				INSERT INTO kim.outbox_messages (message_id,aggregate_type,aggregate_id,event_type,schema_version,payload_digest,payload)
+				VALUES ($1,'COMMAND',$2,'COMMAND_VERIFICATION_DELIVERY_REQUESTED',$3,$4,$5)
+				ON CONFLICT (message_id) DO NOTHING
+			`, messageID, intent.CommandID, intent.SchemaVersion, digestBytes(payload), payload)
+			if err != nil {
+				return err
+			}
+			created += int(tag.RowsAffected())
+		}
+		return nil
+	})
+	return created, err
+}
+
+func RecoverCommandVerificationDelivery(ctx context.Context, db TxBeginner, intent CommandVerificationDeliveryIntent) (contract.VerificationRequest, error) {
+	if intent.SchemaVersion != CommandVerificationDeliverySchema || intent.CommandID == "" || intent.AttemptIndex < 1 || intent.HostID == "" || intent.SessionGeneration < 1 || len(intent.CommandPayloadDigest) != 64 {
+		return contract.VerificationRequest{}, ErrInternalDeliveryConflict
+	}
+	candidate, err := LoadCommandVerificationCandidate(ctx, db, intent.CommandID)
+	if err != nil {
+		return contract.VerificationRequest{}, ErrInternalDeliveryStale
+	}
+	intentDigest, digestErr := canonicalJSONDigest(intent.CommandPayload)
+	if digestErr != nil || candidate.HostID != intent.HostID || candidate.SessionGeneration != intent.SessionGeneration || candidate.AttemptIndex != intent.AttemptIndex || candidate.CommandType != intent.CommandType || candidate.SchemaVersion != intent.CommandSchemaVersion || candidate.TargetResourceID != intent.TargetResourceID || candidate.PayloadDigest != intent.CommandPayloadDigest || intentDigest != intent.CommandPayloadDigest {
+		return contract.VerificationRequest{}, ErrInternalDeliveryConflict
+	}
+	return contract.VerificationRequest{SchemaVersion: contract.VerificationRequestSchema, CommandID: intent.CommandID, AttemptIndex: intent.AttemptIndex, HostID: intent.HostID, SessionGeneration: intent.SessionGeneration, CommandType: intent.CommandType, CommandSchemaVersion: intent.CommandSchemaVersion, TargetResourceID: intent.TargetResourceID, CommandPayload: intent.CommandPayload, CommandPayloadDigest: intent.CommandPayloadDigest}, nil
+}
+
 // AcceptInternalCommandDelivery records Inbox acceptance and revalidates DB
 // authority. NATS contents and a prior Inbox ACCEPTED row are not authority.
 func AcceptInternalCommandDelivery(ctx context.Context, db TxBeginner, consumer, messageID, payloadDigest string, envelope session.Envelope, maxMessageBytes int) (decision InternalDeliveryInboxDecision, returnedErr error) {
@@ -132,6 +218,80 @@ func AcceptInternalCommandDelivery(ctx context.Context, db TxBeginner, consumer,
 		return InternalDeliveryInboxDecision{}, fmt.Errorf("accept internal Command delivery: %w", err)
 	}
 	return decision, returnedErr
+}
+
+func AcceptInternalVerificationDelivery(ctx context.Context, db TxBeginner, consumer, messageID, payloadDigest string, envelope session.Envelope, maxMessageBytes int) (decision InternalDeliveryInboxDecision, returnedErr error) {
+	if consumer == "" || messageID == "" || len(payloadDigest) != 64 || envelope.SchemaVersion != contract.VerificationRequestSchema {
+		return decision, ErrInternalDeliveryConflict
+	}
+	if err := envelope.Validate(maxMessageBytes); err != nil {
+		return decision, err
+	}
+	request, err := contract.DecodeVerificationRequest(envelope.Payload)
+	if err != nil || request.HostID != envelope.HostIdentity || request.SessionGeneration != int64(envelope.SessionGeneration) || request.CommandID != envelope.CorrelationKey || request.AttemptIndex != int(envelope.Sequence) {
+		return decision, ErrInternalDeliveryConflict
+	}
+	requestDigest, err := canonicalJSONDigest(request.CommandPayload)
+	if err != nil || requestDigest != request.CommandPayloadDigest {
+		return decision, ErrInternalDeliveryConflict
+	}
+	decision.Lease.HostID, decision.Lease.SessionGeneration = request.HostID, request.SessionGeneration
+	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		var acceptedDigest, acceptedState string
+		err := tx.QueryRow(ctx, `SELECT payload_digest,decision_state FROM kim.inbox_messages WHERE consumer=$1 AND message_id=$2`, consumer, messageID).Scan(&acceptedDigest, &acceptedState)
+		switch {
+		case err == nil && acceptedDigest != payloadDigest:
+			if _, insertErr := tx.Exec(ctx, `
+				INSERT INTO kim.inbox_message_conflicts (
+					consumer,message_id,accepted_payload_digest,conflicting_payload_digest,conflict_reason
+				) VALUES ($1,$2,$3,$4,'message_id_digest_conflict') ON CONFLICT DO NOTHING
+			`, consumer, messageID, acceptedDigest, payloadDigest); insertErr != nil {
+				return insertErr
+			}
+			returnedErr = ErrInternalDeliveryConflict
+			return nil
+		case err == nil:
+			decision.Duplicate, decision.State = true, acceptedState
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return err
+		}
+		var state, commandType, schemaVersion, target, commandDigest string
+		var attempt int
+		var payload json.RawMessage
+		err = tx.QueryRow(ctx, `
+			SELECT current.command_state,current.current_attempt_index,command.command_type,command.schema_version,
+			       command.target_resource_id,command.payload,command.payload_digest
+			FROM kim.execution_commands command JOIN kim.execution_commands_current current USING(command_id)
+			JOIN kim.agent_transport_sessions_current session ON session.host_id=command.host_id AND session.state='CURRENT' AND session.session_generation=$2
+			JOIN kim.host_session_authorizations_current auth ON auth.host_id=command.host_id AND auth.session_generation=$2 AND auth.authorization_state='AUTHORIZED'
+			WHERE command.command_id=$1 AND command.host_id=$3
+		`, request.CommandID, request.SessionGeneration, request.HostID).Scan(&state, &attempt, &commandType, &schemaVersion, &target, &payload, &commandDigest)
+		if err == nil && state == "UNKNOWN" && attempt == request.AttemptIndex && commandType == request.CommandType && schemaVersion == request.CommandSchemaVersion && target == request.TargetResourceID && commandDigest == request.CommandPayloadDigest {
+			decision.State = "ACCEPTED"
+		} else if errors.Is(err, pgx.ErrNoRows) || err == nil {
+			decision.State = "REJECTED"
+		} else {
+			return err
+		}
+		if !decision.Duplicate {
+			_, err = tx.Exec(ctx, `INSERT INTO kim.inbox_messages (consumer,message_id,payload_digest,decision_state) VALUES ($1,$2,$3,$4)`, consumer, messageID, payloadDigest, decision.State)
+		}
+		return err
+	})
+	return decision, returnedErr
+}
+
+func canonicalJSONDigest(payload []byte) (string, error) {
+	var value any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return "", err
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return digestBytes(canonical), nil
 }
 
 func RecordGatewayCommandRoute(ctx context.Context, db TxBeginner, consumer, messageID, eventType, hostID string, sessionGeneration int64, routeAttempt int64, detail map[string]any) error {

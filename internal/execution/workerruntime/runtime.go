@@ -19,6 +19,14 @@ func (maintainer PostgresLeaseMaintainer) ExpireDue(ctx context.Context, limit i
 	return postgres.ExpireDueCommandLeases(ctx, maintainer.DB, limit)
 }
 
+func (maintainer PostgresLeaseMaintainer) EnqueueVerifications(ctx context.Context, limit int) (int, error) {
+	return postgres.EnqueuePendingCommandVerifications(ctx, maintainer.DB, limit)
+}
+
+type VerificationEnqueuer interface {
+	EnqueueVerifications(context.Context, int) (int, error)
+}
+
 type Config struct {
 	SweepInterval   time.Duration
 	BatchLimit      int
@@ -47,6 +55,11 @@ func RunWithDelivery(ctx context.Context, config Config, maintainer LeaseMaintai
 	if _, err := maintainer.ExpireDue(ctx, config.BatchLimit); err != nil {
 		return err
 	}
+	if enqueuer, ok := maintainer.(VerificationEnqueuer); ok {
+		if _, err := enqueuer.EnqueueVerifications(ctx, config.BatchLimit); err != nil {
+			return err
+		}
+	}
 	if publisher != nil {
 		if _, err := publisher.PublishOnce(ctx); err != nil {
 			return err
@@ -68,6 +81,11 @@ func RunWithDelivery(ctx context.Context, config Config, maintainer LeaseMaintai
 		case <-ticker.C:
 			if _, err := maintainer.ExpireDue(ctx, config.BatchLimit); err != nil {
 				return err
+			}
+			if enqueuer, ok := maintainer.(VerificationEnqueuer); ok {
+				if _, err := enqueuer.EnqueueVerifications(ctx, config.BatchLimit); err != nil {
+					return err
+				}
 			}
 		case <-publishC:
 			if _, err := publisher.PublishOnce(ctx); err != nil {

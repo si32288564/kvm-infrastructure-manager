@@ -356,6 +356,7 @@
 | OPS-023 | internal JetStream profile は replicated stream と durable consumer を使用し、stream leader または Gateway consumer の停止後も stable message ID/digest を維持して redelivery する。leader election、Bus ACK、consumer restart は新しい Lease、Attempt、mutation authority を生成しない | Must |
 | OPS-024 | TLS/credential 付き internal Bus、Worker、Gateway、Host Agent、PostgreSQL を process 分離した fault campaign で、Bus leader/Gateway/Agent の停止後も current generation へ明示的に再収束し、stale Lease を Agent へ渡さず backend side effect を発生させない | Must |
 | OPS-025 | Gateway が current Agent stream へ Command を write した後、internal Bus ACK 前に停止しても、redelivery を新しい Lease/Attempt/backend side effect へ昇格させず、PostgreSQL current authority と既存 Result/Receipt evidence から terminal convergence する | Must |
+| OPS-026 | UNKNOWN Command の read-only Verification を current authorized session generation へ bind した durable Outbox/Inbox message として配送し、Host mutation authority の rearm を要求または発生させない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

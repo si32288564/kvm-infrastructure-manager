@@ -215,6 +215,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-022 | 実 Gateway と Agent の間で Command 到達後の Receipt transport response だけを決定的に遮断し、Result/Observation/Receipt commit 後も spool が残り、Gateway/Agent restart と new session generation 後の同一 message replay が original accepted generation の単一 Receipt を回収して spool を一度だけ削除する |
 | AT-EXEC-023 | qualification-only PostgreSQL advisory-lock barrier で実 Gateway を Agent stream write 後かつ JetStream ACK 前に停止し、Gateway/Agent restart 後の durable redelivery が terminal Command を再 route せず、同一 Result/Receipt、単一 route Attempt、変更されない backend marker へ収束する |
 | AT-EXEC-024 | 標準 libvirt `qemu:///system` 上の KIM 専用 KVM Domain を closed typed power-state Command で起動し、write-before-execute journal 完了後・Result transport 前に Agent subprocess を killしても Domain が稼働継続し、journal再openと Domain UUID/state read-backが同じ Attemptへ`MATCHED` Verificationを生成する |
+| AT-EXEC-025 | Lease expiry で UNKNOWN となった Command を Worker が current authorized session generation 付き Verification Outbox へ一度 enqueue し、publisher/Gateway が immutable Command/Attempt/target/canonical payload digest を再検証して current Agent stream へ typed Verification を配送する |
 
 ## 11. Placement / Migration
 

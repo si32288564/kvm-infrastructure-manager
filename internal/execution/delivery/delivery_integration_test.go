@@ -15,6 +15,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/gateway"
 	agentinventory "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/inventory"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/security/tokenprotect"
 )
@@ -180,10 +181,39 @@ func TestDurableOutboxBusInboxGatewayPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("DISPATCH_UNKNOWN evidence count = %d, %v", unknownEvents, err)
 	}
 
+	verificationCommand := hostID + "-verification-command"
+	if err := postgres.CreateExecutionCommand(ctx, pool, postgres.ExecutionCommandRequest{JobID: verificationCommand + "-job", CommandID: verificationCommand, HostID: hostID, ResourceType: "VM", ResourceID: verificationCommand + "-vm", DesiredRevision: 1, CommandType: "VM_ENSURE_STATE", SchemaVersion: "kim.command.vm-ensure-state/v1", TargetResourceID: verificationCommand + "-vm", Payload: map[string]any{"state": "RUNNING"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := postgres.AcquireCommandLease(ctx, pool, postgres.CommandLeaseRequest{CommandID: verificationCommand, HostAuthorityGeneration: authority.AuthorityGeneration, Duration: 5 * time.Millisecond, ExecutionTimeout: time.Millisecond, DeliveryProtector: protector}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if count, err := postgres.ExpireDueCommandLeases(ctx, pool, 8); err != nil || count < 1 {
+		t.Fatalf("expire verification Command = %d, %v", count, err)
+	}
+	if count, err := postgres.EnqueuePendingCommandVerifications(ctx, pool, 8); err != nil || count != 1 {
+		t.Fatalf("enqueue verification = %d, %v", count, err)
+	}
+	verificationBus := &recordingBus{}
+	verificationPublisher := OutboxPublisher{DB: pool, Protector: protector, Bus: verificationBus, Owner: "worker-verification", BatchLimit: 8, ClaimLease: time.Minute, MaxMessageBytes: 1 << 20}
+	if count, err := verificationPublisher.PublishOnce(ctx); err != nil || count != 1 {
+		t.Fatalf("publish verification = %d, %v", count, err)
+	}
+	verificationMessage, err := Decode(verificationBus.payload, 1<<20)
+	if err != nil || verificationMessage.Envelope.SchemaVersion != contract.VerificationRequestSchema {
+		t.Fatalf("verification Bus envelope = %#v, %v", verificationMessage, err)
+	}
+	routesBefore := len(sink.envelopes)
+	if disposition, err := handler.Handle(ctx, verificationBus.messageID, verificationBus.payload); err != nil || disposition != ConsumeAck || len(sink.envelopes) != routesBefore+1 {
+		t.Fatalf("verification Gateway delivery = %s, %v, routes=%d", disposition, err, len(sink.envelopes))
+	}
+	routesAfterVerification := len(sink.envelopes)
+
 	if err := postgres.UpdateHostReadinessGate(ctx, pool, postgres.HostReadinessGate{HostID: hostID, CapabilityGeneration: 1, BaselineAssignmentGeneration: 1, PreflightGeneration: 2, PreflightState: "FAILED", ComplianceGeneration: 2, ComplianceState: "NON_COMPLIANT"}); err != nil {
 		t.Fatal(err)
 	}
-	if disposition, err := handler.Handle(ctx, bus.messageID, bus.payload); err != nil || disposition != ConsumeAck || len(sink.envelopes) != 3 {
+	if disposition, err := handler.Handle(ctx, bus.messageID, bus.payload); err != nil || disposition != ConsumeAck || len(sink.envelopes) != routesAfterVerification {
 		t.Fatalf("stale authority delivery = %s, %v, routes=%d", disposition, err, len(sink.envelopes))
 	}
 }

@@ -96,6 +96,7 @@
 | INV-EXEC-024 | Result/Observation と application Receipt の PostgreSQL commit 後に Receipt transport response が失われても、Agent は spool を保持し、new session generation から同一 message identity/digest を replay して original accepted generation の Receipt を回収した後だけ spool entry を一度削除する | AT-EXEC-022、FI-GATEWAY-008 |
 | INV-EXEC-025 | Agent stream write と JetStream ACK の間で Gateway が停止しても、redelivery は PostgreSQL current Lease/Command authority を再検証し、terminal Command を Agent へ再配送せず、新しい Lease/Attempt または重複 backend side effect を生成しない | AT-EXEC-023、FI-BUS-009 |
 | INV-EXEC-026 | VM power-state backend は compile-time registered Command/schema、`vm:<UUID>` target、RUNNING/SHUTOFF desired state と標準 libvirt API だけを受理し、Agent process kill 後も QEMU/KVM Domain stateを変更せず journal付きread-backでUNKNOWNを解決する | AT-EXEC-024、FI-LIBVIRT-003 |
+| INV-EXEC-027 | UNKNOWN Verification delivery は current authorized session、immutable Command/Attempt/target/payload digest を PostgreSQL で再検証し、durable Outbox/Inbox を通るが、Host mutation authority または新 Lease/Attempt を生成しない | AT-EXEC-025、FI-TRANSPORT-004 |
 
 ## 7. Agent and Host
 

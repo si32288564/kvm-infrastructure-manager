@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/gateway"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
 )
 
@@ -33,7 +34,12 @@ func (handler GatewayHandler) Handle(ctx context.Context, busMessageID string, p
 	if err != nil || message.OutboxID != busMessageID {
 		return ConsumeTerm, ErrMalformedBusMessage
 	}
-	decision, err := postgres.AcceptInternalCommandDelivery(ctx, handler.DB, handler.Consumer, busMessageID, Digest(payload), message.Envelope, handler.MaxMessageBytes)
+	var decision postgres.InternalDeliveryInboxDecision
+	if message.Envelope.SchemaVersion == contract.VerificationRequestSchema {
+		decision, err = postgres.AcceptInternalVerificationDelivery(ctx, handler.DB, handler.Consumer, busMessageID, Digest(payload), message.Envelope, handler.MaxMessageBytes)
+	} else {
+		decision, err = postgres.AcceptInternalCommandDelivery(ctx, handler.DB, handler.Consumer, busMessageID, Digest(payload), message.Envelope, handler.MaxMessageBytes)
+	}
 	if errors.Is(err, postgres.ErrInternalDeliveryConflict) {
 		return ConsumeTerm, err
 	}

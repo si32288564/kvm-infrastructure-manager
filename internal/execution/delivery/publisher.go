@@ -46,7 +46,7 @@ func (publisher OutboxPublisher) PublishOnce(ctx context.Context) (int, error) {
 	var messages []postgres.OutboxMessage
 	if err := pgx.BeginTxFunc(ctx, publisher.DB, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		var err error
-		messages, err = postgres.ClaimOutboxTx(ctx, tx, postgres.OutboxClaimRequest{Owner: publisher.Owner, Limit: publisher.BatchLimit, Lease: publisher.ClaimLease, EventTypes: []string{"COMMAND_LEASE_DELIVERY_REQUESTED"}})
+		messages, err = postgres.ClaimOutboxTx(ctx, tx, postgres.OutboxClaimRequest{Owner: publisher.Owner, Limit: publisher.BatchLimit, Lease: publisher.ClaimLease, EventTypes: []string{"COMMAND_LEASE_DELIVERY_REQUESTED", "COMMAND_VERIFICATION_DELIVERY_REQUESTED"}})
 		return err
 	}); err != nil {
 		return 0, err
@@ -68,6 +68,9 @@ func (publisher OutboxPublisher) PublishOnce(ctx context.Context) (int, error) {
 
 func (publisher OutboxPublisher) publishClaim(ctx context.Context, outbox postgres.OutboxMessage) (bool, error) {
 	claim := postgres.OutboxClaim{MessageID: outbox.MessageID, Owner: publisher.Owner, ClaimGeneration: outbox.ClaimGeneration}
+	if outbox.SchemaVersion == postgres.CommandVerificationDeliverySchema {
+		return publisher.publishVerificationClaim(ctx, claim, outbox)
+	}
 	if outbox.SchemaVersion != "kim.internal.command-lease-delivery/v1" {
 		return false, publisher.deadLetter(ctx, claim, "outbox_schema_conflict")
 	}
@@ -119,6 +122,48 @@ func (publisher OutboxPublisher) publishClaim(ctx context.Context, outbox postgr
 	}
 	err = pgx.BeginTxFunc(ctx, publisher.DB, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		return postgres.MarkOutboxDeliveredTx(ctx, tx, claim, map[string]any{"boundary": "jetstream_puback", "stream": ack.Stream, "stream_sequence": ack.Sequence, "duplicate": ack.Duplicate})
+	})
+	return err == nil, err
+}
+
+func (publisher OutboxPublisher) publishVerificationClaim(ctx context.Context, claim postgres.OutboxClaim, outbox postgres.OutboxMessage) (bool, error) {
+	var intent postgres.CommandVerificationDeliveryIntent
+	decoder := json.NewDecoder(bytes.NewReader(outbox.Payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&intent); err != nil {
+		return false, publisher.deadLetter(ctx, claim, "invalid_verification_delivery_intent")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return false, publisher.deadLetter(ctx, claim, "invalid_verification_delivery_intent")
+	}
+	canonical, err := json.Marshal(intent)
+	if err != nil || Digest(canonical) != outbox.PayloadDigest {
+		return false, publisher.deadLetter(ctx, claim, "verification_intent_digest_conflict")
+	}
+	request, err := postgres.RecoverCommandVerificationDelivery(ctx, publisher.DB, intent)
+	if errors.Is(err, postgres.ErrInternalDeliveryStale) {
+		return false, publisher.completeWithoutPublish(ctx, claim, "verification_authority_stale")
+	}
+	if err != nil {
+		return false, publisher.deadLetter(ctx, claim, "verification_evidence_conflict")
+	}
+	payload, _ := json.Marshal(request)
+	envelope := session.NewEnvelope(request.HostID, uint64(request.SessionGeneration), session.StreamCommand, fmt.Sprintf("verification-request/%s/%d", request.CommandID, request.AttemptIndex), contract.VerificationRequestSchema, "command/"+request.CommandID, uint64(request.AttemptIndex), payload)
+	envelope.CorrelationKey = request.CommandID
+	message := Message{SchemaVersion: MessageSchema, OutboxID: outbox.MessageID, Envelope: envelope}
+	busPayload, err := message.Encode(publisher.MaxMessageBytes)
+	if err != nil {
+		return false, publisher.deadLetter(ctx, claim, "invalid_verification_envelope")
+	}
+	if err := publisher.recordDispatch(ctx, claim, "DISPATCH_STARTED", map[string]any{"subject": Subject, "bus_message_id": outbox.MessageID, "kind": "verification"}); err != nil {
+		return false, err
+	}
+	ack, err := publisher.Bus.Publish(ctx, Subject, outbox.MessageID, busPayload)
+	if err != nil {
+		return false, errors.Join(err, publisher.recordDispatch(ctx, claim, "DISPATCH_UNKNOWN", map[string]any{"subject": Subject, "kind": "verification"}))
+	}
+	err = pgx.BeginTxFunc(ctx, publisher.DB, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		return postgres.MarkOutboxDeliveredTx(ctx, tx, claim, map[string]any{"boundary": "jetstream_puback", "stream": ack.Stream, "stream_sequence": ack.Sequence, "duplicate": ack.Duplicate, "kind": "verification"})
 	})
 	return err == nil, err
 }
