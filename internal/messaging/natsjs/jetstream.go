@@ -52,6 +52,9 @@ func (consumer Consumer) Run(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
+			if transientConsumerError(err) && waitConsumerRetry(ctx, consumer.PollWait) {
+				continue
+			}
 			return err
 		}
 		messageID := message.Headers().Get(nats.MsgIdHdr)
@@ -62,18 +65,54 @@ func (consumer Consumer) Run(ctx context.Context) error {
 				if context.Cause(ctx) != nil {
 					return nil
 				}
+				if transientConsumerError(err) && waitConsumerRetry(ctx, consumer.PollWait) {
+					continue
+				}
 				return err
 			}
 		case delivery.ConsumeTerm:
 			if err := message.Term(); err != nil {
+				if transientConsumerError(err) && waitConsumerRetry(ctx, consumer.PollWait) {
+					continue
+				}
 				return err
 			}
 		case delivery.ConsumeNak:
 			if err := message.NakWithDelay(consumer.NakDelay); err != nil {
+				if transientConsumerError(err) && waitConsumerRetry(ctx, consumer.PollWait) {
+					continue
+				}
 				return err
 			}
 		default:
 			return errors.New("unknown internal delivery disposition")
 		}
+	}
+}
+
+func transientConsumerError(err error) bool {
+	return errors.Is(err, jetstream.ErrConsumerLeadershipChanged) ||
+		errors.Is(err, jetstream.ErrNoStreamResponse) ||
+		errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, nats.ErrConnectionReconnecting) ||
+		errors.Is(err, nats.ErrNoServers) ||
+		errors.Is(err, nats.ErrTimeout)
+}
+
+func waitConsumerRetry(ctx context.Context, pollWait time.Duration) bool {
+	delay := pollWait
+	if delay < 25*time.Millisecond {
+		delay = 25 * time.Millisecond
+	}
+	if delay > 250*time.Millisecond {
+		delay = 250 * time.Millisecond
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }

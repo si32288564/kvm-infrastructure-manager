@@ -212,6 +212,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-019 | live session 不在時は NAK/redelivery、復旧後は route、authority fence 後は Agent へ渡さず terminal ACK、同一 message ID の異 digest は quarantine となる |
 | AT-EXEC-020 | 3 replica JetStream stream/consumer の leader 停止後に新 leader が同一の 1 message を保持し、Gateway consumer の NAK/停止/再起動後に同じ durable consumer が 1 回 redelivery して ACK へ収束する |
 | AT-EXEC-021 | TLS/JWT credential 付き 3 node NATS、`kim-worker`、`kim-agent-gateway`、`kim-host-agent`、PostgreSQL を別 process で起動し、NATS leader kill 後の command、Gateway restart 後の explicit rearm、Agent 不在時 NAK、new session による stale Lease fence、Agent Receipt 後の spool delete が一つの campaign で成立する |
+| AT-EXEC-022 | 実 Gateway と Agent の間で Command 到達後の Receipt transport response だけを決定的に遮断し、Result/Observation/Receipt commit 後も spool が残り、Gateway/Agent restart と new session generation 後の同一 message replay が original accepted generation の単一 Receipt を回収して spool を一度だけ削除する |
 
 ## 11. Placement / Migration
 

@@ -39,6 +39,7 @@ func TestFullProcessCommandDeliveryFaultCampaign(t *testing.T) {
 		t.Fatal(err)
 	}
 	natsBinary := buildFixtureBinary(t, root, binaryDirectory, "./internal/qualification/p1bfault/natsnode")
+	faultProxyBinary := buildFixtureBinary(t, root, binaryDirectory, "./internal/qualification/p1bfault/faultproxy")
 	gatewayBinary := buildFixtureBinary(t, root, binaryDirectory, "./cmd/kim-agent-gateway")
 	agentBinary := buildFixtureBinary(t, root, binaryDirectory, "./cmd/kim-host-agent")
 	workerBinary := buildFixtureBinary(t, root, binaryDirectory, "./cmd/kim-worker")
@@ -122,14 +123,14 @@ func TestFullProcessCommandDeliveryFaultCampaign(t *testing.T) {
 		t.Fatal("Gateway did not listen")
 	}
 	agentState := filepath.Join(workspace, "agent-state")
-	startAgent := func(suffix string) *fixtureProcess {
+	startAgent := func(suffix, target string) *fixtureProcess {
 		return startFixtureProcess(t, "kim-host-agent-"+suffix, agentBinary, filepath.Join(workspace, "agent-"+suffix+".log"),
-			"-gateway", gatewayAddress, "-host-id", hostID, "-tls-server-name", "kim-agent-gateway",
+			"-gateway", target, "-host-id", hostID, "-tls-server-name", "kim-agent-gateway",
 			"-tls-ca", pki.caPath, "-tls-cert", pki.agentCert, "-tls-key", pki.agentKey,
 			"-artifact-digest", digest("agent-artifact"), "-verifier-digest", digest("state-marker-verifier"),
 			"-credential-binding-revision", "1", "-state-root", agentState)
 	}
-	agentProcess := startAgent("one")
+	agentProcess := startAgent("one", gatewayAddress)
 	waitSessionGeneration(t, ctx, pool, hostID, 1)
 	if err := establishHostReadiness(ctx, pool, hostID, 1); err != nil {
 		t.Fatal(err)
@@ -183,7 +184,7 @@ func TestFullProcessCommandDeliveryFaultCampaign(t *testing.T) {
 	agentProcess.stop(t)
 	staleCommand := createProtectedCommand(t, ctx, pool, hostID, "stale-redelivery", authority.AuthorityGeneration, deliveryKey)
 	waitRouteUnknown(t, ctx, pool, staleCommand)
-	agentProcess = startAgent("two")
+	agentProcess = startAgent("two", gatewayAddress)
 	waitSessionGeneration(t, ctx, pool, hostID, 3)
 	eventually(t, 15*time.Second, func() bool {
 		var commandState, leaseState string
@@ -198,6 +199,53 @@ func TestFullProcessCommandDeliveryFaultCampaign(t *testing.T) {
 	if _, err := os.Stat(markerPath); !os.IsNotExist(err) {
 		t.Fatalf("stale authority command produced a backend side effect: %v", err)
 	}
+	workerProcess.requireRunning(t)
+	gatewayProcess.requireRunning(t)
+	agentProcess.requireRunning(t)
+
+	// Deterministically lose only the Gateway-to-Agent Receipt response. The
+	// opaque proxy forwards the next complete TLS record (the Command), then
+	// discards later downstream records while preserving Agent Result upload.
+	agentProcess.stop(t)
+	proxyPort := reserveFixturePorts(t, 1)[0]
+	proxyAddress := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	armPath := filepath.Join(workspace, "drop-receipt.arm")
+	activatedPath := filepath.Join(workspace, "drop-receipt.activated")
+	proxyProcess := startFixtureProcess(t, "receipt-loss-proxy", faultProxyBinary, filepath.Join(workspace, "receipt-loss-proxy.log"),
+		"-listen", proxyAddress, "-target", gatewayAddress, "-arm-file", armPath, "-activated-file", activatedPath)
+	if !waitTCP(ctx, proxyAddress) {
+		t.Fatal("Receipt loss proxy did not listen")
+	}
+	agentProcess = startAgent("receipt-loss", proxyAddress)
+	waitSessionGeneration(t, ctx, pool, hostID, 4)
+	authority, err = postgres.ArmHostOperationAuthority(ctx, pool, postgres.HostAuthorityArmRequest{HostID: hostID, PolicyID: "manual", PolicyGeneration: 4, ActorID: "qualification", ReasonCode: "receipt_loss"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, armPath, []byte("drop next Gateway response after Command\n"), 0o600)
+	receiptLossCommand := createProtectedCommand(t, ctx, pool, hostID, "receipt-loss", authority.AuthorityGeneration, deliveryKey)
+	eventually(t, 10*time.Second, func() bool {
+		_, err := os.Stat(activatedPath)
+		return err == nil
+	}, "Receipt loss proxy did not activate after forwarding the Command TLS record")
+	waitJobState(t, ctx, pool, receiptLossCommand, "SUCCEEDED")
+	waitAgentSpoolCount(t, agentState, 1)
+	assertResultReceipt(t, ctx, pool, hostID, receiptLossCommand, 4)
+
+	// Restart both ends of the lost response path. The Agent replays the same
+	// message identity/digest on generation 5 and recovers the generation 4
+	// PostgreSQL Receipt before deleting exactly one spool entry.
+	agentProcess.stop(t)
+	proxyProcess.stop(t)
+	gatewayProcess.stop(t)
+	gatewayProcess = startGateway("three")
+	if !waitTCP(ctx, gatewayAddress) {
+		t.Fatal("Gateway after Receipt loss did not listen")
+	}
+	agentProcess = startAgent("receipt-replay", gatewayAddress)
+	waitSessionGeneration(t, ctx, pool, hostID, 5)
+	waitAgentSpoolEmpty(t, agentState)
+	assertResultReceipt(t, ctx, pool, hostID, receiptLossCommand, 4)
 	workerProcess.requireRunning(t)
 	gatewayProcess.requireRunning(t)
 	agentProcess.requireRunning(t)
@@ -283,6 +331,37 @@ func waitAgentSpoolEmpty(t *testing.T, stateRoot string) {
 		}
 		return true
 	}, "Agent durable spool did not receive its PostgreSQL-backed application Receipt")
+}
+
+func waitAgentSpoolCount(t *testing.T, stateRoot string, expected int) {
+	t.Helper()
+	queue := filepath.Join(stateRoot, "spool", "queue")
+	eventually(t, 10*time.Second, func() bool {
+		entries, err := os.ReadDir(queue)
+		if err != nil {
+			return false
+		}
+		count := 0
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".json") {
+				count++
+			}
+		}
+		return count == expected
+	}, fmt.Sprintf("Agent durable spool did not retain exactly %d unacknowledged message(s)", expected))
+}
+
+func assertResultReceipt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, hostID, commandID string, acceptedGeneration int64) {
+	t.Helper()
+	messageID := "command-result/" + commandID + "/1"
+	var count int
+	var generation int64
+	if err := pool.QueryRow(ctx, `SELECT count(*), max(session_generation) FROM kim.agent_message_receipts WHERE host_id=$1 AND message_id=$2 AND disposition='ACCEPTED'`, hostID, messageID).Scan(&count, &generation); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || generation != acceptedGeneration {
+		t.Fatalf("durable Result Receipt count/generation = %d/%d, want 1/%d", count, generation, acceptedGeneration)
+	}
 }
 
 func waitTCPAttempt(address string) bool {

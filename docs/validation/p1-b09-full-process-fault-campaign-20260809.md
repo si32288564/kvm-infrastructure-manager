@@ -22,6 +22,8 @@ state-marker backend + journal + spool
 
 `natsnode` helper は qualification 専用であり、product component または deployment artifact ではない。NATS node ごとに独立 listener、file store、PID を持ち、実 process signal で停止する。
 
+`faultproxy` helper も qualification 専用である。Agent と実 Gateway の間で opaque TLS record を転送し、arm 後に Command を含む最初の downstream record だけを転送して後続 downstream record を破棄する。TLS を終端せず、Host identity、session authority、message payload のいずれも解釈しない。
+
 ## 2. Fault Sequence
 
 ```text
@@ -48,6 +50,20 @@ Agent restart/session generation 3
 old authority/Lease fence
   ↓
 stale Bus redelivery terminal convergence without backend side effect
+  ↓
+Agent restart/session generation 4 + explicit Host rearm
+  ↓
+faultproxy arm + Command delivery
+  ↓
+Result/Observation/Receipt PostgreSQL commit
+  ↓
+Receipt transport response loss + Agent spool retained
+  ↓
+Gateway/Agent restart/session generation 5
+  ↓
+same message identity/digest replay
+  ↓
+original generation 4 Receipt recovery + one-time spool delete
 ```
 
 ## 3. Validation Results
@@ -68,7 +84,15 @@ stale Bus redelivery terminal convergence without backend side effect
 | generation 2 Lease | Command `UNKNOWN`、Lease `FENCED`: PASS |
 | stale Bus redelivery | consumer pending/ack-pending 0 へ terminal convergence: PASS |
 | stale Command backend marker | absent: PASS |
-| campaign repeat | 2 consecutive runs: PASS |
+| Receipt response-loss proxy activation | Command 到達後に downstream TLS record を遮断: PASS |
+| response loss 前の domain decision | Job `SUCCEEDED`、Receipt exactly 1: PASS |
+| Receipt 未受信の Agent spool | exactly 1 message retained: PASS |
+| Gateway/Agent restart | session generation 4 → 5: PASS |
+| stable replay | same message identity/digest で original accepted generation 4 Receipt を回収: PASS |
+| replay 後の Receipt | exactly 1 row、accepted generation 4 のまま: PASS |
+| replay 後の Agent spool | empty、一度だけ削除: PASS |
+| transient JetStream consumer leadership change | bounded retry 後に同一 durable consumer で収束: PASS |
+| extended campaign repeat | post-fix 2 consecutive runs: PASS |
 | normal test lane without dedicated PostgreSQL | explicit skip: PASS |
 
 ## 4. Authority Boundary
@@ -78,13 +102,15 @@ stale Bus redelivery terminal convergence without backend side effect
 - Agent reconnect は PostgreSQL `SessionAccepted` により new session generation を得るが、Host authority は explicit arm まで fenced のままである。
 - NATS ACK は Agent application Receipt ではない。成功 Command では PostgreSQL-backed Receipt を Agent が受け取った後だけ spool entry が削除される。
 - live Agent がない message は NAK される。再接続で元 Lease が stale になった場合は Agent へ渡さず terminal handling する。
+- Receipt transport response loss は Result/Observation/Receipt commit を取り消さない。Agent は spool entry を保持し、new session generation から stable message identity/digest を replay する。
+- replay は accepted session generation を current generation へ書き換えない。original generation 4 の immutable Receipt を回収した後だけ、Agent は spool entry を一度削除する。
+- JetStream consumer leadership change または一時的な unavailable/timeout は ACK 成功または authority evidence と解釈せず、bounded retry する。
 
 ## 5. Remaining Qualification
 
-- Agent Result/Observation の PostgreSQL commit 後、Receipt transport response だけを失わせる full-process fault injection
 - Gateway kill between live Agent stream write and NATS ACK を deterministic barrier で発生させる process fixture
 - PostgreSQL HA failover を同時に含む campaign
 - NATS network partition、rolling restart、TLS/JWT credential rotation、large backlog pressure
 - state-marker ではなく実 libvirt backend を使用する Host kill/read-back campaign
 
-本増分により、NATS leader、Gateway、Agent の OS process fault と stale authority redelivery は一つの distributed runtime campaign で qualification 済みとなった。Receipt response-loss と実 libvirt は独立した次の hardening gate とする。
+本増分により、NATS leader、Gateway、Agent の OS process fault、stale authority redelivery、Receipt commit 後の response loss と new generation replay は一つの distributed runtime campaign で qualification 済みとなった。次の主要 hardening gate は Gateway stream write/NATS ACK 境界と実 libvirt Host kill/read-back である。

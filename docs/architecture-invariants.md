@@ -93,6 +93,7 @@
 | INV-EXEC-021 | Gateway live-stream route が失敗または不明な Bus message を ACK せず、同一 message identity/digest/envelope で redelivery する。digest conflict は quarantine し自動 merge しない | AT-EXEC-019、FI-BUS-006 |
 | INV-EXEC-022 | JetStream stream/consumer failover は stable Bus message identity/digest と durable consumer state を維持し、redelivery を新しい domain decision、Lease、Attempt、Agent receipt、backend execution evidence へ昇格させない | AT-EXEC-020、FI-BUS-007 |
 | INV-EXEC-023 | process restart または Bus leader change は Host/session authority を暗黙 rearm せず、Agent 不在中の delivery は NAK/redelivery、new session generation により stale となった Lease は terminal fence とし、NATS ACK だけで Agent spool を削除しない | AT-EXEC-021、FI-BUS-008 |
+| INV-EXEC-024 | Result/Observation と application Receipt の PostgreSQL commit 後に Receipt transport response が失われても、Agent は spool を保持し、new session generation から同一 message identity/digest を replay して original accepted generation の Receipt を回収した後だけ spool entry を一度削除する | AT-EXEC-022、FI-GATEWAY-008 |
 
 ## 7. Agent and Host
 
