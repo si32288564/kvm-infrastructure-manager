@@ -36,6 +36,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AGT-012 | HTTP/2/gRPC 等の transport 実装を差し替えても同じ typed module、capability advertisement、Command/Lease authorization contract を再利用できる |
 | AT-AGT-013 | logical stream/resource scope ごとの sequence/generation で duplicate/reorder を処理し、transport arrival 順から global ordering を推測しない |
 | AT-AGT-014 | 別 endpoint/connection 追加を trust/security/traffic/QoS/artifact 要件、threat analysis、approval、lifecycle test なしに受け入れない |
+| AT-AGT-015 | L7 proxy termination で pinned proxy certificate と sanitize/rebuild 済み downstream certificate hash の両方を検証し、unpinned proxy、欠落/複数/malformed XFCC、Agent 注入 header を拒否する |
 
 ## 4. Host Lifecycle / Baseline / Compliance
 

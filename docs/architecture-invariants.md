@@ -100,6 +100,8 @@
 | INV-AGT-015 | logical stream は bounded message/queue と priority-aware backpressure を持ち、bulk stream が Control/Lease/Heartbeat/Result を無期限 starve させない | FI-GATEWAY-005 |
 | INV-AGT-016 | transport arrival 順を global resource ordering にせず、ordering scope ごとの sequence/generation/idempotency contract を使用する | AT-AGT-013 |
 | INV-AGT-017 | 別 endpoint/connection は明示的な別要件と contract/approval なしに追加しない | AT-AGT-014 |
+| INV-AGT-018 | L7 forwarded Agent identity は pinned proxy workload identity と sanitized downstream certificate evidence が同時に成立する場合だけ受理し、header 単独を identity authority にしない | AT-AGT-015 |
+| INV-AGT-019 | GOAWAY、proxy drain、rolling restart、upstream connection pool の生存を Host session authority transition にせず、new current session は PostgreSQL Grant commit を必須とする | FI-GATEWAY-006 |
 
 ## 8. Network and Storage
 

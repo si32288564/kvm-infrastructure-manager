@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,6 +13,7 @@ import (
 	"net"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,6 +56,8 @@ type result struct {
 	ProxyDrainedConnections   int64         `json:"proxy_drained_connections_total"`
 	ProxyDisconnectsObserved  int           `json:"proxy_disconnects_observed"`
 	ProxyActiveConnections    int           `json:"proxy_active_connections"`
+	ExternalTransitionEnabled bool          `json:"external_proxy_transition_enabled"`
+	ExternalDisconnects       int           `json:"external_proxy_disconnects_observed"`
 	CurrentGenerationTwo      int           `json:"current_generation_two"`
 	PoolEmptyAcquireCount     int64         `json:"pool_empty_acquire_count"`
 	PoolAcquireDuration       time.Duration `json:"pool_acquire_duration_ns"`
@@ -79,6 +84,13 @@ func main() {
 	maximumBackoff := flag.Duration("max-backoff", time.Second, "Agent reconnect maximum delay")
 	retryAfter := flag.Duration("retry-after", 25*time.Millisecond, "Gateway admission retry hint")
 	proxyEnabled := flag.Bool("tls-passthrough-proxy", false, "route Agent mTLS through an opaque TCP proxy and drain generation one")
+	gatewayListenAddress := flag.String("gateway-listen-address", "127.0.0.1:0", "Gateway TCP listen address")
+	agentTarget := flag.String("agent-target", "", "optional external proxy address used by Agent clients")
+	tlsFixtureDirectory := flag.String("tls-fixture-directory", "", "directory containing ca.pem, gateway.pem/key, and agent.pem/key")
+	agentServerName := flag.String("agent-server-name", "localhost", "TLS server name expected by Agent clients")
+	trustedProxyHash := flag.String("trusted-proxy-certificate-sha256", "", "pinned L7 proxy upstream leaf certificate SHA-256")
+	maximumAgentAttempts := flag.Int("maximum-agent-attempts", 0, "optional per-wave retry bound; zero is bounded only by fixture context")
+	waveTransitionDirectory := flag.String("wave-transition-directory", "", "optional external proxy transition barrier directory")
 	flag.Parse()
 	if *databaseURL == "" || *sessions < 1 || *admissionLimit < 1 || *tlsHandshakeLimit < 1 || *databaseConnections < 1 {
 		fatal(errors.New("database URL and positive limits are required"))
@@ -101,11 +113,11 @@ func main() {
 		fatal(err)
 	}
 
-	serverTLS, clientTLS, err := contracttest.TLSConfigs()
+	serverTLS, clientTLS, err := loadTLSConfigs(*tlsFixtureDirectory, *agentServerName)
 	if err != nil {
 		fatal(err)
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", *gatewayListenAddress)
 	if err != nil {
 		fatal(err)
 	}
@@ -123,14 +135,22 @@ func main() {
 		fatal(err)
 	}
 	server := grpc.NewServer(grpc.Creds(limitedCredentials))
-	agentprotocolv1.RegisterAgentTransportServer(server, gateway.GRPCServer{Authorizer: gateway.PostgresSessionAuthorizer{
-		DB: pool, Admission: limiter, RetryAfter: *retryAfter,
-	}})
+	gatewayServer := gateway.GRPCServer{Authorizer: gateway.PostgresSessionAuthorizer{DB: pool, Admission: limiter, RetryAfter: *retryAfter}}
+	if *trustedProxyHash != "" {
+		gatewayServer.IdentityResolver = gateway.TrustedProxyPeerIdentityResolver{AllowedProxyCertificateSHA256: map[string]struct{}{strings.ToLower(*trustedProxyHash): {}}}
+	}
+	agentprotocolv1.RegisterAgentTransportServer(server, gatewayServer)
 	go func() { _ = server.Serve(countingListener) }()
 	defer server.Stop()
 	target := countingListener.Addr().String()
+	if *agentTarget != "" {
+		target = *agentTarget
+	}
 	var transportProxy *faultproxy.Proxy
 	if *proxyEnabled {
+		if *agentTarget != "" {
+			fatal(errors.New("external Agent target and in-process TLS passthrough proxy are mutually exclusive"))
+		}
 		front, listenErr := net.Listen("tcp", "127.0.0.1:0")
 		if listenErr != nil {
 			fatal(listenErr)
@@ -146,7 +166,7 @@ func main() {
 	adapter := &grpcstream.Adapter{Target: target, TLSConfig: clientTLS, MaxMessageBytes: 64 * 1024}
 	policy := reconnect.Backoff{Base: *baseBackoff, Max: *maximumBackoff}
 
-	warm := runWave(ctx, adapter, pool, limiter, runID, *sessions, 1, policy)
+	warm := runWave(ctx, adapter, pool, limiter, runID, *sessions, 1, policy, *maximumAgentAttempts)
 	if warm.err != nil {
 		fatal(fmt.Errorf("warm gRPC session authority: %w", warm.err))
 	}
@@ -159,13 +179,24 @@ func main() {
 			fatal(err)
 		}
 	}
+	if *waveTransitionDirectory != "" {
+		if *agentTarget == "" {
+			fatal(errors.New("wave transition barrier requires an external Agent target"))
+		}
+		if err := awaitExternalTransition(ctx, *waveTransitionDirectory); err != nil {
+			fatal(err)
+		}
+		if err := observeDisconnects(warm.connections, 10*time.Second); err != nil {
+			fatal(err)
+		}
+	}
 	closeAll(warm.connections)
-	if !waitForActive(countingListener, 0, 5*time.Second) {
+	if *agentTarget == "" && !waitForActive(countingListener, 0, 5*time.Second) {
 		fatal(fmt.Errorf("warm physical connections did not drain: active=%d", countingListener.Active()))
 	}
 	handshakeRejectedBeforeStorm := handshakeLimiter.Rejected()
 	acceptedBeforeStorm := countingListener.Accepted()
-	storm := runWave(ctx, adapter, pool, limiter, runID, *sessions, 2, policy)
+	storm := runWave(ctx, adapter, pool, limiter, runID, *sessions, 2, policy, *maximumAgentAttempts)
 	if storm.err != nil {
 		fatal(storm.err)
 	}
@@ -201,6 +232,10 @@ func main() {
 		output.ProxyDisconnectsObserved = *sessions
 		output.ProxyActiveConnections = transportProxy.Active()
 	}
+	if *waveTransitionDirectory != "" {
+		output.ExternalTransitionEnabled = true
+		output.ExternalDisconnects = *sessions
+	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(output); err != nil {
@@ -208,7 +243,44 @@ func main() {
 	}
 }
 
-func runWave(ctx context.Context, adapter session.TransportAdapter, pool *pgxpool.Pool, limiter *gateway.AdmissionLimiter, runID string, count, wave int, policy reconnect.Backoff) waveResult {
+func loadTLSConfigs(directory, serverName string) (*tls.Config, *tls.Config, error) {
+	if directory == "" {
+		return contracttest.TLSConfigs()
+	}
+	read := func(name string) ([]byte, error) { return os.ReadFile(directory + string(os.PathSeparator) + name) }
+	caPEM, err := read("ca.pem")
+	if err != nil {
+		return nil, nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, nil, errors.New("fixture CA PEM contains no certificate")
+	}
+	loadCertificate := func(certificateName, keyName string) (tls.Certificate, error) {
+		certificatePEM, readErr := read(certificateName)
+		if readErr != nil {
+			return tls.Certificate{}, readErr
+		}
+		keyPEM, readErr := read(keyName)
+		if readErr != nil {
+			return tls.Certificate{}, readErr
+		}
+		return tls.X509KeyPair(certificatePEM, keyPEM)
+	}
+	gatewayCertificate, err := loadCertificate("gateway.pem", "gateway-key.pem")
+	if err != nil {
+		return nil, nil, err
+	}
+	agentCertificate, err := loadCertificate("agent.pem", "agent-key.pem")
+	if err != nil {
+		return nil, nil, err
+	}
+	server := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{gatewayCertificate}, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: pool, NextProtos: []string{"h2"}}
+	client := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{agentCertificate}, RootCAs: pool, ServerName: serverName, NextProtos: []string{"h2"}}
+	return server, client, nil
+}
+
+func runWave(ctx context.Context, adapter session.TransportAdapter, pool *pgxpool.Pool, limiter *gateway.AdmissionLimiter, runID string, count, wave int, policy reconnect.Backoff, maximumAgentAttempts int) waveResult {
 	connections := make([]session.TransportConnection, count)
 	latencies := make([]time.Duration, count)
 	attempts := make([]int, count)
@@ -245,6 +317,10 @@ func runWave(ctx context.Context, adapter session.TransportAdapter, pool *pgxpoo
 				}
 				if errors.As(err, &rejection) && !rejection.Retryable {
 					storeError(&firstError, err)
+					return
+				}
+				if maximumAgentAttempts > 0 && attempt >= maximumAgentAttempts {
+					storeError(&firstError, fmt.Errorf("Host %d wave %d exceeded %d attempts: %w", index, wave, maximumAgentAttempts, err))
 					return
 				}
 				delay, delayErr := policy.Delay(attempt, uint64(index+1)*0x9e3779b97f4a7c15+uint64(wave*attempt))
@@ -337,6 +413,31 @@ func observeDisconnects(connections []session.TransportConnection, timeout time.
 		return *stored
 	}
 	return nil
+}
+
+func awaitExternalTransition(ctx context.Context, directory string) error {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	ready := directory + string(os.PathSeparator) + "warm-ready"
+	proceed := directory + string(os.PathSeparator) + "continue"
+	if err := os.WriteFile(ready, []byte("ready\n"), 0o600); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := os.Stat(proceed); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-ticker.C:
+		}
+	}
 }
 
 func percentile(values []time.Duration, percentage int) time.Duration {

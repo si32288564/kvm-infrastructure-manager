@@ -108,6 +108,19 @@ stale session から届いた Result、Inventory、Observation、Heartbeat、Com
 
 reconnect/rekey 時は old/new connection が一時的に overlap できますが、new session を current にする transaction で generation を進め、old session を draining/stale へ fence します。二つの connection から二つの Host authority を生成しません。
 
+#### L7 Proxy Termination
+
+TLS passthrough proxy は Agent/Gateway 間の end-to-end mTLS を維持します。一方、L7 HTTP/2 proxy が Agent mTLS を終端する profile は、Agent trust domain と Gateway workload trust domain の明示的な bridge です。次をすべて必須とします。
+
+- proxy は Agent certificate を approved Agent CA / profile で検証する。
+- proxy は inbound forwarded identity header を sanitize し、検証した downstream certificate evidence から再生成する。
+- proxy→Gateway は独立 mTLS を使用し、Gateway は許可された proxy workload certificate digest / Trust Binding を検証する。
+- Gateway は pinned proxy identity と sanitized downstream certificate hash の両方がある場合だけ forwarded evidence を受理する。
+- forwarded certificate evidence は Host identity candidate であり、Enrollment / Credential Binding / session generation / Command Lease の代替ではない。
+- untrusted direct peer、unpinned proxy、欠落/複数/malformed forwarded evidence を fail closed で拒否する。
+
+HTTP/2 GOAWAY、graceful drain、idle timeout、proxy rolling restart は transport lifecycle signal です。upstream connection pool が生存していても Host session authority の生存を意味せず、GOAWAY 後に library が新しい stream/connection を作成できても同一 generation を暗黙 rearmしません。old stream の終了を transport loss として記録し、new Attempt / generation / PostgreSQL Session Grant を通過してから current session を公開します。
+
 ### 3.3 Ordering, Idempotency, and Backpressure
 
 transport arrival 順を resource の global ordering にしません。ordering は logical stream、resource、Command/Attempt、snapshot 等の明示 scope 内で sequence/generation により評価します。異なる stream 間の順序依存は PostgreSQL decision、correlation、verification evidence で表現します。

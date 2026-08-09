@@ -9,14 +9,12 @@ import (
 	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/peer"
 )
 
 // SessionAuthorizer converts authenticated Hello evidence into an explicit
 // PostgreSQL-backed session decision.
 type SessionAuthorizer interface {
-	Authorize(context.Context, *agentprotocolv1.SessionHello, string) (*agentprotocolv1.SessionAccepted, *agentprotocolv1.SessionRejected)
+	Authorize(context.Context, *agentprotocolv1.SessionHello, PeerIdentityEvidence) (*agentprotocolv1.SessionAccepted, *agentprotocolv1.SessionRejected)
 }
 
 type PostgresSessionAuthorizer struct {
@@ -25,8 +23,8 @@ type PostgresSessionAuthorizer struct {
 	RetryAfter time.Duration
 }
 
-func (authorizer PostgresSessionAuthorizer) Authorize(ctx context.Context, hello *agentprotocolv1.SessionHello, peerIdentity string) (*agentprotocolv1.SessionAccepted, *agentprotocolv1.SessionRejected) {
-	if authorizer.DB == nil || authorizer.Admission == nil || hello == nil || peerIdentity == "" {
+func (authorizer PostgresSessionAuthorizer) Authorize(ctx context.Context, hello *agentprotocolv1.SessionHello, peerEvidence PeerIdentityEvidence) (*agentprotocolv1.SessionAccepted, *agentprotocolv1.SessionRejected) {
+	if authorizer.DB == nil || authorizer.Admission == nil || hello == nil || peerEvidence.Identity == "" {
 		return nil, rejection("INVALID_HANDSHAKE", false, 0)
 	}
 	release, err := authorizer.Admission.TryAcquire()
@@ -43,7 +41,10 @@ func (authorizer PostgresSessionAuthorizer) Authorize(ctx context.Context, hello
 		ProtocolVersion: hello.GetProtocolVersion(), AgentArtifactDigest: hello.GetAgentArtifactDigest(),
 		CredentialBindingRevision: hello.GetCredentialBindingRevision(),
 		ExpectedSessionGeneration: int64(hello.GetSessionGeneration()),
-		HandshakeEvidence:         map[string]any{"peer_identity": peerIdentity, "capabilities": hello.GetCapabilities()},
+		HandshakeEvidence: map[string]any{
+			"peer_identity": peerEvidence.Identity, "transport_peer_sha256": peerEvidence.TransportPeerCertificateSHA256,
+			"via_trusted_proxy": peerEvidence.ViaTrustedProxy, "capabilities": hello.GetCapabilities(),
+		},
 	})
 	if err == nil {
 		return &agentprotocolv1.SessionAccepted{
@@ -68,11 +69,16 @@ func (authorizer PostgresSessionAuthorizer) Authorize(ctx context.Context, hello
 // decision, then accepts only the granted Host/generation on the live stream.
 type GRPCServer struct {
 	agentprotocolv1.UnimplementedAgentTransportServer
-	Authorizer SessionAuthorizer
+	Authorizer       SessionAuthorizer
+	IdentityResolver PeerIdentityResolver
 }
 
 func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1.Frame, agentprotocolv1.Frame]) error {
-	peerIdentity, err := authenticatedPeerIdentity(stream.Context())
+	resolver := server.IdentityResolver
+	if resolver == nil {
+		resolver = DirectPeerIdentityResolver{}
+	}
+	peerEvidence, err := resolver.Resolve(stream.Context())
 	if err != nil {
 		return err
 	}
@@ -87,7 +93,7 @@ func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1
 	if server.Authorizer == nil {
 		return errors.New("Agent Session Authorizer is required")
 	}
-	accepted, rejected := server.Authorizer.Authorize(stream.Context(), hello, peerIdentity)
+	accepted, rejected := server.Authorizer.Authorize(stream.Context(), hello, peerEvidence)
 	if rejected != nil {
 		if err := stream.Send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Rejected{Rejected: rejected}}); err != nil {
 			return err
@@ -113,22 +119,6 @@ func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1
 			return errors.New("Agent envelope does not match granted session authority")
 		}
 	}
-}
-
-func authenticatedPeerIdentity(ctx context.Context) (string, error) {
-	peerInfo, ok := peer.FromContext(ctx)
-	if !ok {
-		return "", errors.New("Agent transport peer is unavailable")
-	}
-	tlsInfo, ok := peerInfo.AuthInfo.(credentials.TLSInfo)
-	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.PeerCertificates) == 0 {
-		return "", errors.New("verified Agent mTLS identity is required")
-	}
-	identity := tlsInfo.State.PeerCertificates[0].Subject.CommonName
-	if identity == "" {
-		return "", errors.New("Agent certificate identity is empty")
-	}
-	return identity, nil
 }
 
 func rejection(code string, retryable bool, retryAfter time.Duration) *agentprotocolv1.SessionRejected {
