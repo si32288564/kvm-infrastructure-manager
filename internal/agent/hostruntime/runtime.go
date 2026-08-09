@@ -35,6 +35,7 @@ type Config struct {
 	SpoolMaxBytes             int64
 	FlushInterval             time.Duration
 	ReconnectBackoff          reconnect.Backoff
+	ExecutionBackends         []agentexecution.Backend
 }
 
 type durablePublisher struct {
@@ -106,6 +107,11 @@ func Run(ctx context.Context, config Config) error {
 		if err := module.RegisterBackend(statemarker.Backend{Directory: config.StateDirectory}); err != nil {
 			return err
 		}
+		for _, backend := range config.ExecutionBackends {
+			if err := module.RegisterBackend(backend); err != nil {
+				return err
+			}
+		}
 		if err := manager.RegisterModule(module); err != nil {
 			return err
 		}
@@ -148,6 +154,11 @@ func validate(config Config) error {
 	}
 	if _, err := config.ReconnectBackoff.Delay(1, 1); err != nil {
 		return fmt.Errorf("invalid Host Agent reconnect backoff: %w", err)
+	}
+	for _, backend := range config.ExecutionBackends {
+		if backend == nil {
+			return errors.New("nil typed execution backend is not allowed")
+		}
 	}
 	return nil
 }

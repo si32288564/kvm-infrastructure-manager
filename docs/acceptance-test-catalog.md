@@ -214,6 +214,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-021 | TLS/JWT credential 付き 3 node NATS、`kim-worker`、`kim-agent-gateway`、`kim-host-agent`、PostgreSQL を別 process で起動し、NATS leader kill 後の command、Gateway restart 後の explicit rearm、Agent 不在時 NAK、new session による stale Lease fence、Agent Receipt 後の spool delete が一つの campaign で成立する |
 | AT-EXEC-022 | 実 Gateway と Agent の間で Command 到達後の Receipt transport response だけを決定的に遮断し、Result/Observation/Receipt commit 後も spool が残り、Gateway/Agent restart と new session generation 後の同一 message replay が original accepted generation の単一 Receipt を回収して spool を一度だけ削除する |
 | AT-EXEC-023 | qualification-only PostgreSQL advisory-lock barrier で実 Gateway を Agent stream write 後かつ JetStream ACK 前に停止し、Gateway/Agent restart 後の durable redelivery が terminal Command を再 route せず、同一 Result/Receipt、単一 route Attempt、変更されない backend marker へ収束する |
+| AT-EXEC-024 | 標準 libvirt `qemu:///system` 上の KIM 専用 KVM Domain を closed typed power-state Command で起動し、write-before-execute journal 完了後・Result transport 前に Agent subprocess を killしても Domain が稼働継続し、journal再openと Domain UUID/state read-backが同じ Attemptへ`MATCHED` Verificationを生成する |
 
 ## 11. Placement / Migration
 

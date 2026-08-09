@@ -4,6 +4,8 @@ go 1.26.0
 
 require github.com/jackc/pgx/v5 v5.10.0
 
+require libvirt.org/go/libvirt v1.12005.0
+
 require (
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.12.12

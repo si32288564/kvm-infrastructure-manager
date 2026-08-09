@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	agentexecution "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtdomain"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/reconnect"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -36,6 +38,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	verifierDigest := set.String("verifier-digest", os.Getenv("KIM_AGENT_VERIFIER_DIGEST"), "Verifier artifact SHA-256")
 	credentialRevision := set.Int64("credential-binding-revision", 1, "current Credential Binding revision")
 	stateRoot := set.String("state-root", "/var/lib/kvm-infrastructure-manager/agent", "private Agent state root")
+	libvirtURI := set.String("libvirt-uri", os.Getenv("KIM_AGENT_LIBVIRT_URI"), "standard libvirt connection URI; empty disables VM power operations")
 	if err := set.Parse(args); err != nil {
 		return 2
 	}
@@ -51,7 +54,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	limits := session.QueueLimits{MaxMessageBytes: 4 << 20, MaxTotalMessages: 1024, MaxTotalBytes: 64 << 20, ReservedPriorityMsgs: 128, ReservedPriorityBytes: 4 << 20, MaxConsecutivePriority: 32, PerStreamMessages: map[session.Stream]int{session.StreamControl: 128, session.StreamCommand: 256, session.StreamResult: 256, session.StreamHeartbeat: 128, session.StreamCredential: 128, session.StreamInventory: 128, session.StreamResync: 128}}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}})
+	var executionBackends []agentexecution.Backend
+	if *libvirtURI != "" {
+		backend, closeBackend, backendErr := libvirtdomain.New(*libvirtURI)
+		if backendErr != nil {
+			fmt.Fprintf(stderr, "kim-host-agent libvirt error: %v\n", backendErr)
+			return 2
+		}
+		defer closeBackend()
+		executionBackends = append(executionBackends, backend)
+	}
+	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})
 	if err != nil {
 		fmt.Fprintf(stderr, "kim-host-agent stopped: %v\n", err)
 		return 1

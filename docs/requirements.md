@@ -216,6 +216,7 @@
 | CMP-007 | SR-IOV VF と PCI passthrough を割り当てられる | Should |
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
+| CMP-010 | VM power-state mutation を closed typed Command と標準 libvirt API に限定し、Agent process lossで Result が不明な場合は Domain UUID/state の read-back evidence で解決する | Must |
 
 ### 2.11 Scheduler
 
