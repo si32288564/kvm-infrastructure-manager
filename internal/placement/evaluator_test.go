@@ -99,6 +99,55 @@ func TestEvaluateNetworkIdentityAndBindingFailClosed(t *testing.T) {
 	}
 }
 
+func TestEvaluateLocalLVMCapacityAndSingleWriterFailClosed(t *testing.T) {
+	request := placementRequestFixture()
+	request.Storage = []StorageRequirement{{
+		VolumeID: "volume", AttachmentID: "attachment", BackendID: "backend",
+		BackendGeneration: 1, VGUUID: "vg-uuid", StorageClassID: "local-lvm",
+		StorageClassRevision: 1, CapacityGeneration: 1, AttachmentGeneration: 1,
+		FencingPolicyRevision: 1, SizeBytes: 8 << 30, AccessMode: "SINGLE_WRITER",
+	}}
+	authority := authorityFixture("host", "READY", 8, 4, 16*1024, 8*1024, 8)
+	authority.Storage = map[string]StorageAuthority{"volume": {
+		VolumeID: "volume", AttachmentID: "attachment", BackendID: "backend",
+		BackendType: "LOCAL_LVM", BackendGeneration: 1, BackendState: "ACTIVE",
+		BackendHostID: "host", VGUUID: "vg-uuid", BackendCapabilityGeneration: 1,
+		CapabilityState: "CURRENT", SupportTier: "VALIDATED", StorageClassID: "local-lvm", StorageClassRevision: 1,
+		StorageClassState: "ACTIVE", AllowedBackendType: "LOCAL_LVM", Locality: "HOST_LOCAL",
+		FencingPolicyRevision: 1, SingleWriterAllowed: true,
+		CapacityGeneration: 1, CapacityState: "CURRENT", HealthState: "HEALTHY",
+		TotalBytes: 20 << 30, ObservedFreeBytes: 16 << 30, HardReserveBytes: 4 << 30,
+	}}
+	evaluation, err := Evaluate(request, authority)
+	if err != nil || !evaluation.Eligible {
+		t.Fatalf("eligible Local LVM evaluation/error = %#v/%v", evaluation, err)
+	}
+
+	storage := authority.Storage["volume"]
+	storage.ClaimedBytes = 10 << 30
+	authority.Storage["volume"] = storage
+	blocked, err := Evaluate(request, authority)
+	if err != nil || blocked.Eligible || !contains(blocked.ReasonCodes, "storage:volume:insufficient_capacity") {
+		t.Fatalf("oversubscribed Local LVM evaluation/error = %#v/%v", blocked, err)
+	}
+
+	storage.ClaimedBytes = 0
+	storage.AttachmentConflict = true
+	authority.Storage["volume"] = storage
+	singleWriter, err := Evaluate(request, authority)
+	if err != nil || singleWriter.Eligible || !contains(singleWriter.ReasonCodes, "storage:volume:attachment_conflict") {
+		t.Fatalf("single-writer conflict evaluation/error = %#v/%v", singleWriter, err)
+	}
+
+	storage.AttachmentConflict = false
+	storage.BackendHostID = "other-host"
+	authority.Storage["volume"] = storage
+	locality, err := Evaluate(request, authority)
+	if err != nil || locality.Eligible || !contains(locality.ReasonCodes, "storage:volume:locality_or_capability_not_current") {
+		t.Fatalf("cross-Host Local LVM evaluation/error = %#v/%v", locality, err)
+	}
+}
+
 func placementRequestFixture() Request {
 	numa := uint32(2)
 	huge := uint64(1048576)

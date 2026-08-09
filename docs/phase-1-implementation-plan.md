@@ -24,8 +24,9 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 | P1-A07 | In Progress | CPU/NUMA/Memory/HugePages に加え、PCI/IOMMU/SR-IOV の raw evidence、PF/VF relationship、normalized projection、Qualification/Allocation authority skeleton を実装。Network/Storage/Virtualization と SR-IOV hardware qualification は継続 |
 | P1-B02〜B04 | Core Gate Complete / Hardening | PostgreSQL authority、durable delivery、distributed restart、UNKNOWN/read-back、remote KVM/libvirt convergence を実 process fault campaign で検証。disk-full、fsync latency、corrupt journal quarantine、STALE spool workflow、Secret Provider rotation は hardening として継続 |
 | P1-C01 | In Progress | immutable Image/Flavor revision、current lifecycle authority、checksum/signature fail-closed、canonical Flavor Placement shape を実装。[P1-C01 validation](validation/p1-c01-image-flavor-catalog-20260810.md) を保持。Image binary cache/signature provider と public API は継続 |
-| P1-C02 | In Progress | side-effect-free evaluator、eligible-only scoring/selection、current Pool membership、Compute/Memory/HugePages/qualified PCI VF/Network Identity/Port Binding ledger、transactional Final Admission foundation を実装。[P1-C02 validation](validation/p1-c02-placement-admission-foundation-20260810.md) と [P1-C03 validation](validation/p1-c03-network-admission-foundation-20260810.md) を保持。Storage/Quota claim と Job/Operation atomic commit は継続 |
+| P1-C02 | In Progress | side-effect-free evaluator、eligible-only scoring/selection、current Pool membership、Compute/Memory/HugePages/qualified PCI VF/Network/Local LVM Storage ledger、transactional Final Admission foundation を実装。[P1-C02 validation](validation/p1-c02-placement-admission-foundation-20260810.md)、[P1-C03 validation](validation/p1-c03-network-admission-foundation-20260810.md)、[P1-C04 validation](validation/p1-c04-local-lvm-admission-foundation-20260810.md) を保持。Quota claim と Job/Operation atomic commit は継続 |
 | P1-C03 | In Progress | VLAN Segment、explicit IP/MAC、Port identity、basic OVS/SR-IOV Port Binding を Final Admission に統合。automatic IPAM、release quarantine workflow、OVS/OVN realization は継続 |
+| P1-C04 | In Progress | Local LVM Backend/Class/capacity observation、Volume、Binding Intent、single-writer Attachment Claim を Final Admission に統合。typed LV create/attach/read-back と release/fencing workflow は継続 |
 
 ## 2. Implementation Principles
 
@@ -184,9 +185,9 @@ P1-A exit では、全 module を有効化しても一つの current Host sessio
 | ID | Deliverable | Dependency | Reuse / build decision | Exit evidence |
 |---|---|---|---|---|
 | P1-C01 | Image metadata/checksum と Flavor resource | B01 | immutable revision/current authority、integrity gate、lossless Placement shape を実装。Image binary cache/signature provider と public API を継続 | AT-IMG-001/002、AT-FLV-001 |
-| P1-C02 | dry eligibility/scoring/selection/transactional Final Admission | B01/B05/B06 | pure evaluator、eligible-only rank、current Pool membership、Compute/Memory/HugePages/qualified PCI VF/Network Identity/Port Binding reservation の同一 transaction commit を実装。Storage/Quota と Job/Operation 統合を継続 | AT-PLC-001〜009 |
+| P1-C02 | dry eligibility/scoring/selection/transactional Final Admission | B01/B05/B06 | pure evaluator、eligible-only rank、current Pool membership、Compute/Memory/HugePages/qualified PCI VF/Network/Local LVM Storage reservation の同一 transaction commit を実装。Quota と Job/Operation 統合を継続 | AT-PLC-001〜009 |
 | P1-C03 | VLAN/IPAM/MAC/Port Claim と basic Port Binding | A07/C02 | current Network/Subnet/Segment/Host mapping、explicit IP/MAC Claim、Port/Binding reservation を実装。automatic allocation、quarantine/release、OVS/OVN realization を継続 | AT-NET-002〜007 |
-| P1-C04 | Local LVM Volume/Attachment Claim/generation/single-writer | A07/C02 | reuse v1 disk/LVM adapter、new authority | AT-STO-001〜008 |
+| P1-C04 | Local LVM Volume/Attachment Claim/generation/single-writer | A07/C02 | Backend/Class/capacity observation、Volume/Binding Intent、single-writer Attachment Claim を実装。v1 LVM adapter の typed realization/read-back 接続を継続 | AT-STO-001〜008 |
 | P1-C05 | VM create/delete with typed libvirt module | C01〜C04/B02 | reuse v1 libvirt adapter、new lifecycle | AT-CMP-001〜003 |
 | P1-C06 | Availability Policy/VM Binding と Workload Resilience/Recovery Queue read-only model | B06/C02 | new model、no automatic recovery | AT-AVR-001〜005、AT-WRI-001 |
 | P1-C07 | OVS-DPDK capability discovery/read-only observation | A07 | reuse OVS/CPU/PCI collector、new schema | AT-DPL-001/002/009 |

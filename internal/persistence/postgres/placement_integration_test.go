@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	agentinventory "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/inventory"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
@@ -63,6 +64,20 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	storageBackendID, storageClassID, vgUUID := "storage-"+suffix, "local-lvm-"+suffix, "vg-uuid-"+suffix
+	if err := RegisterLocalLVMFoundation(ctx, pool, LocalLVMFoundation{
+		BackendID: storageBackendID, HostID: hostID, VGUUID: vgUUID,
+		BackendState: "ACTIVE", BackendGeneration: 1,
+		CapabilityState: "CURRENT", HostCapabilityGeneration: 1, SupportTier: "VALIDATED",
+		StorageClassID: storageClassID, StorageClassRevision: 1, ClassState: "ACTIVE",
+		FencingPolicyRevision: 1, ThinProvisioning: false, EncryptionRequired: false,
+		CapacityObservationID: "storage-observation-" + suffix,
+		CapacityGeneration:    1, CapacityState: "CURRENT", HealthState: "HEALTHY",
+		TotalBytes: 40 << 30, ObservedFreeBytes: 36 << 30,
+		ExternalOrUnknownBytes: 0, HardReserveBytes: 4 << 30, ObservedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: hostID, CapabilityGeneration: 1, BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED", ComplianceGeneration: 1, ComplianceState: "COMPLIANT"}); err != nil {
 		t.Fatal(err)
 	}
@@ -96,6 +111,13 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
 			IPAddress: "192.0.2.10", MACAddress: "02:00:00:00:00:10",
 			BindingType: "SRIOV_DIRECT", DeviceAddress: "0000:03:00.1", RequiredMTU: 1500,
+		}},
+		Storage: []placement.StorageRequirement{{
+			VolumeID: "volume-" + suffix, AttachmentID: "attachment-" + suffix,
+			BackendID: storageBackendID, BackendGeneration: 1, VGUUID: vgUUID,
+			StorageClassID: storageClassID, StorageClassRevision: 1,
+			CapacityGeneration: 1, AttachmentGeneration: 1, FencingPolicyRevision: 1,
+			SizeBytes: 8 << 30, AccessMode: "SINGLE_WRITER",
 		}},
 	}
 	excludedRequest := request
@@ -139,6 +161,9 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	competingRequest.WorkloadID = "vm-competing-" + suffix
 	competingRequest.Network = append([]placement.NetworkRequirement(nil), request.Network...)
 	competingRequest.Network[0].PortID = "port-competing-" + suffix
+	competingRequest.Storage = cloneStorageRequirements(request.Storage)
+	competingRequest.Storage[0].VolumeID = "volume-competing-" + suffix
+	competingRequest.Storage[0].AttachmentID = "attachment-competing-" + suffix
 	competing, err := DryEvaluatePlacement(ctx, pool, competingRequest, hostID)
 	if err != nil || !competing.Eligible {
 		t.Fatalf("competing dry evaluation/error = %#v/%v", competing, err)
@@ -201,6 +226,12 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if _, err := FinalAdmitPlacement(ctx, pool, changedNetwork, winner.evaluation); !errors.Is(err, ErrPlacementConflict) {
 		t.Fatalf("request identity reused with different Network requirements: %v", err)
 	}
+	changedStorage := winner.request
+	changedStorage.Storage = cloneStorageRequirements(winner.request.Storage)
+	changedStorage.Storage[0].CapacityGeneration++
+	if _, err := FinalAdmitPlacement(ctx, pool, changedStorage, winner.evaluation); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("request identity reused with different Storage requirements: %v", err)
+	}
 
 	// A second concurrent pair has distinct Ports and no PCI requirement. Its
 	// only shared scarce authority is the IP/MAC identity, proving Network
@@ -214,10 +245,16 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
 		IPAddress: "192.0.2.11", MACAddress: "02:00:00:00:00:11", BindingType: "OVS", RequiredMTU: 1500,
 	}}
+	networkOnlyA.Storage = cloneStorageRequirements(request.Storage)
+	networkOnlyA.Storage[0].VolumeID = "volume-network-a-" + suffix
+	networkOnlyA.Storage[0].AttachmentID = "attachment-network-a-" + suffix
 	networkOnlyB := networkOnlyA
 	networkOnlyB.RequestID, networkOnlyB.WorkloadID = "request-network-b-"+suffix, "vm-network-b-"+suffix
 	networkOnlyB.Network = append([]placement.NetworkRequirement(nil), networkOnlyA.Network...)
 	networkOnlyB.Network[0].PortID = "port-network-b-" + suffix
+	networkOnlyB.Storage = cloneStorageRequirements(networkOnlyA.Storage)
+	networkOnlyB.Storage[0].VolumeID = "volume-network-b-" + suffix
+	networkOnlyB.Storage[0].AttachmentID = "attachment-network-b-" + suffix
 	dryNetworkA, err := DryEvaluatePlacement(ctx, pool, networkOnlyA, hostID)
 	if err != nil || !dryNetworkA.Eligible {
 		t.Fatalf("network-only A dry evaluation/error = %#v/%v", dryNetworkA, err)
@@ -254,6 +291,71 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if networkSuccesses != 1 || networkRejected != 1 {
 		t.Fatalf("concurrent Network Final Admission success/rejected = %d/%d", networkSuccesses, networkRejected)
 	}
+
+	// With distinct Network and Volume identities, two 12 GiB requests are
+	// independently eligible against 20 GiB remaining. Backend-scoped locking
+	// and current capacity re-evaluation permit exactly one to commit.
+	storageOnlyA := request
+	storageOnlyA.RequestID, storageOnlyA.WorkloadID = "request-storage-a-"+suffix, "vm-storage-a-"+suffix
+	storageOnlyA.PCI = nil
+	storageOnlyA.Network = []placement.NetworkRequirement{{
+		PortID: "port-storage-a-" + suffix, NetworkID: networkID, NetworkGeneration: 1,
+		SubnetID: subnetID, SubnetGeneration: 1,
+		SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
+		IPAddress: "192.0.2.12", MACAddress: "02:00:00:00:00:12", BindingType: "OVS", RequiredMTU: 1500,
+	}}
+	storageOnlyA.Storage = []placement.StorageRequirement{{
+		VolumeID: "volume-storage-a-" + suffix, AttachmentID: "attachment-storage-a-" + suffix,
+		BackendID: storageBackendID, BackendGeneration: 1, VGUUID: vgUUID,
+		StorageClassID: storageClassID, StorageClassRevision: 1,
+		CapacityGeneration: 1, AttachmentGeneration: 1, FencingPolicyRevision: 1,
+		SizeBytes: 12 << 30, AccessMode: "SINGLE_WRITER",
+	}}
+	storageOnlyB := storageOnlyA
+	storageOnlyB.RequestID, storageOnlyB.WorkloadID = "request-storage-b-"+suffix, "vm-storage-b-"+suffix
+	storageOnlyB.Network = append([]placement.NetworkRequirement(nil), storageOnlyA.Network...)
+	storageOnlyB.Network[0].PortID = "port-storage-b-" + suffix
+	storageOnlyB.Network[0].IPAddress = "192.0.2.13"
+	storageOnlyB.Network[0].MACAddress = "02:00:00:00:00:13"
+	storageOnlyB.Storage = cloneStorageRequirements(storageOnlyA.Storage)
+	storageOnlyB.Storage[0].VolumeID = "volume-storage-b-" + suffix
+	storageOnlyB.Storage[0].AttachmentID = "attachment-storage-b-" + suffix
+	dryStorageA, err := DryEvaluatePlacement(ctx, pool, storageOnlyA, hostID)
+	if err != nil || !dryStorageA.Eligible {
+		t.Fatalf("storage-only A dry evaluation/error = %#v/%v", dryStorageA, err)
+	}
+	dryStorageB, err := DryEvaluatePlacement(ctx, pool, storageOnlyB, hostID)
+	if err != nil || !dryStorageB.Eligible {
+		t.Fatalf("storage-only B dry evaluation/error = %#v/%v", dryStorageB, err)
+	}
+	startStorage := make(chan struct{})
+	storageResults := make(chan error, 2)
+	for _, candidate := range []struct {
+		request    PlacementAdmissionRequest
+		evaluation placement.Evaluation
+	}{{storageOnlyA, dryStorageA}, {storageOnlyB, dryStorageB}} {
+		candidate := candidate
+		go func() {
+			<-startStorage
+			_, err := FinalAdmitPlacement(ctx, pool, candidate.request, candidate.evaluation)
+			storageResults <- err
+		}()
+	}
+	close(startStorage)
+	storageSuccesses, storageRejected := 0, 0
+	for range 2 {
+		switch err := <-storageResults; {
+		case err == nil:
+			storageSuccesses++
+		case errors.Is(err, ErrPlacementIneligible):
+			storageRejected++
+		default:
+			t.Fatalf("concurrent Storage Final Admission error = %v", err)
+		}
+	}
+	if storageSuccesses != 1 || storageRejected != 1 {
+		t.Fatalf("concurrent Storage Final Admission success/rejected = %d/%d", storageSuccesses, storageRejected)
+	}
 	var decisions, claims int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.placement_admission_decisions WHERE host_id=$1`, hostID).Scan(&decisions); err != nil {
 		t.Fatal(err)
@@ -261,7 +363,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.compute_allocation_claims WHERE host_id=$1`, hostID).Scan(&claims); err != nil {
 		t.Fatal(err)
 	}
-	if decisions != 2 || claims != 2 {
+	if decisions != 3 || claims != 3 {
 		t.Fatalf("decision/claim count = %d/%d", decisions, claims)
 	}
 	var vfClaims int
@@ -279,9 +381,60 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	`, networkID).Scan(&ports, &identities, &bindings); err != nil {
 		t.Fatal(err)
 	}
-	if ports != 2 || identities != 4 || bindings != 2 {
+	if ports != 3 || identities != 6 || bindings != 3 {
 		t.Fatalf("atomic Network Port/identity/binding claims = %d/%d/%d", ports, identities, bindings)
 	}
+	var volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs int
+	if err := pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM kim.volumes_current),
+		       (SELECT count(*) FROM kim.storage_capacity_claims),
+		       (SELECT count(*) FROM kim.volume_backend_binding_intents),
+		       (SELECT count(*) FROM kim.volume_attachments_current),
+		       (SELECT count(*) FROM kim.volume_attachment_claims),
+		       (SELECT count(*) FROM kim.volume_backend_binding_intents WHERE observed_lv_uuid IS NOT NULL)
+	`).Scan(&volumes, &capacityClaims, &storageBindings, &attachments, &attachmentClaims, &prematureLVUUIDs); err != nil {
+		t.Fatal(err)
+	}
+	if volumes != 3 || capacityClaims != 3 || storageBindings != 3 || attachments != 3 || attachmentClaims != 3 || prematureLVUUIDs != 0 {
+		t.Fatalf("atomic Storage Volume/capacity/binding/attachment claims = %d/%d/%d/%d/%d premature-lv=%d", volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs)
+	}
+	winnerVolumeID := winner.request.Storage[0].VolumeID
+	secondWriterErr := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		secondAttachmentID := "attachment-second-writer-" + suffix
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.volume_attachments_current (
+				attachment_id, placement_admission_id, volume_id, workload_id,
+				desired_host_id, attachment_generation, access_mode, desired_state
+			) VALUES ($1,$2,$3,$4,$5,2,'SINGLE_WRITER','RESERVED')
+		`, secondAttachmentID, winner.admission.AdmissionID, winnerVolumeID,
+			"vm-second-writer-"+suffix, hostID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO kim.volume_attachment_claims (
+				attachment_claim_id, placement_admission_id, attachment_id, volume_id,
+				workload_id, host_id, attachment_generation, access_mode,
+				fencing_policy_revision, claim_state
+			) VALUES ($1,$2,$3,$4,$5,$6,2,'SINGLE_WRITER',1,'RESERVED')
+		`, "claim-second-writer-"+suffix, winner.admission.AdmissionID,
+			secondAttachmentID, winnerVolumeID, "vm-second-writer-"+suffix, hostID)
+		return err
+	})
+	if secondWriterErr == nil {
+		t.Fatal("PostgreSQL accepted a second active SINGLE_WRITER Attachment Claim")
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.volume_attachment_claims WHERE volume_id=$1`, winnerVolumeID).Scan(&attachmentClaims); err != nil {
+		t.Fatal(err)
+	}
+	if attachmentClaims != 1 {
+		t.Fatalf("single-writer Attachment Claim count = %d", attachmentClaims)
+	}
+}
+
+func cloneStorageRequirements(requirements []placement.StorageRequirement) []placement.StorageRequirement {
+	result := make([]placement.StorageRequirement, len(requirements))
+	copy(result, requirements)
+	return result
 }
 
 func containsReason(reasons []string, expected string) bool {
@@ -352,9 +505,9 @@ func qualifyPlacementVF(t *testing.T, ctx context.Context, db *pgxpool.Pool, hos
 
 func placementMutationCounts(t *testing.T, ctx context.Context, db QueryRower) string {
 	t.Helper()
-	var decisions, claims, vfClaims, ports, identities, bindings int
-	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.placement_admission_decisions), (SELECT count(*) FROM kim.compute_allocation_claims), (SELECT count(*) FROM kim.pci_vf_allocation_claims), (SELECT count(*) FROM kim.network_ports_current), (SELECT count(*) FROM kim.network_identity_claims), (SELECT count(*) FROM kim.port_bindings_current)`).Scan(&decisions, &claims, &vfClaims, &ports, &identities, &bindings); err != nil {
+	var decisions, claims, vfClaims, ports, identities, bindings, volumes, capacityClaims, attachmentClaims int
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.placement_admission_decisions), (SELECT count(*) FROM kim.compute_allocation_claims), (SELECT count(*) FROM kim.pci_vf_allocation_claims), (SELECT count(*) FROM kim.network_ports_current), (SELECT count(*) FROM kim.network_identity_claims), (SELECT count(*) FROM kim.port_bindings_current), (SELECT count(*) FROM kim.volumes_current), (SELECT count(*) FROM kim.storage_capacity_claims), (SELECT count(*) FROM kim.volume_attachment_claims)`).Scan(&decisions, &claims, &vfClaims, &ports, &identities, &bindings, &volumes, &capacityClaims, &attachmentClaims); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf("%d/%d/%d/%d/%d/%d", decisions, claims, vfClaims, ports, identities, bindings)
+	return fmt.Sprintf("%d/%d/%d/%d/%d/%d/%d/%d/%d", decisions, claims, vfClaims, ports, identities, bindings, volumes, capacityClaims, attachmentClaims)
 }

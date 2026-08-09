@@ -25,6 +25,7 @@ type Request struct {
 	ExtraSpecs                                                  map[string]string
 	PCI                                                         []PCIRequirement
 	Network                                                     []NetworkRequirement
+	Storage                                                     []StorageRequirement
 }
 
 type PCIRequirement struct {
@@ -39,6 +40,16 @@ type NetworkRequirement struct {
 	NetworkGeneration, SubnetGeneration, SegmentGeneration uint64
 	HostMappingGeneration                                  uint64
 	RequiredMTU                                            uint32
+}
+
+type StorageRequirement struct {
+	VolumeID, AttachmentID, BackendID, VGUUID, StorageClassID string
+	BackendGeneration, StorageClassRevision                   uint64
+	CapacityGeneration, AttachmentGeneration                  uint64
+	FencingPolicyRevision                                     uint64
+	SizeBytes                                                 uint64
+	AccessMode                                                string
+	Bootable                                                  bool
 }
 
 type PCIDeviceAuthority struct {
@@ -64,6 +75,21 @@ type NetworkAuthority struct {
 	BindingSupported                                       bool
 }
 
+type StorageAuthority struct {
+	VolumeID, AttachmentID, BackendID, BackendType, BackendState string
+	BackendHostID, VGUUID, CapabilityState, SupportTier          string
+	StorageClassID, StorageClassState, AllowedBackendType        string
+	Locality, CapacityState, HealthState                         string
+	BackendGeneration, BackendCapabilityGeneration               uint64
+	StorageClassRevision, FencingPolicyRevision                  uint64
+	CapacityGeneration                                           uint64
+	TotalBytes, ObservedFreeBytes, ExternalOrUnknownBytes        uint64
+	HardReserveBytes, ClaimedBytes                               uint64
+	SingleWriterAllowed                                          bool
+	ThinProvisioning, EncryptionRequired                         bool
+	VolumeConflict, AttachmentConflict                           bool
+}
+
 type AuthoritySnapshot struct {
 	DatabaseMode                                                            string
 	HostID, PoolID                                                          string
@@ -80,6 +106,7 @@ type AuthoritySnapshot struct {
 	ClaimedHugePages                                                        map[uint64]uint64
 	PCIDevices                                                              map[string]PCIDeviceAuthority
 	Networks                                                                map[string]NetworkAuthority
+	Storage                                                                 map[string]StorageAuthority
 }
 
 type RequiredClaim struct {
@@ -143,6 +170,18 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		}
 		ipIdentities[ipKey], macIdentities[macKey] = struct{}{}, struct{}{}
 	}
+	request.Storage = append([]StorageRequirement(nil), request.Storage...)
+	sort.Slice(request.Storage, func(i, j int) bool { return request.Storage[i].VolumeID < request.Storage[j].VolumeID })
+	attachments := map[string]struct{}{}
+	for index, required := range request.Storage {
+		if required.VolumeID == "" || required.AttachmentID == "" || required.BackendID == "" || required.VGUUID == "" || required.BackendGeneration == 0 || required.StorageClassID == "" || required.StorageClassRevision == 0 || required.CapacityGeneration == 0 || required.AttachmentGeneration == 0 || required.FencingPolicyRevision == 0 || required.SizeBytes == 0 || required.AccessMode != "SINGLE_WRITER" || (index > 0 && request.Storage[index-1].VolumeID == required.VolumeID) {
+			return Evaluation{}, fmt.Errorf("invalid or duplicate Storage requirement for Volume %q", required.VolumeID)
+		}
+		if _, duplicate := attachments[required.AttachmentID]; duplicate {
+			return Evaluation{}, fmt.Errorf("duplicate Storage Attachment %q", required.AttachmentID)
+		}
+		attachments[required.AttachmentID] = struct{}{}
+	}
 	requestDigest, err := digest(request)
 	if err != nil {
 		return Evaluation{}, err
@@ -203,6 +242,26 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		addReason(network.IdentityConflict, prefix+"identity_claim_conflict")
 		addReason(network.PortConflict, prefix+"port_conflict")
 		addReason(!network.BindingSupported, prefix+"binding_not_supported")
+	}
+	for _, required := range request.Storage {
+		storage, present := authority.Storage[required.VolumeID]
+		prefix := "storage:" + required.VolumeID + ":"
+		addReason(!present, prefix+"authority_missing")
+		if !present {
+			continue
+		}
+		addReason(storage.BackendID != required.BackendID || storage.BackendType != "LOCAL_LVM" || storage.BackendState != "ACTIVE" || storage.BackendGeneration != required.BackendGeneration || (storage.SupportTier != "VALIDATED" && storage.SupportTier != "SUPPORTED"), prefix+"backend_not_current")
+		addReason(storage.BackendHostID != authority.HostID || storage.VGUUID != required.VGUUID || storage.CapabilityState != "CURRENT" || storage.BackendCapabilityGeneration != authority.CapabilityGeneration, prefix+"locality_or_capability_not_current")
+		addReason(storage.StorageClassID != required.StorageClassID || storage.StorageClassRevision != required.StorageClassRevision || storage.StorageClassState != "ACTIVE" || storage.AllowedBackendType != "LOCAL_LVM" || storage.Locality != "HOST_LOCAL" || !storage.SingleWriterAllowed || storage.ThinProvisioning || storage.EncryptionRequired || storage.FencingPolicyRevision != required.FencingPolicyRevision, prefix+"storage_class_not_current")
+		addReason(storage.CapacityGeneration != required.CapacityGeneration || storage.CapacityState != "CURRENT" || storage.HealthState != "HEALTHY", prefix+"capacity_not_current")
+		ledgerAvailable := saturatingSubtract(storage.TotalBytes, saturatingAdd(storage.HardReserveBytes, storage.ClaimedBytes))
+		observedAvailable := saturatingSubtract(storage.ObservedFreeBytes, storage.ExternalOrUnknownBytes)
+		if observedAvailable < ledgerAvailable {
+			ledgerAvailable = observedAvailable
+		}
+		addReason(ledgerAvailable < required.SizeBytes, prefix+"insufficient_capacity")
+		addReason(storage.VolumeConflict, prefix+"volume_conflict")
+		addReason(storage.AttachmentConflict, prefix+"attachment_conflict")
 	}
 
 	capacity, capacityReasons := extractCapacity(authority.Inventory, request)
@@ -334,6 +393,14 @@ func saturatingSubtract(total, used uint64) uint64 {
 		return 0
 	}
 	return total - used
+}
+
+func saturatingAdd(left, right uint64) uint64 {
+	result := left + right
+	if result < left {
+		return ^uint64(0)
+	}
+	return result
 }
 
 func ceilDivide(value, divisor uint64) uint64 {

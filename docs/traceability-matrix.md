@@ -203,12 +203,12 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | NET-032 | network-resource-architecture, data-persistence-architecture | ADR-0018, ADR-0020 | INV-NET-017 | AT-NET-021, FI-NET-015 | Planned |
 | NET-033 | network-resource-architecture, failure-model | ADR-0010, ADR-0020 | INV-NET-018 | AT-NET-022, FI-NET-016, XCT-NET-005 | Planned |
 | NET-034, NET-035 | network-resource-architecture, security, extensibility-architecture | ADR-0011, ADR-0020 | INV-NET-020, INV-SEC-002 | AT-NET-023, AT-NET-024, AT-NET-025, FI-NET-017, XCT-NET-006 | Planned |
-| STO-001, STO-002, STO-008, STO-011, STO-012 | storage-attachment-fencing-architecture, execution-architecture, placement-architecture | ADR-0006, ADR-0007, ADR-0019 | INV-STO-003, INV-STO-006, INV-STO-007, INV-STO-008 | AT-STO-001, AT-STO-003, AT-STO-006, AT-STO-007, AT-STO-008, AT-STO-016, AT-STO-017, FI-STORAGE-001, FI-STORAGE-004, FI-STORAGE-012, FI-STORAGE-013 | Planned |
-| STO-003, STO-017 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-012 | AT-STO-012, FI-STORAGE-009 | Planned |
+| STO-001, STO-002, STO-008, STO-011, STO-012 | storage-attachment-fencing-architecture, execution-architecture, placement-architecture | ADR-0006, ADR-0007, ADR-0019 | INV-STO-003, INV-STO-006, INV-STO-007, INV-STO-008 | AT-STO-001, AT-STO-003, AT-STO-006, AT-STO-007, AT-STO-008, AT-STO-016, AT-STO-017, FI-STORAGE-001, FI-STORAGE-004, FI-STORAGE-012, FI-STORAGE-013 | Partial (Volume/Binding Intent/Attachment Claim reservation implemented; typed realization, verification, detach/release pending) |
+| STO-003, STO-017 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-012 | AT-STO-012, FI-STORAGE-009 | Partial (Host/VG UUID Local LVM binding intent implemented; observed LV UUID and hardware qualification pending) |
 | STO-004, STO-016 | storage-attachment-fencing-architecture, security | ADR-0011, ADR-0019 | INV-STO-011 | AT-STO-011, FI-STORAGE-002, FI-STORAGE-006, FI-STORAGE-010, XCT-STO-001 | Planned |
 | STO-005, STO-020 | storage-attachment-fencing-architecture | ADR-0019 | INV-STO-015 | AT-STO-015, FI-STORAGE-012 | Planned |
-| STO-006, STO-007 | storage-attachment-fencing-architecture, extensibility-architecture | ADR-0011, ADR-0019 | INV-STO-002 | AT-STO-002, AT-STO-021, AT-STO-022, XCT-CAP-001, XCT-STO-001, XCT-STO-006 | Planned |
-| STO-009, STO-010 | storage-attachment-fencing-architecture | ADR-0019 | INV-STO-004, INV-STO-005 | AT-STO-004, AT-STO-005, FI-STORAGE-003 | Planned |
+| STO-006, STO-007 | storage-attachment-fencing-architecture, extensibility-architecture | ADR-0011, ADR-0019 | INV-STO-002 | AT-STO-002, AT-STO-021, AT-STO-022, XCT-CAP-001, XCT-STO-001, XCT-STO-006 | Partial (Local LVM Backend/Class/capability generation implemented; adapter conformance and additional profiles pending) |
+| STO-009, STO-010 | storage-attachment-fencing-architecture | ADR-0019 | INV-STO-004, INV-STO-005 | AT-STO-004, AT-STO-005, FI-STORAGE-003 | Partial (PostgreSQL SINGLE_WRITER exclusion implemented; READ_ONLY_MANY pending) |
 | STO-013, STO-014, STO-015 | storage-attachment-fencing-architecture, execution-architecture, failure-model | ADR-0007, ADR-0010, ADR-0019 | INV-STO-001, INV-STO-008, INV-STO-009, INV-STO-010 | AT-STO-008, AT-STO-009, AT-STO-010, FI-STORAGE-005, FI-STORAGE-006, FI-STORAGE-007 | Planned |
 | STO-018 | storage-attachment-fencing-architecture, availability-responsibility-architecture | ADR-0010, ADR-0015, ADR-0019 | INV-STO-013 | AT-STO-013, FI-STORAGE-008, FI-STORAGE-010 | Planned |
 | STO-019 | storage-attachment-fencing-architecture, placement-architecture, execution-architecture | ADR-0006, ADR-0007, ADR-0019 | INV-STO-014 | AT-STO-014, FI-STORAGE-011 | Planned |
@@ -217,7 +217,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | STO-024 | storage-attachment-fencing-architecture, security, extensibility-architecture | ADR-0011, ADR-0019 | INV-STO-011, INV-SEC-002 | AT-STO-011, AT-STO-020, XCT-STO-005 | Planned |
 | STO-025 | storage-attachment-fencing-architecture, failure-model | ADR-0010, ADR-0019 | INV-STO-017 | AT-STO-018, FI-STORAGE-014, XCT-STO-002, XCT-STO-004 | Planned |
 | STO-026 | storage-attachment-fencing-architecture, security | ADR-0019 | INV-STO-018 | AT-STO-019, FI-STORAGE-015, FI-STORAGE-016, XCT-STO-003 | Planned |
-| STO-027 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-019, INV-PLC-004 | AT-STO-023, FI-STORAGE-017 | Planned |
+| STO-027 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-019, INV-PLC-004 | AT-STO-023, FI-STORAGE-017 | Partial (reserved ledger and observed/external capacity admission implemented; verified release/reuse pending) |
 
 ### NFV Dataplane
 

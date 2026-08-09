@@ -36,6 +36,7 @@ type PlacementAdmissionRequest struct {
 	RequestID, ProjectID, WorkloadID, ImageID, FlavorID, PoolID string
 	PCI                                                         []placement.PCIRequirement
 	Network                                                     []placement.NetworkRequirement
+	Storage                                                     []placement.StorageRequirement
 }
 
 type PlacementAdmission struct {
@@ -117,6 +118,7 @@ func DryEvaluatePlacement(ctx context.Context, db TxBeginner, request PlacementA
 	}
 	request.PCI = normalizePlacementPCIRequirements(request.PCI)
 	request.Network = normalizePlacementNetworkRequirements(request.Network)
+	request.Storage = normalizePlacementStorageRequirements(request.Storage)
 	var evaluation placement.Evaluation
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		var err error
@@ -134,11 +136,16 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 	}
 	request.PCI = normalizePlacementPCIRequirements(request.PCI)
 	request.Network = normalizePlacementNetworkRequirements(request.Network)
+	request.Storage = normalizePlacementStorageRequirements(request.Storage)
 	pciRequirementsPayload, pciRequirementsDigest, err := placementPCIRequirementsPayload(request.PCI)
 	if err != nil {
 		return PlacementAdmission{}, err
 	}
 	networkRequirementsPayload, networkRequirementsDigest, err := placementNetworkRequirementsPayload(request.Network)
+	if err != nil {
+		return PlacementAdmission{}, err
+	}
+	storageRequirementsPayload, storageRequirementsDigest, err := placementStorageRequirementsPayload(request.Storage)
 	if err != nil {
 		return PlacementAdmission{}, err
 	}
@@ -151,22 +158,22 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return err
 		}
 		var existing PlacementAdmission
-		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest, existingNetworkDigest string
+		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest, existingNetworkDigest, existingStorageDigest string
 		err := tx.QueryRow(ctx, `
 			SELECT decision.admission_id, claim.allocation_id, decision.request_id,
 			       decision.request_digest, decision.host_id, decision.pool_id,
 			       decision.evaluation_digest, decision.project_id, decision.workload_id,
 			       decision.image_id, decision.flavor_id, decision.pci_requirements_digest,
-			       decision.network_requirements_digest
+			       decision.network_requirements_digest, decision.storage_requirements_digest
 			FROM kim.placement_admission_decisions decision
 			JOIN kim.compute_allocation_claims claim ON claim.admission_id=decision.admission_id
 			WHERE decision.request_id=$1
 		`, request.RequestID).Scan(&existing.AdmissionID, &existing.AllocationID, &existing.RequestID,
 			&existing.RequestDigest, &existing.HostID, &existing.PoolID, &existing.EvaluationDigest,
 			&existingProjectID, &existingWorkloadID, &existingImageID, &existingFlavorID,
-			&existingPCIDigest, &existingNetworkDigest)
+			&existingPCIDigest, &existingNetworkDigest, &existingStorageDigest)
 		if err == nil {
-			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest || existingNetworkDigest != networkRequirementsDigest {
+			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest || existingNetworkDigest != networkRequirementsDigest || existingStorageDigest != storageRequirementsDigest {
 				return ErrPlacementConflict
 			}
 			admission = existing
@@ -190,6 +197,12 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return err
 		}
 		if err := lockNetworkAuthorityRows(ctx, tx, dry.HostID, request.Network); err != nil {
+			return err
+		}
+		if err := lockStorageRequirementKeys(ctx, tx, request.Storage); err != nil {
+			return err
+		}
+		if err := lockStorageAuthorityRows(ctx, tx, dry.HostID, request.Storage); err != nil {
 			return err
 		}
 		current, err := evaluatePlacementTx(ctx, tx, request, dry.HostID)
@@ -221,8 +234,9 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				baseline_assignment_generation, preflight_generation,
 				compliance_generation, pci_requirements, pci_requirements_digest,
 				network_requirements, network_requirements_digest,
+				storage_requirements, storage_requirements_digest,
 				decision_state, explanation
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'ACCEPTED',$26)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,'ACCEPTED',$28)
 		`, admission.AdmissionID, request.RequestID, current.RequestDigest, current.EvaluationDigest,
 			request.ProjectID, request.WorkloadID, current.HostID, current.PoolID,
 			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration,
@@ -231,7 +245,8 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			current.CapabilityGeneration, current.BaselineAssignmentGeneration,
 			current.PreflightGeneration, current.ComplianceGeneration,
 			pciRequirementsPayload, pciRequirementsDigest,
-			networkRequirementsPayload, networkRequirementsDigest, explanation)
+			networkRequirementsPayload, networkRequirementsDigest,
+			storageRequirementsPayload, storageRequirementsDigest, explanation)
 		if err != nil {
 			return fmt.Errorf("record Placement admission decision: %w", err)
 		}
@@ -252,6 +267,11 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 		}
 		for _, required := range request.Network {
 			if err := claimNetworkPortTx(ctx, tx, admission.AdmissionID, request, current, required); err != nil {
+				return err
+			}
+		}
+		for _, required := range request.Storage {
+			if err := claimLocalLVMStorageTx(ctx, tx, admission.AdmissionID, request, current, required); err != nil {
 				return err
 			}
 		}
@@ -305,6 +325,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		CatalogAccessAllowed: catalogAccessAllowed,
 		PCI:                  request.PCI,
 		Network:              request.Network,
+		Storage:              request.Storage,
 	}
 	var authority placement.AuthoritySnapshot
 	var snapshotPayload []byte
@@ -350,6 +371,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 	authority.ClaimedHugePages = map[uint64]uint64{}
 	authority.PCIDevices = map[string]placement.PCIDeviceAuthority{}
 	authority.Networks = map[string]placement.NetworkAuthority{}
+	authority.Storage = map[string]placement.StorageAuthority{}
 	rows, err := queryHugePageClaims(ctx, row, hostID)
 	if err != nil {
 		return placement.Evaluation{}, err
@@ -373,6 +395,15 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		}
 		if found {
 			authority.Networks[required.PortID] = network
+		}
+	}
+	for _, required := range request.Storage {
+		storage, found, err := loadStorageAuthority(ctx, row, hostID, required)
+		if err != nil {
+			return placement.Evaluation{}, err
+		}
+		if found {
+			authority.Storage[required.VolumeID] = storage
 		}
 	}
 	authority.Inventory, err = agentinventory.DecodeSnapshot(snapshotPayload)
@@ -554,6 +585,167 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 	return nil
 }
 
+func loadStorageAuthority(ctx context.Context, row QueryRower, hostID string, required placement.StorageRequirement) (placement.StorageAuthority, bool, error) {
+	var authority placement.StorageAuthority
+	err := row.QueryRow(ctx, `
+		SELECT $3, $4, backend.backend_id, backend.backend_type,
+		       backend.backend_generation, backend.lifecycle_state, backend.host_id,
+		       backend.vg_uuid, backend.capability_generation, backend.capability_state,
+		       backend.support_tier,
+		       class_current.storage_class_id, class_current.class_revision,
+		       class_current.lifecycle_state, class_evidence.allowed_backend_type,
+		       class_evidence.locality, class_evidence.fencing_policy_revision,
+		       class_evidence.thin_provisioning, class_evidence.encryption_required,
+		       ('SINGLE_WRITER' = ANY(class_evidence.access_modes)),
+		       capacity_current.capacity_generation, capacity_current.projection_state,
+		       capacity.health_state, capacity.total_bytes, capacity.observed_free_bytes,
+		       capacity.external_or_unknown_bytes, capacity.hard_reserve_bytes,
+		       COALESCE(claims.reserved_bytes,0),
+		       EXISTS (SELECT 1 FROM kim.volumes_current volume WHERE volume.volume_id=$3),
+		       EXISTS (SELECT 1 FROM kim.volume_attachments_current attachment WHERE attachment.attachment_id=$4)
+		FROM kim.storage_backends_current backend
+		JOIN kim.storage_classes_current class_current
+		  ON class_current.storage_class_id=$5
+		JOIN kim.storage_class_revision_evidence class_evidence
+		  ON class_evidence.storage_class_id=class_current.storage_class_id
+		 AND class_evidence.class_revision=class_current.class_revision
+		JOIN kim.storage_capacity_projections_current capacity_current
+		  ON capacity_current.backend_id=backend.backend_id
+		JOIN kim.storage_capacity_observation_evidence capacity
+		  ON capacity.observation_id=capacity_current.observation_id
+		LEFT JOIN LATERAL (
+		    SELECT sum(reserved_bytes) reserved_bytes
+		    FROM kim.storage_capacity_claims
+		    WHERE backend_id=backend.backend_id
+		      AND claim_state IN ('RESERVED','ALLOCATED','RELEASE_PENDING','QUARANTINED')
+		) claims ON true
+		WHERE backend.backend_id=$1 AND backend.host_id=$2
+	`, required.BackendID, hostID, required.VolumeID, required.AttachmentID,
+		required.StorageClassID).Scan(
+		&authority.VolumeID, &authority.AttachmentID, &authority.BackendID,
+		&authority.BackendType, &authority.BackendGeneration, &authority.BackendState,
+		&authority.BackendHostID, &authority.VGUUID,
+		&authority.BackendCapabilityGeneration, &authority.CapabilityState,
+		&authority.SupportTier,
+		&authority.StorageClassID, &authority.StorageClassRevision,
+		&authority.StorageClassState, &authority.AllowedBackendType,
+		&authority.Locality, &authority.FencingPolicyRevision,
+		&authority.ThinProvisioning, &authority.EncryptionRequired,
+		&authority.SingleWriterAllowed, &authority.CapacityGeneration,
+		&authority.CapacityState, &authority.HealthState, &authority.TotalBytes,
+		&authority.ObservedFreeBytes, &authority.ExternalOrUnknownBytes,
+		&authority.HardReserveBytes, &authority.ClaimedBytes,
+		&authority.VolumeConflict, &authority.AttachmentConflict,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return placement.StorageAuthority{}, false, nil
+	}
+	if err != nil {
+		return placement.StorageAuthority{}, false, err
+	}
+	return authority, true, nil
+}
+
+func lockStorageRequirementKeys(ctx context.Context, tx pgx.Tx, requirements []placement.StorageRequirement) error {
+	keys := make([]string, 0, len(requirements)*3)
+	for _, required := range requirements {
+		keys = append(keys,
+			"storage-backend/"+required.BackendID,
+			"storage-volume/"+required.VolumeID,
+			"storage-attachment/"+required.AttachmentID,
+		)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func lockStorageAuthorityRows(ctx context.Context, tx pgx.Tx, hostID string, requirements []placement.StorageRequirement) error {
+	for _, required := range requirements {
+		var backendID string
+		if err := tx.QueryRow(ctx, `
+			SELECT backend.backend_id
+			FROM kim.storage_backends_current backend
+			JOIN kim.storage_classes_current class_current
+			  ON class_current.storage_class_id=$2
+			JOIN kim.storage_class_revision_evidence class_evidence
+			  ON class_evidence.storage_class_id=class_current.storage_class_id
+			 AND class_evidence.class_revision=class_current.class_revision
+			JOIN kim.storage_capacity_projections_current capacity_current
+			  ON capacity_current.backend_id=backend.backend_id
+			JOIN kim.storage_capacity_observation_evidence capacity
+			  ON capacity.observation_id=capacity_current.observation_id
+			WHERE backend.backend_id=$1 AND backend.host_id=$3
+			FOR SHARE OF backend, class_current, class_evidence, capacity_current, capacity
+		`, required.BackendID, required.StorageClassID, hostID).Scan(&backendID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func claimLocalLVMStorageTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.StorageRequirement) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.volumes_current (
+			volume_id, placement_admission_id, project_id, storage_class_id,
+			storage_class_revision, desired_generation, size_bytes, access_mode,
+			bootable, lifecycle_state
+		) VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8,'RESERVED')
+	`, required.VolumeID, admissionID, request.ProjectID, required.StorageClassID,
+		required.StorageClassRevision, required.SizeBytes, required.AccessMode,
+		required.Bootable); err != nil {
+		return fmt.Errorf("reserve Volume %s: %w", required.VolumeID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.storage_capacity_claims (
+			capacity_claim_id, placement_admission_id, backend_id, volume_id,
+			capacity_generation, reserved_bytes, claim_state
+		) VALUES ($1,$2,$3,$4,$5,$6,'RESERVED')
+	`, "storage-capacity:"+request.RequestID+":"+required.VolumeID, admissionID,
+		required.BackendID, required.VolumeID, required.CapacityGeneration,
+		required.SizeBytes); err != nil {
+		return fmt.Errorf("reserve Storage capacity for Volume %s: %w", required.VolumeID, err)
+	}
+	resourceDigest := sha256.Sum256([]byte(required.VolumeID))
+	backendResourceKey := "kim-" + hex.EncodeToString(resourceDigest[:16])
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.volume_backend_binding_intents (
+			binding_id, placement_admission_id, volume_id, binding_generation,
+			backend_id, host_id, vg_uuid, backend_resource_key, binding_state
+		) VALUES ($1,$2,$3,1,$4,$5,$6,$7,'RESERVED')
+	`, "storage-binding:"+request.RequestID+":"+required.VolumeID, admissionID,
+		required.VolumeID, required.BackendID, current.HostID, required.VGUUID,
+		backendResourceKey); err != nil {
+		return fmt.Errorf("reserve Local LVM binding for Volume %s: %w", required.VolumeID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.volume_attachments_current (
+			attachment_id, placement_admission_id, volume_id, workload_id,
+			desired_host_id, attachment_generation, access_mode, desired_state
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,'RESERVED')
+	`, required.AttachmentID, admissionID, required.VolumeID, request.WorkloadID,
+		current.HostID, required.AttachmentGeneration, required.AccessMode); err != nil {
+		return fmt.Errorf("reserve Volume Attachment %s: %w", required.AttachmentID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.volume_attachment_claims (
+			attachment_claim_id, placement_admission_id, attachment_id, volume_id,
+			workload_id, host_id, attachment_generation, access_mode,
+			fencing_policy_revision, claim_state
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'RESERVED')
+	`, "storage-attachment-claim:"+request.RequestID+":"+required.AttachmentID,
+		admissionID, required.AttachmentID, required.VolumeID, request.WorkloadID,
+		current.HostID, required.AttachmentGeneration, required.AccessMode,
+		required.FencingPolicyRevision); err != nil {
+		return fmt.Errorf("reserve single-writer Attachment Claim %s: %w", required.AttachmentID, err)
+	}
+	return nil
+}
+
 func queryHugePageClaims(ctx context.Context, row QueryRower, hostID string) (map[uint64]uint64, error) {
 	// QueryRower intentionally exposes only QueryRow. Aggregate the supported
 	// sizes used by the current Flavor at call sites through one JSON object.
@@ -634,6 +826,13 @@ func normalizePlacementNetworkRequirements(requirements []placement.NetworkRequi
 	return normalized
 }
 
+func normalizePlacementStorageRequirements(requirements []placement.StorageRequirement) []placement.StorageRequirement {
+	normalized := make([]placement.StorageRequirement, len(requirements))
+	copy(normalized, requirements)
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].VolumeID < normalized[j].VolumeID })
+	return normalized
+}
+
 func placementPCIRequirementsPayload(requirements []placement.PCIRequirement) ([]byte, string, error) {
 	payload, err := json.Marshal(requirements)
 	if err != nil {
@@ -644,6 +843,15 @@ func placementPCIRequirementsPayload(requirements []placement.PCIRequirement) ([
 }
 
 func placementNetworkRequirementsPayload(requirements []placement.NetworkRequirement) ([]byte, string, error) {
+	payload, err := json.Marshal(requirements)
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(payload)
+	return payload, hex.EncodeToString(digest[:]), nil
+}
+
+func placementStorageRequirementsPayload(requirements []placement.StorageRequirement) ([]byte, string, error) {
 	payload, err := json.Marshal(requirements)
 	if err != nil {
 		return nil, "", err

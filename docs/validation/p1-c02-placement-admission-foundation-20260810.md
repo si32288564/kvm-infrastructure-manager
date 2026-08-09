@@ -2,7 +2,7 @@
 
 - 実施日: 2026-08-10
 - 対象: dry Eligibility、Scoring、Selection、transactional Final Admission foundation
-- 結果: PASS（Compute/Memory/HugePages/qualified PCI VF/Network Identity/Port Binding scope）
+- 結果: PASS（Compute/Memory/HugePages/qualified PCI VF/Network/Local LVM Storage scope）
 
 ## 1. Implemented Path
 
@@ -14,6 +14,7 @@ current Image revision
 + current Placement Pool membership/policy
 + existing compute claims
 + current Network/Subnet/Segment/Host mapping
++ current Storage Backend/Class/capacity observation
         ↓
 side-effect-free dry Eligibility
         ↓ eligible candidates only
@@ -23,7 +24,8 @@ same-rule transactional Final Admission
         ├─ immutable Admission Decision
         ├─ Compute/Memory/HugePages Reservation
         ├─ qualified PCI VF Claim
-        └─ Port/IP/MAC/Binding Claim
+        ├─ Port/IP/MAC/Binding Claim
+        └─ Volume/capacity/Binding Intent/Attachment Claim
 ```
 
 Final Admission transaction では libvirt、Agent、JetStream、OVS、OVN、external IPAM、Storage backend を呼び出しません。
@@ -70,7 +72,7 @@ PASS
 
 ## 5. Remaining P1-C02 Scope
 
-- Storage capacity/Attachment、Quota claim の同一 Final Admission transaction 統合
+- Quota claim の同一 Final Admission transaction 統合
 - Availability Binding と Resilience Domain Claim
 - idempotent Resource API、Operation、Desired State、Job/Command intent の atomic commit
 - multi-Host re-selection loop と persisted explanation/rank history
