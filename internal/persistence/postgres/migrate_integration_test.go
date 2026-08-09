@@ -102,9 +102,10 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	claimed, err := ClaimOutboxTx(ctx, firstClaimTx, OutboxClaimRequest{
-		Owner: "publisher-a",
-		Limit: 1,
-		Lease: time.Minute,
+		Owner:      "publisher-a",
+		Limit:      1,
+		Lease:      time.Minute,
+		EventTypes: []string{"HostObserved"},
 	})
 	if err != nil {
 		_ = firstClaimTx.Rollback(ctx)
@@ -143,9 +144,10 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	reclaimed, err := ClaimOutboxTx(ctx, secondClaimTx, OutboxClaimRequest{
-		Owner: "publisher-b",
-		Limit: 1,
-		Lease: time.Minute,
+		Owner:      "publisher-b",
+		Limit:      1,
+		Lease:      time.Minute,
+		EventTypes: []string{"HostObserved"},
 	})
 	if err != nil {
 		_ = secondClaimTx.Rollback(ctx)

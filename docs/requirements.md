@@ -348,6 +348,7 @@
 | OPS-016 | long-running Agent session runtime は inbound Command、outbound Result/Observation、durable Receipt を同一 current transport 上で並行処理し、一つの loop 障害を resource authority loss または未実行の証明として扱わない | Must |
 | OPS-017 | Host Agent process は PostgreSQL で SessionAccepted された generation だけを local durable ledger へ記録し、rejected/failed attempt では generation を消費せず、process restart 後は最後の accepted generation の次だけを提案する | Must |
 | OPS-018 | Worker process は elapsed Command Lease を bounded batch で検出し、各 Command を Host-scoped PostgreSQL transaction で再検証して UNKNOWN へ進め、expiry を non-execution proof として扱わない | Must |
+| OPS-019 | production Command Lease Grant は raw Lease token を DB/Outbox に保存せず、Secret Provider key revision と grant identity に bind した protected capability を含む durable delivery intent を Lease authority と同一 PostgreSQL transaction で commit する | Must |
 
 ### 2.16 Fault、Performance、Audit
 

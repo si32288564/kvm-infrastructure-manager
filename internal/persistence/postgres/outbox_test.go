@@ -19,7 +19,7 @@ func TestClaimOutboxTxRecordsDurableAttempt(t *testing.T) {
 	expires := time.Date(2026, 8, 9, 1, 2, 3, 0, time.UTC)
 	mock.ExpectBegin()
 	mock.ExpectQuery("WITH candidates AS").
-		WithArgs(2, "publisher-a", int64(time.Minute/time.Microsecond)).
+		WithArgs(2, "publisher-a", int64(time.Minute/time.Microsecond), []string(nil)).
 		WillReturnRows(pgxmock.NewRows([]string{
 			"message_id", "aggregate_type", "aggregate_id", "event_type", "schema_version",
 			"payload_digest", "payload", "claim_generation", "claim_expires_at",

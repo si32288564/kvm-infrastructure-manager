@@ -87,6 +87,7 @@
 | INV-EXEC-015 | Agent session runtime は inbound routing、outbound multiplexing、durable Receipt 処理を一つの current transport session で駆動し、transport loop termination を backend side effect の absence と解釈しない | AT-EXEC-013、FI-TRANSPORT-004 |
 | INV-EXEC-016 | local session generation ledger は SessionAccepted 後だけ fsync/atomic rename で進み、rejected/failed attempt、reconnect timer、process start だけでは generation を消費または authority として確定しない | AT-EXEC-014、FI-AGENT-006 |
 | INV-EXEC-017 | Worker の Lease expiry scan は discovery に限定し、各 Lease の current state/DB time/Host authority scope を transaction で再検証してから既存 UNKNOWN semantics を適用する | AT-EXEC-015、FI-TRANSPORT-001 |
+| INV-EXEC-018 | Command Lease delivery Outbox は plaintext Lease token を永続化せず、AEAD key ID/algorithm/nonce/ciphertext と token digest だけを保持し、Lease Grant と intent の一方だけを commit しない | AT-EXEC-016、FI-BUS-003 |
 
 ## 7. Agent and Host
 

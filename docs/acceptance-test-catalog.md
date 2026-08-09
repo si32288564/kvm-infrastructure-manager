@@ -206,6 +206,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-013 | long-running Session Runner が一つの current transport 上で inbound Command routing、priority outbound flush、durable Receipt handling を並行実行し、cancel または connection loss で bounded に停止する |
 | AT-EXEC-014 | rejected/failed session attempt が local generation を消費せず、SessionAccepted 後の durable ledger を process restart で回収して次 generation だけを提案する |
 | AT-EXEC-015 | kim-worker が expired active Lease を bounded batch で検出し、競合時は stale candidate を無視しながら各 current Lease/Attempt を UNKNOWN へ一度だけ進める |
+| AT-EXEC-016 | protected delivery を要求した Lease Grant が同じ transaction で一つの Outbox intent を作り、payload に plaintext token を含まず、correct key/AAD だけで original token を復元でき、intent conflict 時は Lease/Attempt/current state を全 rollback する |
 
 ## 11. Placement / Migration
 

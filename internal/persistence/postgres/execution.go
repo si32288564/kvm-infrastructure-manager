@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/security/tokenprotect"
 )
 
 var (
@@ -54,6 +55,22 @@ type CommandLeaseRequest struct {
 	CommandID               string
 	HostAuthorityGeneration int64
 	Duration                time.Duration
+	DeliveryProtector       tokenprotect.Protector
+}
+
+// CommandLeaseDeliveryIntent contains only immutable grant identity and an
+// AEAD-protected capability. It never persists the plaintext Lease token.
+type CommandLeaseDeliveryIntent struct {
+	SchemaVersion           string                      `json:"schema_version"`
+	CommandID               string                      `json:"command_id"`
+	LeaseGeneration         int64                       `json:"lease_generation"`
+	AttemptIndex            int                         `json:"attempt_index"`
+	HostID                  string                      `json:"host_id"`
+	HostAuthorityGeneration int64                       `json:"host_authority_generation"`
+	SessionGeneration       int64                       `json:"session_generation"`
+	TokenDigest             string                      `json:"token_digest"`
+	ProtectedToken          tokenprotect.ProtectedValue `json:"protected_token"`
+	ExpiresAt               time.Time                   `json:"expires_at"`
 }
 
 type CommandAttemptStart struct {
@@ -350,6 +367,14 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	tokenDigest := tokenSHA256(token)
+	var protectedToken tokenprotect.ProtectedValue
+	if request.DeliveryProtector != nil {
+		protected, protectErr := request.DeliveryProtector.Protect(ctx, []byte(token), []byte(request.CommandID))
+		if protectErr != nil {
+			return CommandLeaseGrant{}, fmt.Errorf("protect Command Lease capability: %w", protectErr)
+		}
+		protectedToken = protected
+	}
 	var grant CommandLeaseGrant
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		var hostID, jobID string
@@ -447,6 +472,27 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 		grant.LeaseGeneration, grant.AttemptIndex = leaseGeneration, attemptIndex
 		grant.HostAuthorityGeneration, grant.SessionGeneration = authority.AuthorityGeneration, authority.SessionGeneration
 		grant.Token = token
+		if request.DeliveryProtector != nil {
+			intent := CommandLeaseDeliveryIntent{SchemaVersion: "kim.internal.command-lease-delivery/v1", CommandID: request.CommandID, LeaseGeneration: leaseGeneration, AttemptIndex: attemptIndex, HostID: hostID, HostAuthorityGeneration: authority.AuthorityGeneration, SessionGeneration: authority.SessionGeneration, TokenDigest: tokenDigest, ProtectedToken: protectedToken, ExpiresAt: grant.ExpiresAt}
+			payload, err := json.Marshal(intent)
+			if err != nil {
+				return err
+			}
+			messageID := fmt.Sprintf("command-lease-delivery/%s/%d", request.CommandID, leaseGeneration)
+			tag, err := tx.Exec(ctx, `
+				INSERT INTO kim.outbox_messages (
+					message_id, aggregate_type, aggregate_id, event_type,
+					schema_version, payload_digest, payload
+				) VALUES ($1,'COMMAND',$2,'COMMAND_LEASE_DELIVERY_REQUESTED',$3,$4,$5)
+				ON CONFLICT (message_id) DO NOTHING
+			`, messageID, request.CommandID, intent.SchemaVersion, digestBytes(payload), payload)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() != 1 {
+				return ErrCommandEvidenceConflict
+			}
+		}
 		return nil
 	})
 	return grant, err

@@ -21,9 +21,10 @@ var (
 
 // OutboxClaimRequest bounds a durable publisher claim.
 type OutboxClaimRequest struct {
-	Owner string
-	Limit int
-	Lease time.Duration
+	Owner      string
+	Limit      int
+	Lease      time.Duration
+	EventTypes []string
 }
 
 // OutboxMessage is a message claimed by one publisher generation.
@@ -65,6 +66,7 @@ func ClaimOutboxTx(ctx context.Context, tx pgx.Tx, request OutboxClaimRequest) (
 			SELECT message_id
 			FROM kim.outbox_messages
 			WHERE available_at <= statement_timestamp()
+			  AND (COALESCE(cardinality($4::text[]), 0) = 0 OR event_type = ANY($4::text[]))
 			  AND (
 				state = 'PENDING'
 				OR (state = 'CLAIMED' AND claim_expires_at <= statement_timestamp())
@@ -85,7 +87,7 @@ func ClaimOutboxTx(ctx context.Context, tx pgx.Tx, request OutboxClaimRequest) (
 		RETURNING message.message_id, message.aggregate_type, message.aggregate_id,
 			message.event_type, message.schema_version, message.payload_digest,
 			message.payload, message.claim_generation, message.claim_expires_at
-	`, request.Limit, request.Owner, request.Lease.Microseconds())
+	`, request.Limit, request.Owner, request.Lease.Microseconds(), request.EventTypes)
 	if err != nil {
 		return nil, fmt.Errorf("claim outbox messages: %w", err)
 	}

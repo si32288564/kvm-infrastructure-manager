@@ -51,6 +51,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-DATA-015 | 通常Service PrincipalからRecovery Control API/DB roleを使用、またはRecovery roleからCommand dispatchを試行 | identity/role/API/DR generation policy violation | request拒否、mutationなし、security alert | actor/role/scope/approval/audit | privilege escalation、通常resource/backend mutation | authorized recovery identity+approvalでrecovery evidenceだけcommit |
 | FI-BUS-001 | internal messageをduplicate/reorder | delivery metadata、old generation | handler idempotency、DB authority確認 | work/event dedupe evidence | 二重Command/transition | 単一authority stateへ収束 |
 | FI-BUS-002 | Bus停止後に復旧 | consumer/work age alarm | durable acceptance後のdispatch待機 | pending work age | DB authority loss、成功推測 | DBから未完work再駆動 |
+| FI-BUS-003 | Lease Grant transaction の Outbox insert を conflict/failure にし、別 case で protected token ciphertext/key/AAD を改変する | transaction error または AEAD authentication failure | Grant/Attempt/current state を全 rollback。改変 intent は配送せず quarantine | Command/Lease identity、Outbox digest、key ID、token digest、transaction outcome | Lease だけ commit、plaintext token 保存、認証失敗 token の配送 | current authority で new transaction、または正しい key revision/evidence で明示 recovery |
 | FI-GATEWAY-001 | Lease前にAgent Gateway partition | heartbeat/session loss | 新Lease停止、Host ineligible | gateway/Host alarm | Agent cached/autonomous mutation | session+capability再検証 |
 | FI-GATEWAY-002 | Gateway再接続、Host authorityはdisarmed | session restored | authorityをdisarmedのまま維持 | authority generation/audit | 自動arm/Command配送 | operatorによる明示arm |
 | FI-GATEWAY-003 | reconnect/credential rotation で old/new session を重複させ、old session から Result、Inventory、Observation、Command ACK を送る | session generation mismatch | old session message 拒否または quarantine、current session だけ継続 | old/current session generation、message digest、receipt、audit | stale Result/Inventory/ACK による authority 進行 | old session drain/close と current generation で resync 完了 |
@@ -239,7 +240,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Client | FI-CLIENT-001..002 |
 | API / Control Plane | FI-CP-001..002 |
 | Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..015 |
-| Internal Message | FI-BUS-001..002 |
+| Internal Message | FI-BUS-001..003 |
 | Agent Gateway / Transport | FI-GATEWAY-001..008, FI-TRANSPORT-001..004 |
 | Agent | FI-AGENT-001..006 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
