@@ -7,6 +7,8 @@ import (
 	"time"
 
 	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/wire"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
 	"google.golang.org/grpc"
 )
@@ -15,6 +17,12 @@ import (
 // PostgreSQL-backed session decision.
 type SessionAuthorizer interface {
 	Authorize(context.Context, *agentprotocolv1.SessionHello, PeerIdentityEvidence) (*agentprotocolv1.SessionAccepted, *agentprotocolv1.SessionRejected)
+}
+
+// MessageReceiver commits one Agent message and returns durable receipt
+// evidence. Transport delivery of the receipt is not part of the DB commit.
+type MessageReceiver interface {
+	Receive(context.Context, session.Envelope) (session.Receipt, error)
 }
 
 type PostgresSessionAuthorizer struct {
@@ -71,6 +79,7 @@ type GRPCServer struct {
 	agentprotocolv1.UnimplementedAgentTransportServer
 	Authorizer       SessionAuthorizer
 	IdentityResolver PeerIdentityResolver
+	MessageReceiver  MessageReceiver
 }
 
 func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1.Frame, agentprotocolv1.Frame]) error {
@@ -117,6 +126,19 @@ func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1
 		envelope := frame.GetEnvelope()
 		if envelope == nil || envelope.GetHostIdentity() != accepted.GetHostIdentity() || envelope.GetSessionGeneration() != accepted.GetSessionGeneration() {
 			return errors.New("Agent envelope does not match granted session authority")
+		}
+		if server.MessageReceiver != nil {
+			converted, err := wire.EnvelopeFromProto(envelope)
+			if err != nil {
+				return err
+			}
+			receipt, err := server.MessageReceiver.Receive(stream.Context(), converted)
+			if err != nil {
+				return err
+			}
+			if err := stream.Send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Receipt{Receipt: wire.ReceiptToProto(receipt)}}); err != nil {
+				return err
+			}
 		}
 	}
 }

@@ -459,6 +459,9 @@
 | AGT-012 | L7 proxy が Agent mTLS を終端する profile では、Gateway は pinned proxy workload certificate と proxy が sanitize/rebuild した downstream certificate evidence の両方を検証し、untrusted peer の forwarded identity header を拒否する | Must |
 | AGT-013 | HTTP/2 GOAWAY、proxy drain、rolling restart を transport signal として扱い、同一 generation の暗黙 rearm または PostgreSQL Session Grant を迂回した stream 再開を許可しない | Must |
 | AGT-014 | L7 proxy の connection idle timeout と stream idle timeout を別 policy として扱い、connection idle を active Agent stream expiry に使用せず、stream idle reset を resource/session authority loss の証明にしない | Must |
+| AGT-015 | Result、Observation、Inventory 等の再送対象 message を送信前に bounded durable spool へ記録し、同一 message identity/digest の durable Receipt を得るまで削除しない | Must |
+| AGT-016 | Receipt response loss、Agent/Gateway restart、session generation 変更後も stable message identity で replay し、既 commit の同一 Receipt を回収して bounded resync checkpoint へ収束する | Must |
+| AGT-017 | Receipt の session generation は最初に durable acceptance した generation の evidence として保持し、後続 session での replay に合わせて履歴を書き換えない | Must |
 
 ## 3. 非機能要件
 

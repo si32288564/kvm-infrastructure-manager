@@ -41,12 +41,24 @@ message Envelope {
   bytes payload = 11;
 }
 
+message MessageReceipt {
+  string host_identity = 1;
+  uint64 accepted_session_generation = 2;
+  string logical_stream = 3;
+  string message_id = 4;
+  string sequence_scope = 5;
+  uint64 sequence = 6;
+  string payload_digest = 7;
+  string disposition = 8;
+}
+
 message Frame {
   oneof body {
     SessionHello hello = 1;
     Envelope envelope = 2;
     SessionAccepted accepted = 3;
     SessionRejected rejected = 4;
+    MessageReceipt receipt = 5;
   }
 }
 

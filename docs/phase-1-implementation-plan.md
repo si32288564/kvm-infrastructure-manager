@@ -17,9 +17,9 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 |---|---|---|
 | P1-A01 | In Progress | Go module、command scaffold、CI、format/vet/test/document contract lint を開始。component runtime wiring は未着手 |
 | P1-A02 | In Progress | fresh PostgreSQL schema、checksummed migration runner、transaction helper を実装。session current/immutable attempt/event、Host-scoped session admission lock、Outbox claim generation/UNKNOWN evidence を PostgreSQL 17 で検証。failure test は継続 |
-| P1-A03/A05 | In Progress | versioned protobuf Envelope/SessionAccepted/SessionRejected、Session Manager/Module interface、bounded priority queue、Authority View、stale session fence、gRPC/typed HTTP/2 mTLS adapter を実装。durable spool/resync は未実装 |
+| P1-A03/A05 | In Progress | versioned protobuf Envelope/Session Decision/Message Receipt、Session Manager/Module interface、bounded priority queue、Authority View、stale session fence、bounded fsync spool、receipt replay/resync checkpoint、gRPC/typed HTTP/2 mTLS adapter を実装。production wiring と multi-message scale qualification は継続 |
 | P1-A04 | In Progress | PostgreSQL current generation、immutable Attempt/Event、idempotent grant、stale Attempt replay fence、pre-auth TLS handshake limiter、Gateway admission、gRPC mTLS→DB Grant wiring を実装。Credential Binding verifier と production listener configuration は未実装 |
-| Q-094 | In Progress | 両 candidate が basic contract と 10,000-session handoff を通過。gRPC は operational/control-path leader、typed HTTP/2 は density leader。[real gRPC authority storm](spikes/results/q094-grpc-authority-storm-20260809.md) で pre-auth protection、[TLS passthrough drain](spikes/results/q094-tls-passthrough-drain-20260809.md) で L4 hard drain、[Envoy L7 rolling restart](spikes/results/q094-envoy-l7-rolling-restart-20260809.md) で GOAWAY/regrant、[idle timeout profiles](spikes/results/q094-envoy-idle-timeouts-20260809.md) で connection/stream timeout 分離を確認。durable spool/resync を継続 |
+| Q-094 | Closed | ADR-0024 で Developer Preview transport に gRPC bidirectional stream を採用。[durable delivery/resync](spikes/results/q094-durable-delivery-resync-20260809.md) を含む blocking assertion を完了。typed HTTP/2 は density-oriented future profile 候補として adapter 境界と測定結果を保持 |
 
 ## 2. Implementation Principles
 

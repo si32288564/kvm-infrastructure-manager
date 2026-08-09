@@ -1,6 +1,6 @@
 # Q-094 Agent Transport Spike
 
-- 状態: In Progress
+- 状態: Closed
 - 更新日: 2026-08-09
 - Owner: Agent / Gateway
 - Target gate: P1-A exit
@@ -88,7 +88,7 @@ Developer Preview の具体 SLO と limit は測定前に fixture config とし�
 - selected candidate と rejected alternatives
 - rollback/replaceability、module contract非依存の確認
 
-Q-094 は blocking assertions、operational profile、dependency/security reviewを満たした候補を選び、Decision Recordを承認した時点でClosedにします。
+Q-094 は blocking assertions、operational profile、dependency/security reviewを満たした候補を選び、Decision Recordを承認した時点でClosedにします。2026-08-09 に [ADR-0024](../adr/0024-initial-agent-transport-grpc.md) を Accepted とし、Developer Preview transport に gRPC bidirectional stream を採用しました。
 
 ## 8. Implementation Progress
 
@@ -101,8 +101,12 @@ Q-094 は blocking assertions、operational profile、dependency/security review
 - module 登録数と connection open 回数を分離する `Session Manager` / `TransportAdapter` 境界
 - stale session message を module routing 前に拒否する fixture
 
-gRPC/typed HTTP/2 candidate adapter、real mTLS、basic disconnect detection、per-session persistent receive loop、1,000-session open/idle/echo/reconnect fixture、PriorityQueue を通す bulk saturation fixture まで実装済みです。caller 単位の `Receive` timeout は transport session を破棄せず、同一 session を継続利用できます。L4 TLS passthrough hard drain、Envoy L7 GOAWAY / rolling replacement、connection/stream idle timeout 分離は完了しましたが、credential handoff、durable spool/resync は未完了です。fixture foundation の pass は Q-094 close または candidate 採用を意味しません。
+gRPC/typed HTTP/2 candidate adapter、real mTLS、basic disconnect detection、per-session persistent receive loop、1,000-session open/idle/echo/reconnect fixture、PriorityQueue を通す bulk saturation fixture を実装しました。caller 単位の `Receive` timeout は transport session を破棄せず、同一 session を継続利用できます。L4 TLS passthrough hard drain、Envoy L7 GOAWAY / rolling replacement、connection/stream idle timeout 分離、durable spool/Receipt replay/resync checkpoint まで完了しました。
 
 初回の real mTLS adapter、functional contract、loopback benchmark は [Q-094 Loopback Smoke Result](results/q094-loopback-20260809.md) に記録しました。両候補が基本 contract を通過し、この限定条件では gRPC が低い round-trip latency を示しましたが、proxy/HOL/reconnect storm/spool 未評価のため Decision は `HOLD` です。
 
-per-message receive goroutine を除去した後の 1,000-session 測定は [Q-094 1,000-session Scale Result](results/q094-scale-20260809.md) に記録しました。[Q-094 Session Density Curve](results/q094-session-density-curve-20260809.md) では 100〜10,000 session の線形 resource 傾向と generation reconnect を確認しました。typed HTTP/2 は density leader です。一方、[Q-094 Bulk Saturation Result](results/q094-bulk-saturation-20260809.md) では gRPC が slow-reader 下の priority latency と bulk completion で優位であり、gRPC を operational/control-path leader とします。[Q-094 Reconnect Storm Result](results/q094-reconnect-storm-20260809.md) では Gateway/DB authority path を分離測定し、[Q-094 Real gRPC Authority Storm](results/q094-grpc-authority-storm-20260809.md) では real mTLS handshake、pre-auth TLS limiter、explicit Session Decision、backoff、Gateway admission、PostgreSQL Grant を 1,000 Host で接続しました。[Q-094 TLS Passthrough Proxy Drain](results/q094-tls-passthrough-drain-20260809.md) では L4 proxy hard drain 後に 1,000 session が再収束し、[Q-094 Envoy L7 Rolling Restart](results/q094-envoy-l7-rolling-restart-20260809.md) では pinned proxy identity + sanitized XFCC、GOAWAY、100-session rolling replacement、generation 2 DB Grant を確認しました。[Q-094 Envoy Idle Timeout Profiles](results/q094-envoy-idle-timeouts-20260809.md) では connection idle が active stream を失効させず、stream idle reset が transport loss として generation 2 Grant へ収束することを確認しました。durable spool/resync が未完了のため Decision は引き続き `HOLD` です。
+per-message receive goroutine を除去した後の 1,000-session 測定は [Q-094 1,000-session Scale Result](results/q094-scale-20260809.md) に記録しました。[Q-094 Session Density Curve](results/q094-session-density-curve-20260809.md) では 100〜10,000 session の線形 resource 傾向と generation reconnect を確認し、typed HTTP/2 を density leader としました。一方、[Q-094 Bulk Saturation Result](results/q094-bulk-saturation-20260809.md) では gRPC が slow-reader 下の priority latency と bulk completion で優位でした。[Q-094 Reconnect Storm Result](results/q094-reconnect-storm-20260809.md)、[Q-094 Real gRPC Authority Storm](results/q094-grpc-authority-storm-20260809.md)、[Q-094 TLS Passthrough Proxy Drain](results/q094-tls-passthrough-drain-20260809.md)、[Q-094 Envoy L7 Rolling Restart](results/q094-envoy-l7-rolling-restart-20260809.md)、[Q-094 Envoy Idle Timeout Profiles](results/q094-envoy-idle-timeouts-20260809.md) で authority/proxy lifecycleを検証しました。[Q-094 Durable Delivery and Resync](results/q094-durable-delivery-resync-20260809.md) で Receipt loss、Gateway/Agent restart、generation 2 replay、checkpoint convergence を完了しました。
+
+## 9. Decision
+
+Developer Preview は gRPC bidirectional stream over HTTP/2 を採用します。gRPC は operational/control-path behavior、maintained framing/flow control、proxy lifecycle の総合評価で初期約 100 Host profileに適します。typed HTTP/2 のdensity advantageは将来 profile候補として測定結果とadapter境界を保持しますが、Developer Previewのproduction pathは二重実装しません。

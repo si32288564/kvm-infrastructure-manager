@@ -15,7 +15,7 @@
 
 ## 一覧
 
-Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個別照合済みの `Accepted` としました。詳細は [ADR Decision Gate Review](../adr-decision-gate-review.md) を参照します。
+Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個別照合済みの `Accepted` としました。詳細は [ADR Decision Gate Review](../adr-decision-gate-review.md) を参照します。Phase 1 の implementation decision は ADR-0024 以降へ記録します。
 
 - [ADR-0001: Control Plane と Host Agent を分離する](0001-control-plane-host-agent.md)
 - [ADR-0002: 非同期 Operation と reconciliation を採用する](0002-operation-and-reconciliation.md)
@@ -40,3 +40,4 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0021: Manifest駆動の互換性gateで製品upgradeを行う](0021-manifest-driven-compatible-upgrades.md)
 - [ADR-0022: 分散clockを区別し時間切れを未実行証明にしない](0022-explicit-distributed-time-semantics.md)
 - [ADR-0023: Trust Domainを分離しcredentialをgenerationでfenceする](0023-separated-trust-domains-and-generation-fenced-credentials.md)
+- [ADR-0024: Developer Preview の Agent transport に gRPC bidirectional stream を採用する](0024-initial-agent-transport-grpc.md)

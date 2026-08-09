@@ -103,6 +103,8 @@
 | INV-AGT-018 | L7 forwarded Agent identity は pinned proxy workload identity と sanitized downstream certificate evidence が同時に成立する場合だけ受理し、header 単独を identity authority にしない | AT-AGT-015 |
 | INV-AGT-019 | GOAWAY、proxy drain、rolling restart、upstream connection pool の生存を Host session authority transition にせず、new current session は PostgreSQL Grant commit を必須とする | FI-GATEWAY-006 |
 | INV-AGT-020 | connection idle と stream idle を混同せず、active Agent stream の liveness/authority を proxy timer だけで確定しない | FI-GATEWAY-007 |
+| INV-AGT-021 | Agent durable message は write-before-send とし、transport send/Receipt delivery を PostgreSQL acceptance commit と同一視せず、matching durable `ACCEPTED` Receipt だけが spool entry を解放できる | FI-GATEWAY-008 |
+| INV-AGT-022 | session generation 変更後の同一 message replay は original Receipt へ冪等収束し、stale/new session、response loss、restart のいずれも duplicate decision または evidence rewrite を起こさない | AT-AGT-016 |
 
 ## 8. Network and Storage
 

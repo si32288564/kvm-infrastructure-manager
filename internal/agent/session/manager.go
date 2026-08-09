@@ -47,6 +47,13 @@ type TransportConnection interface {
 	Close() error
 }
 
+// ReceiptConnection is implemented by multiplexed transports that expose
+// durable Gateway message receipts separately from inbound module envelopes.
+type ReceiptConnection interface {
+	TransportConnection
+	ReceiveReceipt(context.Context) (Receipt, error)
+}
+
 // TransportAdapter hides HTTP/2/gRPC implementation details from modules.
 type TransportAdapter interface {
 	Open(context.Context, Handshake) (TransportConnection, error)

@@ -37,6 +37,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AGT-013 | logical stream/resource scope ごとの sequence/generation で duplicate/reorder を処理し、transport arrival 順から global ordering を推測しない |
 | AT-AGT-014 | 別 endpoint/connection 追加を trust/security/traffic/QoS/artifact 要件、threat analysis、approval、lifecycle test なしに受け入れない |
 | AT-AGT-015 | L7 proxy termination で pinned proxy certificate と sanitize/rebuild 済み downstream certificate hash の両方を検証し、unpinned proxy、欠落/複数/malformed XFCC、Agent 注入 header を拒否する |
+| AT-AGT-016 | generation 1 で commit 済みだが未受領の Receipt を generation 2 replay で回収し、Receipt row を増やさず durable spool を解放して current Resync Checkpoint へ収束する |
 
 ## 4. Host Lifecycle / Baseline / Compliance
 

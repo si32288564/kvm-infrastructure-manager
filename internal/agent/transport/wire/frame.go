@@ -51,6 +51,27 @@ func EnvelopeFromProto(envelope *agentprotocolv1.Envelope) (session.Envelope, er
 	return converted, nil
 }
 
+// ReceiptToProto converts durable Gateway acceptance evidence.
+func ReceiptToProto(receipt session.Receipt) *agentprotocolv1.MessageReceipt {
+	return &agentprotocolv1.MessageReceipt{
+		HostIdentity: receipt.HostIdentity, AcceptedSessionGeneration: receipt.AcceptedSessionGeneration,
+		LogicalStream: string(receipt.Stream), MessageId: receipt.MessageID, SequenceScope: receipt.SequenceScope,
+		Sequence: receipt.Sequence, PayloadDigest: receipt.PayloadDigest, Disposition: receipt.Disposition,
+	}
+}
+
+// ReceiptFromProto converts durable Gateway acceptance evidence.
+func ReceiptFromProto(receipt *agentprotocolv1.MessageReceipt) (session.Receipt, error) {
+	if receipt == nil {
+		return session.Receipt{}, errors.New("wire message receipt is required")
+	}
+	return session.Receipt{
+		HostIdentity: receipt.GetHostIdentity(), AcceptedSessionGeneration: receipt.GetAcceptedSessionGeneration(),
+		Stream: session.Stream(receipt.GetLogicalStream()), MessageID: receipt.GetMessageId(), SequenceScope: receipt.GetSequenceScope(),
+		Sequence: receipt.GetSequence(), PayloadDigest: receipt.GetPayloadDigest(), Disposition: receipt.GetDisposition(),
+	}, nil
+}
+
 // HelloToProto converts the transport-neutral handshake.
 func HelloToProto(handshake session.Handshake) *agentprotocolv1.SessionHello {
 	return &agentprotocolv1.SessionHello{

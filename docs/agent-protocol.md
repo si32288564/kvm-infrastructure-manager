@@ -136,6 +136,24 @@ transport arrival 順を resource の global ordering にしません。ordering
 - oversized message は拒否または明示的な bounded chunk protocol へ移し、暗黙の unbounded fragmentation を行わない。
 - reconnect は bounded exponential backoff、jitter、session negotiation、journal/result recovery、inventory/resync checkpoint の順で行う。
 
+Durable delivery は次の順序を固定します。
+
+```text
+Agent durable spool write + fsync
+  ↓
+current session generation へ transport bind
+  ↓
+Gateway PostgreSQL acceptance / idempotency decision
+  ↓
+durable Message Receipt
+  ↓
+Agent receipt verification + spool removal + directory fsync
+  ↓
+current generation Resync Checkpoint
+```
+
+message identity、ordering scope、sequence、payload digest は reconnect 前後で不変とし、`session_generation` だけを current transport へ bind します。Receipt 応答が失われても PostgreSQL commit は取り消されません。new generation の replay では既存の original Receipt を返し、Receipt の accepted generation を replay generation へ書き換えません。新規 stale-generation message は current authority を進めず、既 commit message の同一 replay と区別します。
+
 ### 3.4 Agent Session Manager and Module Boundary
 
 ```mermaid

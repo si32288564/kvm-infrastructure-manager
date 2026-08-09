@@ -100,7 +100,7 @@
 | Q-091 | Offline trust update | full/delta Bundle、sequence/previous digest、update cadence、maximum disconnected intervalを決定 | Technical Preview 前 |
 | Q-092 | PKI DR/key custody | CA/Secret Provider key backup、new Site reissue、old Site/issuer fencing、revocation sequence recoveryを決定 | Technical Preview 前 |
 | Q-093 | Cross-domain trust | NFVO/VNFM/WIM/backend/customer PKIのexplicit relationship、name constraint、trust exposureを決定 | Product Beta 前 |
-| Q-094 | Initial Agent multiplexed transport | [Transport spike](spikes/q094-agent-transport.md) の共通 fixture で gRPC bidirectional stream と typed HTTP/2 streaming を比較する。Agent capability contract とは分離する | Developer Preview P1-A exit 前 |
+| Q-094 | Initial Agent multiplexed transport | **Closed**。Developer Preview は gRPC bidirectional stream over HTTP/2 を採用する。typed HTTP/2 の density advantage は将来 profile 候補として保持し、Agent capability contract は `TransportAdapter` から独立させる | ADR-0024、2026-08-09 |
 
 ## Phase 0 Close / Defer Register
 

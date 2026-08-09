@@ -365,6 +365,106 @@ func (x *Envelope) GetPayload() []byte {
 	return nil
 }
 
+type MessageReceipt struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	HostIdentity              string                 `protobuf:"bytes,1,opt,name=host_identity,json=hostIdentity,proto3" json:"host_identity,omitempty"`
+	AcceptedSessionGeneration uint64                 `protobuf:"varint,2,opt,name=accepted_session_generation,json=acceptedSessionGeneration,proto3" json:"accepted_session_generation,omitempty"`
+	LogicalStream             string                 `protobuf:"bytes,3,opt,name=logical_stream,json=logicalStream,proto3" json:"logical_stream,omitempty"`
+	MessageId                 string                 `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	SequenceScope             string                 `protobuf:"bytes,5,opt,name=sequence_scope,json=sequenceScope,proto3" json:"sequence_scope,omitempty"`
+	Sequence                  uint64                 `protobuf:"varint,6,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	PayloadDigest             string                 `protobuf:"bytes,7,opt,name=payload_digest,json=payloadDigest,proto3" json:"payload_digest,omitempty"`
+	Disposition               string                 `protobuf:"bytes,8,opt,name=disposition,proto3" json:"disposition,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *MessageReceipt) Reset() {
+	*x = MessageReceipt{}
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MessageReceipt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MessageReceipt) ProtoMessage() {}
+
+func (x *MessageReceipt) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MessageReceipt.ProtoReflect.Descriptor instead.
+func (*MessageReceipt) Descriptor() ([]byte, []int) {
+	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *MessageReceipt) GetHostIdentity() string {
+	if x != nil {
+		return x.HostIdentity
+	}
+	return ""
+}
+
+func (x *MessageReceipt) GetAcceptedSessionGeneration() uint64 {
+	if x != nil {
+		return x.AcceptedSessionGeneration
+	}
+	return 0
+}
+
+func (x *MessageReceipt) GetLogicalStream() string {
+	if x != nil {
+		return x.LogicalStream
+	}
+	return ""
+}
+
+func (x *MessageReceipt) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+func (x *MessageReceipt) GetSequenceScope() string {
+	if x != nil {
+		return x.SequenceScope
+	}
+	return ""
+}
+
+func (x *MessageReceipt) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *MessageReceipt) GetPayloadDigest() string {
+	if x != nil {
+		return x.PayloadDigest
+	}
+	return ""
+}
+
+func (x *MessageReceipt) GetDisposition() string {
+	if x != nil {
+		return x.Disposition
+	}
+	return ""
+}
+
 type Frame struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Body:
@@ -373,6 +473,7 @@ type Frame struct {
 	//	*Frame_Envelope
 	//	*Frame_Accepted
 	//	*Frame_Rejected
+	//	*Frame_Receipt
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -380,7 +481,7 @@ type Frame struct {
 
 func (x *Frame) Reset() {
 	*x = Frame{}
-	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[4]
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -392,7 +493,7 @@ func (x *Frame) String() string {
 func (*Frame) ProtoMessage() {}
 
 func (x *Frame) ProtoReflect() protoreflect.Message {
-	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[4]
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -405,7 +506,7 @@ func (x *Frame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Frame.ProtoReflect.Descriptor instead.
 func (*Frame) Descriptor() ([]byte, []int) {
-	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{4}
+	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Frame) GetBody() isFrame_Body {
@@ -451,6 +552,15 @@ func (x *Frame) GetRejected() *SessionRejected {
 	return nil
 }
 
+func (x *Frame) GetReceipt() *MessageReceipt {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_Receipt); ok {
+			return x.Receipt
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -471,6 +581,10 @@ type Frame_Rejected struct {
 	Rejected *SessionRejected `protobuf:"bytes,4,opt,name=rejected,proto3,oneof"`
 }
 
+type Frame_Receipt struct {
+	Receipt *MessageReceipt `protobuf:"bytes,5,opt,name=receipt,proto3,oneof"`
+}
+
 func (*Frame_Hello) isFrame_Body() {}
 
 func (*Frame_Envelope) isFrame_Body() {}
@@ -478,6 +592,8 @@ func (*Frame_Envelope) isFrame_Body() {}
 func (*Frame_Accepted) isFrame_Body() {}
 
 func (*Frame_Rejected) isFrame_Body() {}
+
+func (*Frame_Receipt) isFrame_Body() {}
 
 var File_api_agentprotocol_v1_transport_proto protoreflect.FileDescriptor
 
@@ -514,12 +630,23 @@ const file_api_agentprotocol_v1_transport_proto_rawDesc = "" +
 	"\x0epayload_digest\x18\t \x01(\tR\rpayloadDigest\x12'\n" +
 	"\x0fcorrelation_key\x18\n" +
 	" \x01(\tR\x0ecorrelationKey\x12\x18\n" +
-	"\apayload\x18\v \x01(\fR\apayload\"\xf3\x01\n" +
+	"\apayload\x18\v \x01(\fR\apayload\"\xc7\x02\n" +
+	"\x0eMessageReceipt\x12#\n" +
+	"\rhost_identity\x18\x01 \x01(\tR\fhostIdentity\x12>\n" +
+	"\x1baccepted_session_generation\x18\x02 \x01(\x04R\x19acceptedSessionGeneration\x12%\n" +
+	"\x0elogical_stream\x18\x03 \x01(\tR\rlogicalStream\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x04 \x01(\tR\tmessageId\x12%\n" +
+	"\x0esequence_scope\x18\x05 \x01(\tR\rsequenceScope\x12\x1a\n" +
+	"\bsequence\x18\x06 \x01(\x04R\bsequence\x12%\n" +
+	"\x0epayload_digest\x18\a \x01(\tR\rpayloadDigest\x12 \n" +
+	"\vdisposition\x18\b \x01(\tR\vdisposition\"\xad\x02\n" +
 	"\x05Frame\x122\n" +
 	"\x05hello\x18\x01 \x01(\v2\x1a.kim.agent.v1.SessionHelloH\x00R\x05hello\x124\n" +
 	"\benvelope\x18\x02 \x01(\v2\x16.kim.agent.v1.EnvelopeH\x00R\benvelope\x12;\n" +
 	"\baccepted\x18\x03 \x01(\v2\x1d.kim.agent.v1.SessionAcceptedH\x00R\baccepted\x12;\n" +
-	"\brejected\x18\x04 \x01(\v2\x1d.kim.agent.v1.SessionRejectedH\x00R\brejectedB\x06\n" +
+	"\brejected\x18\x04 \x01(\v2\x1d.kim.agent.v1.SessionRejectedH\x00R\brejected\x128\n" +
+	"\areceipt\x18\x05 \x01(\v2\x1c.kim.agent.v1.MessageReceiptH\x00R\areceiptB\x06\n" +
 	"\x04body2I\n" +
 	"\x0eAgentTransport\x127\n" +
 	"\aConnect\x12\x13.kim.agent.v1.Frame\x1a\x13.kim.agent.v1.Frame(\x010\x01BgZegithub.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1;agentprotocolv1b\x06proto3"
@@ -536,26 +663,28 @@ func file_api_agentprotocol_v1_transport_proto_rawDescGZIP() []byte {
 	return file_api_agentprotocol_v1_transport_proto_rawDescData
 }
 
-var file_api_agentprotocol_v1_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_api_agentprotocol_v1_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_api_agentprotocol_v1_transport_proto_goTypes = []any{
 	(*SessionHello)(nil),    // 0: kim.agent.v1.SessionHello
 	(*SessionAccepted)(nil), // 1: kim.agent.v1.SessionAccepted
 	(*SessionRejected)(nil), // 2: kim.agent.v1.SessionRejected
 	(*Envelope)(nil),        // 3: kim.agent.v1.Envelope
-	(*Frame)(nil),           // 4: kim.agent.v1.Frame
+	(*MessageReceipt)(nil),  // 4: kim.agent.v1.MessageReceipt
+	(*Frame)(nil),           // 5: kim.agent.v1.Frame
 }
 var file_api_agentprotocol_v1_transport_proto_depIdxs = []int32{
 	0, // 0: kim.agent.v1.Frame.hello:type_name -> kim.agent.v1.SessionHello
 	3, // 1: kim.agent.v1.Frame.envelope:type_name -> kim.agent.v1.Envelope
 	1, // 2: kim.agent.v1.Frame.accepted:type_name -> kim.agent.v1.SessionAccepted
 	2, // 3: kim.agent.v1.Frame.rejected:type_name -> kim.agent.v1.SessionRejected
-	4, // 4: kim.agent.v1.AgentTransport.Connect:input_type -> kim.agent.v1.Frame
-	4, // 5: kim.agent.v1.AgentTransport.Connect:output_type -> kim.agent.v1.Frame
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4, // 4: kim.agent.v1.Frame.receipt:type_name -> kim.agent.v1.MessageReceipt
+	5, // 5: kim.agent.v1.AgentTransport.Connect:input_type -> kim.agent.v1.Frame
+	5, // 6: kim.agent.v1.AgentTransport.Connect:output_type -> kim.agent.v1.Frame
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_api_agentprotocol_v1_transport_proto_init() }
@@ -563,11 +692,12 @@ func file_api_agentprotocol_v1_transport_proto_init() {
 	if File_api_agentprotocol_v1_transport_proto != nil {
 		return
 	}
-	file_api_agentprotocol_v1_transport_proto_msgTypes[4].OneofWrappers = []any{
+	file_api_agentprotocol_v1_transport_proto_msgTypes[5].OneofWrappers = []any{
 		(*Frame_Hello)(nil),
 		(*Frame_Envelope)(nil),
 		(*Frame_Accepted)(nil),
 		(*Frame_Rejected)(nil),
+		(*Frame_Receipt)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -575,7 +705,7 @@ func file_api_agentprotocol_v1_transport_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_agentprotocol_v1_transport_proto_rawDesc), len(file_api_agentprotocol_v1_transport_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

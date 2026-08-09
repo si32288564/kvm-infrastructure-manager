@@ -68,6 +68,7 @@ func (adapter *Adapter) Open(ctx context.Context, handshake session.Handshake) (
 		cancel:           cancel,
 		done:             streamContext.Done(),
 		receiveResults:   make(chan receiveResult, 1),
+		receiptResults:   make(chan receiptResult, 16),
 	}
 	go connection.receiveLoop()
 	return connection, nil
@@ -78,16 +79,34 @@ type receiveResult struct {
 	err      error
 }
 
+type receiptResult struct {
+	receipt session.Receipt
+	err     error
+}
+
 type connection struct {
 	clientConnection *grpc.ClientConn
 	stream           grpc.BidiStreamingClient[agentprotocolv1.Frame, agentprotocolv1.Frame]
 	cancel           context.CancelFunc
 	done             <-chan struct{}
 	receiveResults   chan receiveResult
+	receiptResults   chan receiptResult
 	sendMu           sync.Mutex
 	receiveMu        sync.Mutex
 	closeOnce        sync.Once
 	closeErr         error
+}
+
+func (connection *connection) ReceiveReceipt(ctx context.Context) (session.Receipt, error) {
+	select {
+	case <-ctx.Done():
+		return session.Receipt{}, context.Cause(ctx)
+	case result, ok := <-connection.receiptResults:
+		if !ok {
+			return session.Receipt{}, io.EOF
+		}
+		return result.receipt, result.err
+	}
 }
 
 func (connection *connection) Send(_ context.Context, envelope session.Envelope) error {
@@ -116,24 +135,52 @@ func (connection *connection) Receive(ctx context.Context) (session.Envelope, er
 
 func (connection *connection) receiveLoop() {
 	defer close(connection.receiveResults)
+	defer close(connection.receiptResults)
 	for {
 		frame, err := connection.stream.Recv()
-		result := receiveResult{}
 		if err != nil {
-			result.err = fmt.Errorf("receive gRPC Agent envelope: %w", err)
-		} else if frame.GetEnvelope() == nil {
-			result.err = errors.New("gRPC Agent stream received non-envelope frame")
-		} else {
-			result.envelope, result.err = wire.EnvelopeFromProto(frame.GetEnvelope())
-		}
-		select {
-		case connection.receiveResults <- result:
-		case <-connection.done:
+			connection.deliverTerminal(fmt.Errorf("receive gRPC Agent frame: %w", err))
 			return
 		}
-		if result.err != nil {
-			return
+		if envelope := frame.GetEnvelope(); envelope != nil {
+			converted, convertErr := wire.EnvelopeFromProto(envelope)
+			if convertErr != nil {
+				connection.deliverTerminal(convertErr)
+				return
+			}
+			select {
+			case connection.receiveResults <- receiveResult{envelope: converted}:
+			case <-connection.done:
+				return
+			}
+			continue
 		}
+		if receipt := frame.GetReceipt(); receipt != nil {
+			converted, convertErr := wire.ReceiptFromProto(receipt)
+			if convertErr != nil {
+				connection.deliverTerminal(convertErr)
+				return
+			}
+			select {
+			case connection.receiptResults <- receiptResult{receipt: converted}:
+			case <-connection.done:
+				return
+			}
+			continue
+		}
+		connection.deliverTerminal(errors.New("gRPC Agent stream received unexpected frame"))
+		return
+	}
+}
+
+func (connection *connection) deliverTerminal(err error) {
+	select {
+	case connection.receiveResults <- receiveResult{err: err}:
+	default:
+	}
+	select {
+	case connection.receiptResults <- receiptResult{err: err}:
+	default:
 	}
 }
 
