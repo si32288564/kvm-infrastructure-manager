@@ -45,7 +45,10 @@ func (consumer Consumer) Run(ctx context.Context) error {
 			return nil
 		}
 		message, err := consumer.Consumer.Next(jetstream.FetchMaxWait(consumer.PollWait))
-		if errors.Is(err, jetstream.ErrNoMessages) || errors.Is(err, context.DeadlineExceeded) {
+		if context.Cause(ctx) != nil {
+			return nil
+		}
+		if errors.Is(err, jetstream.ErrNoMessages) || errors.Is(err, nats.ErrTimeout) || errors.Is(err, context.DeadlineExceeded) {
 			continue
 		}
 		if err != nil {
@@ -56,6 +59,9 @@ func (consumer Consumer) Run(ctx context.Context) error {
 		switch disposition {
 		case delivery.ConsumeAck:
 			if err := message.DoubleAck(ctx); err != nil {
+				if context.Cause(ctx) != nil {
+					return nil
+				}
 				return err
 			}
 		case delivery.ConsumeTerm:

@@ -91,6 +91,7 @@
 | INV-EXEC-019 | NATS/JetStream message、PubAck、consumer ACK は mutation authority、Agent receipt、backend execution evidence のいずれにもならず、PostgreSQL current authority の再検証を迂回しない | AT-EXEC-017、FI-BUS-004 |
 | INV-EXEC-020 | Gateway は Inbox acceptance 済みの duplicate でも current Lease/Host/session authority を毎回再検証し、stale authority または generation mismatch を Outbound Registry へ渡さない | AT-EXEC-018、FI-BUS-005 |
 | INV-EXEC-021 | Gateway live-stream route が失敗または不明な Bus message を ACK せず、同一 message identity/digest/envelope で redelivery する。digest conflict は quarantine し自動 merge しない | AT-EXEC-019、FI-BUS-006 |
+| INV-EXEC-022 | JetStream stream/consumer failover は stable Bus message identity/digest と durable consumer state を維持し、redelivery を新しい domain decision、Lease、Attempt、Agent receipt、backend execution evidence へ昇格させない | AT-EXEC-020、FI-BUS-007 |
 
 ## 7. Agent and Host
 

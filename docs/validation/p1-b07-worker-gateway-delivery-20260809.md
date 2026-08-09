@@ -46,7 +46,7 @@ NATS は delivery transport に限定し、resource authority を所有しない
 ## 4. Remaining Qualification
 
 - production Secret Provider による delivery key rotation/revocation と old key overlap
-- real NATS JetStream cluster restart、leader change、duplicate window、consumer failover fixture
+- real NATS JetStream cluster の leader change、duplicate window、consumer failover は [P1-B08](p1-b08-real-jetstream-failover-20260809.md) で PASS
 - Gateway process kill between live-stream write and NATS ACK
 - delivery backlog pressure、dead-letter operator workflow、metrics/alarms
 - Agent application Receipt まで含む multi-process end-to-end qualification
