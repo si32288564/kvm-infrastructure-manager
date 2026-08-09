@@ -52,7 +52,7 @@ type PlacementShape struct {
 }
 
 func RegisterImageRevision(ctx context.Context, db TxBeginner, image ImageRevision) (ImageRegistrationDecision, error) {
-	metadataJSON, metadataDigest, err := canonicalStringMap(image.Metadata)
+	metadataJSON, metadataDigest, err := canonicalCatalogMap(image.Metadata)
 	if err != nil {
 		return ImageRegistrationDecision{}, err
 	}
@@ -266,7 +266,7 @@ func normalizeFlavor(flavor FlavorRevision) (PlacementShape, []byte, error) {
 	if flavor.CPUAllocation != "SHARED" && flavor.CPUAllocation != "DEDICATED" || flavor.CPUPinning && flavor.CPUAllocation != "DEDICATED" {
 		return PlacementShape{}, nil, ErrFlavorShapeInvalid
 	}
-	extraJSON, _, err := canonicalStringMap(flavor.ExtraSpecs)
+	extraJSON, _, err := canonicalCatalogMap(flavor.ExtraSpecs)
 	if err != nil {
 		return PlacementShape{}, nil, err
 	}
@@ -313,4 +313,21 @@ func cloneStringMap(source map[string]string) map[string]string {
 		result[key] = value
 	}
 	return result
+}
+
+func canonicalCatalogMap(value map[string]string) ([]byte, string, error) {
+	if value == nil {
+		value = map[string]string{}
+	}
+	for key, item := range value {
+		if key == "" || item == "" {
+			return nil, "", errors.New("catalog metadata keys and values must be non-empty")
+		}
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(payload)
+	return payload, hex.EncodeToString(digest[:]), nil
 }

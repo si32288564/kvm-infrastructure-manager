@@ -179,10 +179,10 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
-| SCH-001, SCH-007 | placement-architecture | ADR-0006 | INV-PLC-001, INV-PLC-002 | AT-PLC-001, AT-PLC-002 | Planned |
-| SCH-002, SCH-004 | placement-architecture | ADR-0006 | INV-PLC-003, INV-PLC-004, INV-PLC-006 | AT-PLC-003, AT-PLC-004, AT-PLC-006 | Planned |
-| SCH-003, SCH-005 | placement-architecture | ADR-0006 | INV-PLC-001 | AT-PLC-009 | Planned |
-| SCH-006 | placement-architecture | ADR-0006 | INV-PLC-005 | AT-PLC-005 | Planned |
+| SCH-001, SCH-007 | placement-architecture | ADR-0006 | INV-PLC-001, INV-PLC-002 | AT-PLC-001, AT-PLC-002 | Implemented (pure eligibility and eligible-only selection foundation) |
+| SCH-002, SCH-004 | placement-architecture | ADR-0006 | INV-PLC-003, INV-PLC-004, INV-PLC-006 | AT-PLC-003, AT-PLC-004, AT-PLC-006 | Partial (Compute/Memory/HugePages atomic admission; remaining domain claims pending) |
+| SCH-003, SCH-005 | placement-architecture | ADR-0006 | INV-PLC-001 | AT-PLC-009 | Partial (bounded reason/score and deterministic rank implemented) |
+| SCH-006 | placement-architecture | ADR-0006 | INV-PLC-005 | AT-PLC-005 | Implemented (Host-scoped serialization, full rollback, concurrent re-evaluation) |
 
 ## 13. Network / Storage
 
