@@ -353,6 +353,7 @@
 | OPS-021 | Agent Gateway は internal Bus message を PostgreSQL Inbox で dedupe し、current Lease、Host authority generation、session generation、credential/readiness/capability binding を再検証してからだけ current Outbound Registry へ route する | Must |
 | OPS-022 | 同一 message ID/digest の Bus redelivery は current authority を再検証した上で stable Agent envelope を再 route できる。異なる digest は quarantine し、live session 不在または route outcome 不明は ACK せず redelivery へ戻す | Must |
 | OPS-023 | internal JetStream profile は replicated stream と durable consumer を使用し、stream leader または Gateway consumer の停止後も stable message ID/digest を維持して redelivery する。leader election、Bus ACK、consumer restart は新しい Lease、Attempt、mutation authority を生成しない | Must |
+| OPS-024 | TLS/credential 付き internal Bus、Worker、Gateway、Host Agent、PostgreSQL を process 分離した fault campaign で、Bus leader/Gateway/Agent の停止後も current generation へ明示的に再収束し、stale Lease を Agent へ渡さず backend side effect を発生させない | Must |
 
 ### 2.16 Fault、Performance、Audit
 
