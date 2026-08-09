@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/wire"
 )
@@ -11,6 +12,7 @@ import (
 // EchoHandler is a Q-094 fixture endpoint, not a production Gateway handler.
 type EchoHandler struct {
 	MaxMessageBytes int
+	FrameReadDelay  time.Duration
 }
 
 // ServeHTTP requires mTLS and HTTP/2, validates Hello first, and echoes envelopes.
@@ -38,6 +40,15 @@ func (handler EchoHandler) ServeHTTP(writer http.ResponseWriter, request *http.R
 		return
 	}
 	for {
+		if handler.FrameReadDelay > 0 {
+			timer := time.NewTimer(handler.FrameReadDelay)
+			select {
+			case <-timer.C:
+			case <-request.Context().Done():
+				timer.Stop()
+				return
+			}
+		}
 		frame, err := wire.ReadFrame(request.Body, handler.MaxMessageBytes)
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return

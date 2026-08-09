@@ -46,6 +46,22 @@ type result struct {
 	GarbageCollectionCycles uint32        `json:"gc_cycles"`
 }
 
+type holResult struct {
+	Candidate          string        `json:"candidate"`
+	BulkMessages       int           `json:"bulk_messages"`
+	BulkMessageBytes   int           `json:"bulk_message_bytes"`
+	PriorityMessages   int           `json:"priority_messages"`
+	PriorityInterval   time.Duration `json:"priority_interval_ns"`
+	ServerReadDelay    time.Duration `json:"server_read_delay_ns"`
+	PriorityP50        time.Duration `json:"priority_p50_ns"`
+	PriorityP95        time.Duration `json:"priority_p95_ns"`
+	PriorityP99        time.Duration `json:"priority_p99_ns"`
+	PriorityMaximum    time.Duration `json:"priority_max_ns"`
+	CompletionDuration time.Duration `json:"completion_duration_ns"`
+	QueuePeakMessages  int           `json:"queue_peak_messages"`
+	QueuePeakBytes     int           `json:"queue_peak_bytes"`
+}
+
 type fixture struct {
 	adapter  session.TransportAdapter
 	listener *contracttest.CountingListener
@@ -54,8 +70,14 @@ type fixture struct {
 
 func main() {
 	candidate := flag.String("candidate", "grpc", "grpc or http2")
+	mode := flag.String("mode", "scale", "scale or hol")
 	sessions := flag.Int("sessions", 1000, "concurrent long-lived sessions")
 	concurrency := flag.Int("concurrency", 100, "parallel open/echo workers")
+	bulkMessages := flag.Int("bulk-messages", 512, "HOL mode Inventory/Resync messages")
+	bulkBytes := flag.Int("bulk-bytes", 256*1024, "HOL mode bytes per bulk message")
+	priorityMessages := flag.Int("priority-messages", 100, "HOL mode Control/Result messages")
+	priorityInterval := flag.Duration("priority-interval", 5*time.Millisecond, "HOL mode interval between priority publications")
+	serverReadDelay := flag.Duration("server-read-delay", time.Millisecond, "HOL mode delay before each Gateway frame read")
 	flag.Parse()
 	if *sessions < 1 || *concurrency < 1 {
 		fatal(errors.New("sessions and concurrency must be positive"))
@@ -63,11 +85,26 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	fixture, err := newFixture(*candidate)
+	frameDelay := time.Duration(0)
+	if *mode == "hol" {
+		frameDelay = *serverReadDelay
+	}
+	fixture, err := newFixture(*candidate, frameDelay)
 	if err != nil {
 		fatal(err)
 	}
 	defer fixture.close()
+	if *mode == "hol" {
+		result, runErr := runHOL(ctx, fixture.adapter, *candidate, *bulkMessages, *bulkBytes, *priorityMessages, *priorityInterval, *serverReadDelay)
+		if runErr != nil {
+			fatal(runErr)
+		}
+		writeJSON(result)
+		return
+	}
+	if *mode != "scale" {
+		fatal(fmt.Errorf("unsupported mode %q", *mode))
+	}
 
 	connections, openDuration, err := openSessions(ctx, fixture.adapter, *sessions, *concurrency, 1)
 	if err != nil {
@@ -113,14 +150,10 @@ func main() {
 		OldConnectionsDrained:   drained,
 		GarbageCollectionCycles: memory.NumGC,
 	}
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(output); err != nil {
-		fatal(err)
-	}
+	writeJSON(output)
 }
 
-func newFixture(candidate string) (*fixture, error) {
+func newFixture(candidate string, frameReadDelay time.Duration) (*fixture, error) {
 	serverTLS, clientTLS, err := contracttest.TLSConfigs()
 	if err != nil {
 		return nil, err
@@ -133,7 +166,7 @@ func newFixture(candidate string) (*fixture, error) {
 		}
 		counting := contracttest.NewCountingListener(listener)
 		server := grpc.NewServer(grpc.Creds(credentials.NewTLS(serverTLS)))
-		agentprotocolv1.RegisterAgentTransportServer(server, grpcstream.EchoServer{})
+		agentprotocolv1.RegisterAgentTransportServer(server, grpcstream.EchoServer{FrameReadDelay: frameReadDelay})
 		go func() { _ = server.Serve(counting) }()
 		return &fixture{
 			adapter:  &grpcstream.Adapter{Target: counting.Addr().String(), TLSConfig: clientTLS, MaxMessageBytes: 512 * 1024},
@@ -141,7 +174,7 @@ func newFixture(candidate string) (*fixture, error) {
 			close:    server.Stop,
 		}, nil
 	case "http2":
-		server := httptest.NewUnstartedServer(http2stream.EchoHandler{MaxMessageBytes: 512 * 1024})
+		server := httptest.NewUnstartedServer(http2stream.EchoHandler{MaxMessageBytes: 512 * 1024, FrameReadDelay: frameReadDelay})
 		counting := contracttest.NewCountingListener(server.Listener)
 		server.Listener = counting
 		server.TLS = serverTLS
@@ -155,6 +188,121 @@ func newFixture(candidate string) (*fixture, error) {
 	default:
 		return nil, fmt.Errorf("unsupported candidate %q", candidate)
 	}
+}
+
+func runHOL(ctx context.Context, adapter session.TransportAdapter, candidate string, bulkMessages, bulkBytes, priorityMessages int, priorityInterval, serverReadDelay time.Duration) (holResult, error) {
+	if bulkMessages < 1 || bulkBytes < 1 || priorityMessages < 1 || bulkBytes > 512*1024 {
+		return holResult{}, errors.New("HOL message counts must be positive and bulk bytes must not exceed 512 KiB")
+	}
+	queue, err := session.NewPriorityQueue(session.QueueLimits{
+		MaxMessageBytes:        512 * 1024,
+		MaxTotalMessages:       bulkMessages + priorityMessages + 16,
+		MaxTotalBytes:          bulkMessages*bulkBytes + 2*1024*1024,
+		ReservedPriorityMsgs:   priorityMessages + 8,
+		ReservedPriorityBytes:  1024 * 1024,
+		MaxConsecutivePriority: 8,
+		PerStreamMessages: map[session.Stream]int{
+			session.StreamControl: priorityMessages, session.StreamCommand: priorityMessages,
+			session.StreamResult: priorityMessages, session.StreamHeartbeat: priorityMessages,
+			session.StreamCredential: priorityMessages, session.StreamInventory: bulkMessages,
+			session.StreamResync: bulkMessages,
+		},
+	})
+	if err != nil {
+		return holResult{}, err
+	}
+	connection, err := adapter.Open(ctx, session.Handshake{HostIdentity: "host-hol", SessionGeneration: 1, ProtocolVersion: "v1"})
+	if err != nil {
+		return holResult{}, err
+	}
+	defer func() { _ = connection.Close() }()
+
+	bulkPayload := make([]byte, bulkBytes)
+	for index := 0; index < bulkMessages; index++ {
+		stream := session.StreamInventory
+		if index%2 == 1 {
+			stream = session.StreamResync
+		}
+		if err := queue.Enqueue(session.NewEnvelope("host-hol", 1, stream, fmt.Sprintf("bulk-%d", index), "v1", string(stream), uint64(index+1), bulkPayload)); err != nil {
+			return holResult{}, err
+		}
+	}
+	peakMessages, peakBytes := queue.Stats()
+	totalMessages := bulkMessages + priorityMessages
+	sentDone := make(chan error, 1)
+	go func() {
+		for sent := 0; sent < totalMessages; {
+			envelope, ok := queue.Dequeue()
+			if !ok {
+				runtime.Gosched()
+				continue
+			}
+			if sendErr := connection.Send(ctx, envelope); sendErr != nil {
+				sentDone <- sendErr
+				return
+			}
+			sent++
+		}
+		sentDone <- nil
+	}()
+
+	var published sync.Map
+	latencyChannel := make(chan time.Duration, priorityMessages)
+	receiveDone := make(chan error, 1)
+	go func() {
+		for receivedCount := 0; receivedCount < totalMessages; receivedCount++ {
+			envelope, receiveErr := connection.Receive(ctx)
+			if receiveErr != nil {
+				receiveDone <- receiveErr
+				return
+			}
+			if publishedAt, ok := published.Load(envelope.MessageID); ok {
+				latencyChannel <- time.Since(publishedAt.(time.Time))
+			}
+		}
+		receiveDone <- nil
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	started := time.Now()
+	for index := 0; index < priorityMessages; index++ {
+		stream := session.StreamControl
+		if index%2 == 1 {
+			stream = session.StreamResult
+		}
+		messageID := fmt.Sprintf("priority-%d", index)
+		published.Store(messageID, time.Now())
+		if err := queue.Enqueue(session.NewEnvelope("host-hol", 1, stream, messageID, "v1", string(stream), uint64(index+1), []byte("priority"))); err != nil {
+			return holResult{}, err
+		}
+		if priorityInterval > 0 && index+1 < priorityMessages {
+			time.Sleep(priorityInterval)
+		}
+	}
+	if messages, bytes := queue.Stats(); messages > peakMessages || bytes > peakBytes {
+		peakMessages, peakBytes = messages, bytes
+	}
+	if err := <-sentDone; err != nil {
+		return holResult{}, err
+	}
+	if err := <-receiveDone; err != nil {
+		return holResult{}, err
+	}
+	close(latencyChannel)
+	latencies := make([]time.Duration, 0, priorityMessages)
+	for latency := range latencyChannel {
+		latencies = append(latencies, latency)
+	}
+	if len(latencies) != priorityMessages {
+		return holResult{}, fmt.Errorf("received %d priority echoes, want %d", len(latencies), priorityMessages)
+	}
+	return holResult{
+		Candidate: candidate, BulkMessages: bulkMessages, BulkMessageBytes: bulkBytes,
+		PriorityMessages: priorityMessages, PriorityInterval: priorityInterval, ServerReadDelay: serverReadDelay,
+		PriorityP50: percentile(latencies, 50), PriorityP95: percentile(latencies, 95),
+		PriorityP99: percentile(latencies, 99), PriorityMaximum: percentile(latencies, 100),
+		CompletionDuration: time.Since(started), QueuePeakMessages: peakMessages, QueuePeakBytes: peakBytes,
+	}, nil
 }
 
 func openSessions(ctx context.Context, adapter session.TransportAdapter, count, concurrency int, generation uint64) ([]session.TransportConnection, time.Duration, error) {
@@ -280,4 +428,12 @@ func waitForActive(listener *contracttest.CountingListener, target int, timeout 
 func fatal(err error) {
 	_, _ = fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
+}
+
+func writeJSON(value any) {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(value); err != nil {
+		fatal(err)
+	}
 }

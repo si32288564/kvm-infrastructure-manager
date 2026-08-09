@@ -33,6 +33,8 @@ bench-agent-transport:
 scale-agent-transport:
 	$(GO) run ./cmd/kim-agent-transport-scale -candidate grpc -sessions 1000
 	$(GO) run ./cmd/kim-agent-transport-scale -candidate http2 -sessions 1000
+	$(GO) run ./cmd/kim-agent-transport-scale -mode hol -candidate grpc
+	$(GO) run ./cmd/kim-agent-transport-scale -mode hol -candidate http2
 
 test-postgres-integration:
 	test -n "$(KIM_POSTGRES_TEST_URL)"
