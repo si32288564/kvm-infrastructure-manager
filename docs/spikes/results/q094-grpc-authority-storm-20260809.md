@@ -114,7 +114,7 @@ pre-auth limiter は physical connection attempt を必ず減らすものでは�
 
 ## Remaining Decision Gates
 
-- Envoy/HAProxy の GOAWAY、drain、idle timeout、rolling restart
+- L4 passthrough hard drain は [TLS Passthrough Proxy Drain](q094-tls-passthrough-drain-20260809.md) で完了。Envoy/HAProxy の L7 GOAWAY、graceful drain、idle timeout、rolling restart は未完了
 - SYN/backlog、source fairness、DoS、proxy 前後の pre-auth profile
 - production Credential Binding verifier と per-Host certificate evidence
 - multiple Gateway replica と PostgreSQL HA path

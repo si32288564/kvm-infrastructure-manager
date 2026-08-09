@@ -22,6 +22,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/reconnect"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/contracttest"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/faultproxy"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/grpcstream"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
 	"google.golang.org/grpc"
@@ -47,6 +48,11 @@ type result struct {
 	AcceptedConnections       int64         `json:"accepted_physical_connections_total"`
 	StormConnections          int64         `json:"accepted_physical_connections_storm"`
 	ActiveConnections         int           `json:"active_physical_connections"`
+	ProxyEnabled              bool          `json:"tls_passthrough_proxy_enabled"`
+	ProxyAcceptedConnections  int64         `json:"proxy_accepted_physical_connections_total"`
+	ProxyDrainedConnections   int64         `json:"proxy_drained_connections_total"`
+	ProxyDisconnectsObserved  int           `json:"proxy_disconnects_observed"`
+	ProxyActiveConnections    int           `json:"proxy_active_connections"`
 	CurrentGenerationTwo      int           `json:"current_generation_two"`
 	PoolEmptyAcquireCount     int64         `json:"pool_empty_acquire_count"`
 	PoolAcquireDuration       time.Duration `json:"pool_acquire_duration_ns"`
@@ -72,6 +78,7 @@ func main() {
 	baseBackoff := flag.Duration("base-backoff", 25*time.Millisecond, "Agent reconnect base delay")
 	maximumBackoff := flag.Duration("max-backoff", time.Second, "Agent reconnect maximum delay")
 	retryAfter := flag.Duration("retry-after", 25*time.Millisecond, "Gateway admission retry hint")
+	proxyEnabled := flag.Bool("tls-passthrough-proxy", false, "route Agent mTLS through an opaque TCP proxy and drain generation one")
 	flag.Parse()
 	if *databaseURL == "" || *sessions < 1 || *admissionLimit < 1 || *tlsHandshakeLimit < 1 || *databaseConnections < 1 {
 		fatal(errors.New("database URL and positive limits are required"))
@@ -121,12 +128,36 @@ func main() {
 	}})
 	go func() { _ = server.Serve(countingListener) }()
 	defer server.Stop()
-	adapter := &grpcstream.Adapter{Target: countingListener.Addr().String(), TLSConfig: clientTLS, MaxMessageBytes: 64 * 1024}
+	target := countingListener.Addr().String()
+	var transportProxy *faultproxy.Proxy
+	if *proxyEnabled {
+		front, listenErr := net.Listen("tcp", "127.0.0.1:0")
+		if listenErr != nil {
+			fatal(listenErr)
+		}
+		transportProxy, err = faultproxy.New(front, target, 5*time.Second)
+		if err != nil {
+			fatal(err)
+		}
+		go func() { _ = transportProxy.Serve() }()
+		defer func() { _ = transportProxy.Close() }()
+		target = transportProxy.Addr().String()
+	}
+	adapter := &grpcstream.Adapter{Target: target, TLSConfig: clientTLS, MaxMessageBytes: 64 * 1024}
 	policy := reconnect.Backoff{Base: *baseBackoff, Max: *maximumBackoff}
 
 	warm := runWave(ctx, adapter, pool, limiter, runID, *sessions, 1, policy)
 	if warm.err != nil {
 		fatal(fmt.Errorf("warm gRPC session authority: %w", warm.err))
+	}
+	if transportProxy != nil {
+		drained := transportProxy.Drain()
+		if drained < *sessions {
+			fatal(fmt.Errorf("proxy drained %d connections, want at least %d", drained, *sessions))
+		}
+		if err := observeDisconnects(warm.connections, 5*time.Second); err != nil {
+			fatal(err)
+		}
 	}
 	closeAll(warm.connections)
 	if !waitForActive(countingListener, 0, 5*time.Second) {
@@ -162,6 +193,13 @@ func main() {
 		ActiveConnections: countingListener.Active(), CurrentGenerationTwo: current,
 		PoolEmptyAcquireCount: storm.poolAfter.EmptyAcquireCount() - storm.poolBefore.EmptyAcquireCount(),
 		PoolAcquireDuration:   storm.poolAfter.AcquireDuration() - storm.poolBefore.AcquireDuration(),
+	}
+	if transportProxy != nil {
+		output.ProxyEnabled = true
+		output.ProxyAcceptedConnections = transportProxy.Accepted()
+		output.ProxyDrainedConnections = transportProxy.Drained()
+		output.ProxyDisconnectsObserved = *sessions
+		output.ProxyActiveConnections = transportProxy.Active()
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
@@ -272,6 +310,33 @@ func waitForActive(listener *contracttest.CountingListener, target int, timeout 
 		time.Sleep(10 * time.Millisecond)
 	}
 	return listener.Active() <= target
+}
+
+func observeDisconnects(connections []session.TransportConnection, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var wait sync.WaitGroup
+	var firstError atomic.Pointer[error]
+	for index, connection := range connections {
+		wait.Add(1)
+		go func(index int, connection session.TransportConnection) {
+			defer wait.Done()
+			if connection == nil {
+				storeError(&firstError, fmt.Errorf("warm connection %d is nil", index))
+				return
+			}
+			if _, err := connection.Receive(ctx); err == nil {
+				storeError(&firstError, fmt.Errorf("warm connection %d did not observe proxy drain", index))
+			} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				storeError(&firstError, fmt.Errorf("warm connection %d drain observation: %w", index, err))
+			}
+		}(index, connection)
+	}
+	wait.Wait()
+	if stored := firstError.Load(); stored != nil {
+		return *stored
+	}
+	return nil
 }
 
 func percentile(values []time.Duration, percentage int) time.Duration {
