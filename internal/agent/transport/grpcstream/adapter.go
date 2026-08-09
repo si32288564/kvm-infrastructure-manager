@@ -51,6 +51,17 @@ func (adapter *Adapter) Open(ctx context.Context, handshake session.Handshake) (
 		_ = clientConnection.Close()
 		return nil, fmt.Errorf("send gRPC Agent hello: %w", err)
 	}
+	decision, err := stream.Recv()
+	if err != nil {
+		cancel()
+		_ = clientConnection.Close()
+		return nil, fmt.Errorf("receive gRPC Agent session decision: %w", err)
+	}
+	if err := wire.ValidateSessionDecision(decision, handshake); err != nil {
+		cancel()
+		_ = clientConnection.Close()
+		return nil, err
+	}
 	connection := &connection{
 		clientConnection: clientConnection,
 		stream:           stream,

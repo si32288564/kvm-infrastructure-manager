@@ -2,10 +2,12 @@ package http2stream
 
 import (
 	"context"
+	"errors"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/contracttest"
 )
@@ -30,6 +32,23 @@ func TestHTTP2AdapterContract(t *testing.T) {
 	})
 	if countingListener.Accepted() != 1 {
 		t.Fatalf("physical connection count = %d, want 1", countingListener.Accepted())
+	}
+}
+
+func TestHTTP2AdapterReturnsTypedAdmissionRejection(t *testing.T) {
+	serverTLS, clientTLS, err := contracttest.TLSConfigs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewUnstartedServer(EchoHandler{MaxMessageBytes: 64 * 1024, Reject: &agentprotocolv1.SessionRejected{Code: "GATEWAY_ADMISSION_LIMITED", Retryable: true, RetryAfterMillis: 25}})
+	server.TLS = serverTLS
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+	_, err = (&Adapter{Endpoint: server.URL, TLSConfig: clientTLS, MaxMessageBytes: 64 * 1024}).Open(t.Context(), testHandshake())
+	var rejection *session.AdmissionRejectedError
+	if !errors.As(err, &rejection) || rejection.Code != "GATEWAY_ADMISSION_LIMITED" {
+		t.Fatalf("Open rejection = %#v, error = %v", rejection, err)
 	}
 }
 

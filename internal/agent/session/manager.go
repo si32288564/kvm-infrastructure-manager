@@ -30,10 +30,14 @@ type Module interface {
 
 // Handshake binds one Host identity and proposed generation to a connection attempt.
 type Handshake struct {
-	HostIdentity      string
-	SessionGeneration uint64
-	ProtocolVersion   string
-	Capabilities      []string
+	HostIdentity              string
+	SessionGeneration         uint64
+	ProtocolVersion           string
+	Capabilities              []string
+	SessionAttemptID          string
+	ConnectionInstanceID      string
+	AgentArtifactDigest       string
+	CredentialBindingRevision int64
 }
 
 // TransportConnection is owned exclusively by Manager.

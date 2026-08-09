@@ -22,13 +22,17 @@ const (
 )
 
 type SessionHello struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	HostIdentity      string                 `protobuf:"bytes,1,opt,name=host_identity,json=hostIdentity,proto3" json:"host_identity,omitempty"`
-	SessionGeneration uint64                 `protobuf:"varint,2,opt,name=session_generation,json=sessionGeneration,proto3" json:"session_generation,omitempty"`
-	ProtocolVersion   string                 `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
-	Capabilities      []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	HostIdentity              string                 `protobuf:"bytes,1,opt,name=host_identity,json=hostIdentity,proto3" json:"host_identity,omitempty"`
+	SessionGeneration         uint64                 `protobuf:"varint,2,opt,name=session_generation,json=sessionGeneration,proto3" json:"session_generation,omitempty"`
+	ProtocolVersion           string                 `protobuf:"bytes,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	Capabilities              []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
+	SessionAttemptId          string                 `protobuf:"bytes,5,opt,name=session_attempt_id,json=sessionAttemptId,proto3" json:"session_attempt_id,omitempty"`
+	ConnectionInstanceId      string                 `protobuf:"bytes,6,opt,name=connection_instance_id,json=connectionInstanceId,proto3" json:"connection_instance_id,omitempty"`
+	AgentArtifactDigest       string                 `protobuf:"bytes,7,opt,name=agent_artifact_digest,json=agentArtifactDigest,proto3" json:"agent_artifact_digest,omitempty"`
+	CredentialBindingRevision int64                  `protobuf:"varint,8,opt,name=credential_binding_revision,json=credentialBindingRevision,proto3" json:"credential_binding_revision,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *SessionHello) Reset() {
@@ -89,6 +93,154 @@ func (x *SessionHello) GetCapabilities() []string {
 	return nil
 }
 
+func (x *SessionHello) GetSessionAttemptId() string {
+	if x != nil {
+		return x.SessionAttemptId
+	}
+	return ""
+}
+
+func (x *SessionHello) GetConnectionInstanceId() string {
+	if x != nil {
+		return x.ConnectionInstanceId
+	}
+	return ""
+}
+
+func (x *SessionHello) GetAgentArtifactDigest() string {
+	if x != nil {
+		return x.AgentArtifactDigest
+	}
+	return ""
+}
+
+func (x *SessionHello) GetCredentialBindingRevision() int64 {
+	if x != nil {
+		return x.CredentialBindingRevision
+	}
+	return 0
+}
+
+type SessionAccepted struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	HostIdentity      string                 `protobuf:"bytes,1,opt,name=host_identity,json=hostIdentity,proto3" json:"host_identity,omitempty"`
+	SessionGeneration uint64                 `protobuf:"varint,2,opt,name=session_generation,json=sessionGeneration,proto3" json:"session_generation,omitempty"`
+	SessionAttemptId  string                 `protobuf:"bytes,3,opt,name=session_attempt_id,json=sessionAttemptId,proto3" json:"session_attempt_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *SessionAccepted) Reset() {
+	*x = SessionAccepted{}
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionAccepted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionAccepted) ProtoMessage() {}
+
+func (x *SessionAccepted) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionAccepted.ProtoReflect.Descriptor instead.
+func (*SessionAccepted) Descriptor() ([]byte, []int) {
+	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SessionAccepted) GetHostIdentity() string {
+	if x != nil {
+		return x.HostIdentity
+	}
+	return ""
+}
+
+func (x *SessionAccepted) GetSessionGeneration() uint64 {
+	if x != nil {
+		return x.SessionGeneration
+	}
+	return 0
+}
+
+func (x *SessionAccepted) GetSessionAttemptId() string {
+	if x != nil {
+		return x.SessionAttemptId
+	}
+	return ""
+}
+
+type SessionRejected struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Code             string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	RetryAfterMillis uint64                 `protobuf:"varint,2,opt,name=retry_after_millis,json=retryAfterMillis,proto3" json:"retry_after_millis,omitempty"`
+	Retryable        bool                   `protobuf:"varint,3,opt,name=retryable,proto3" json:"retryable,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *SessionRejected) Reset() {
+	*x = SessionRejected{}
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionRejected) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionRejected) ProtoMessage() {}
+
+func (x *SessionRejected) ProtoReflect() protoreflect.Message {
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionRejected.ProtoReflect.Descriptor instead.
+func (*SessionRejected) Descriptor() ([]byte, []int) {
+	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SessionRejected) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *SessionRejected) GetRetryAfterMillis() uint64 {
+	if x != nil {
+		return x.RetryAfterMillis
+	}
+	return 0
+}
+
+func (x *SessionRejected) GetRetryable() bool {
+	if x != nil {
+		return x.Retryable
+	}
+	return false
+}
+
 type Envelope struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	HostIdentity       string                 `protobuf:"bytes,1,opt,name=host_identity,json=hostIdentity,proto3" json:"host_identity,omitempty"`
@@ -108,7 +260,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[1]
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -120,7 +272,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[1]
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -133,7 +285,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{1}
+	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Envelope) GetHostIdentity() string {
@@ -219,6 +371,8 @@ type Frame struct {
 	//
 	//	*Frame_Hello
 	//	*Frame_Envelope
+	//	*Frame_Accepted
+	//	*Frame_Rejected
 	Body          isFrame_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -226,7 +380,7 @@ type Frame struct {
 
 func (x *Frame) Reset() {
 	*x = Frame{}
-	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[2]
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -238,7 +392,7 @@ func (x *Frame) String() string {
 func (*Frame) ProtoMessage() {}
 
 func (x *Frame) ProtoReflect() protoreflect.Message {
-	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[2]
+	mi := &file_api_agentprotocol_v1_transport_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -251,7 +405,7 @@ func (x *Frame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Frame.ProtoReflect.Descriptor instead.
 func (*Frame) Descriptor() ([]byte, []int) {
-	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{2}
+	return file_api_agentprotocol_v1_transport_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Frame) GetBody() isFrame_Body {
@@ -279,6 +433,24 @@ func (x *Frame) GetEnvelope() *Envelope {
 	return nil
 }
 
+func (x *Frame) GetAccepted() *SessionAccepted {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_Accepted); ok {
+			return x.Accepted
+		}
+	}
+	return nil
+}
+
+func (x *Frame) GetRejected() *SessionRejected {
+	if x != nil {
+		if x, ok := x.Body.(*Frame_Rejected); ok {
+			return x.Rejected
+		}
+	}
+	return nil
+}
+
 type isFrame_Body interface {
 	isFrame_Body()
 }
@@ -291,20 +463,44 @@ type Frame_Envelope struct {
 	Envelope *Envelope `protobuf:"bytes,2,opt,name=envelope,proto3,oneof"`
 }
 
+type Frame_Accepted struct {
+	Accepted *SessionAccepted `protobuf:"bytes,3,opt,name=accepted,proto3,oneof"`
+}
+
+type Frame_Rejected struct {
+	Rejected *SessionRejected `protobuf:"bytes,4,opt,name=rejected,proto3,oneof"`
+}
+
 func (*Frame_Hello) isFrame_Body() {}
 
 func (*Frame_Envelope) isFrame_Body() {}
+
+func (*Frame_Accepted) isFrame_Body() {}
+
+func (*Frame_Rejected) isFrame_Body() {}
 
 var File_api_agentprotocol_v1_transport_proto protoreflect.FileDescriptor
 
 const file_api_agentprotocol_v1_transport_proto_rawDesc = "" +
 	"\n" +
-	"$api/agentprotocol/v1/transport.proto\x12\fkim.agent.v1\"\xb1\x01\n" +
+	"$api/agentprotocol/v1/transport.proto\x12\fkim.agent.v1\"\x89\x03\n" +
 	"\fSessionHello\x12#\n" +
 	"\rhost_identity\x18\x01 \x01(\tR\fhostIdentity\x12-\n" +
 	"\x12session_generation\x18\x02 \x01(\x04R\x11sessionGeneration\x12)\n" +
 	"\x10protocol_version\x18\x03 \x01(\tR\x0fprotocolVersion\x12\"\n" +
-	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\"\xa9\x03\n" +
+	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x12,\n" +
+	"\x12session_attempt_id\x18\x05 \x01(\tR\x10sessionAttemptId\x124\n" +
+	"\x16connection_instance_id\x18\x06 \x01(\tR\x14connectionInstanceId\x122\n" +
+	"\x15agent_artifact_digest\x18\a \x01(\tR\x13agentArtifactDigest\x12>\n" +
+	"\x1bcredential_binding_revision\x18\b \x01(\x03R\x19credentialBindingRevision\"\x93\x01\n" +
+	"\x0fSessionAccepted\x12#\n" +
+	"\rhost_identity\x18\x01 \x01(\tR\fhostIdentity\x12-\n" +
+	"\x12session_generation\x18\x02 \x01(\x04R\x11sessionGeneration\x12,\n" +
+	"\x12session_attempt_id\x18\x03 \x01(\tR\x10sessionAttemptId\"q\n" +
+	"\x0fSessionRejected\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12,\n" +
+	"\x12retry_after_millis\x18\x02 \x01(\x04R\x10retryAfterMillis\x12\x1c\n" +
+	"\tretryable\x18\x03 \x01(\bR\tretryable\"\xa9\x03\n" +
 	"\bEnvelope\x12#\n" +
 	"\rhost_identity\x18\x01 \x01(\tR\fhostIdentity\x12-\n" +
 	"\x12session_generation\x18\x02 \x01(\x04R\x11sessionGeneration\x12%\n" +
@@ -318,10 +514,12 @@ const file_api_agentprotocol_v1_transport_proto_rawDesc = "" +
 	"\x0epayload_digest\x18\t \x01(\tR\rpayloadDigest\x12'\n" +
 	"\x0fcorrelation_key\x18\n" +
 	" \x01(\tR\x0ecorrelationKey\x12\x18\n" +
-	"\apayload\x18\v \x01(\fR\apayload\"y\n" +
+	"\apayload\x18\v \x01(\fR\apayload\"\xf3\x01\n" +
 	"\x05Frame\x122\n" +
 	"\x05hello\x18\x01 \x01(\v2\x1a.kim.agent.v1.SessionHelloH\x00R\x05hello\x124\n" +
-	"\benvelope\x18\x02 \x01(\v2\x16.kim.agent.v1.EnvelopeH\x00R\benvelopeB\x06\n" +
+	"\benvelope\x18\x02 \x01(\v2\x16.kim.agent.v1.EnvelopeH\x00R\benvelope\x12;\n" +
+	"\baccepted\x18\x03 \x01(\v2\x1d.kim.agent.v1.SessionAcceptedH\x00R\baccepted\x12;\n" +
+	"\brejected\x18\x04 \x01(\v2\x1d.kim.agent.v1.SessionRejectedH\x00R\brejectedB\x06\n" +
 	"\x04body2I\n" +
 	"\x0eAgentTransport\x127\n" +
 	"\aConnect\x12\x13.kim.agent.v1.Frame\x1a\x13.kim.agent.v1.Frame(\x010\x01BgZegithub.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1;agentprotocolv1b\x06proto3"
@@ -338,22 +536,26 @@ func file_api_agentprotocol_v1_transport_proto_rawDescGZIP() []byte {
 	return file_api_agentprotocol_v1_transport_proto_rawDescData
 }
 
-var file_api_agentprotocol_v1_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_api_agentprotocol_v1_transport_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_api_agentprotocol_v1_transport_proto_goTypes = []any{
-	(*SessionHello)(nil), // 0: kim.agent.v1.SessionHello
-	(*Envelope)(nil),     // 1: kim.agent.v1.Envelope
-	(*Frame)(nil),        // 2: kim.agent.v1.Frame
+	(*SessionHello)(nil),    // 0: kim.agent.v1.SessionHello
+	(*SessionAccepted)(nil), // 1: kim.agent.v1.SessionAccepted
+	(*SessionRejected)(nil), // 2: kim.agent.v1.SessionRejected
+	(*Envelope)(nil),        // 3: kim.agent.v1.Envelope
+	(*Frame)(nil),           // 4: kim.agent.v1.Frame
 }
 var file_api_agentprotocol_v1_transport_proto_depIdxs = []int32{
 	0, // 0: kim.agent.v1.Frame.hello:type_name -> kim.agent.v1.SessionHello
-	1, // 1: kim.agent.v1.Frame.envelope:type_name -> kim.agent.v1.Envelope
-	2, // 2: kim.agent.v1.AgentTransport.Connect:input_type -> kim.agent.v1.Frame
-	2, // 3: kim.agent.v1.AgentTransport.Connect:output_type -> kim.agent.v1.Frame
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 1: kim.agent.v1.Frame.envelope:type_name -> kim.agent.v1.Envelope
+	1, // 2: kim.agent.v1.Frame.accepted:type_name -> kim.agent.v1.SessionAccepted
+	2, // 3: kim.agent.v1.Frame.rejected:type_name -> kim.agent.v1.SessionRejected
+	4, // 4: kim.agent.v1.AgentTransport.Connect:input_type -> kim.agent.v1.Frame
+	4, // 5: kim.agent.v1.AgentTransport.Connect:output_type -> kim.agent.v1.Frame
+	5, // [5:6] is the sub-list for method output_type
+	4, // [4:5] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_api_agentprotocol_v1_transport_proto_init() }
@@ -361,9 +563,11 @@ func file_api_agentprotocol_v1_transport_proto_init() {
 	if File_api_agentprotocol_v1_transport_proto != nil {
 		return
 	}
-	file_api_agentprotocol_v1_transport_proto_msgTypes[2].OneofWrappers = []any{
+	file_api_agentprotocol_v1_transport_proto_msgTypes[4].OneofWrappers = []any{
 		(*Frame_Hello)(nil),
 		(*Frame_Envelope)(nil),
+		(*Frame_Accepted)(nil),
+		(*Frame_Rejected)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -371,7 +575,7 @@ func file_api_agentprotocol_v1_transport_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_agentprotocol_v1_transport_proto_rawDesc), len(file_api_agentprotocol_v1_transport_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

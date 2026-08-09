@@ -76,7 +76,7 @@ admission 16 が単一 run では最良でしたが、この値を production de
 
 ## Remaining Decision Gates
 
-- real mTLS accept/handshake と selected transport adapter を同じ storm へ接続
+- real gRPC/mTLS direct path は [Q-094 Real gRPC Authority Storm](q094-grpc-authority-storm-20260809.md) で完了。typed HTTP/2 direct authority path は未測定
 - Envoy/HAProxy の GOAWAY、drain、idle timeout、rolling restart
 - multiple Gateway replica と PostgreSQL primary/HA path
 - credential renewal overlap、durable spool、resync convergence

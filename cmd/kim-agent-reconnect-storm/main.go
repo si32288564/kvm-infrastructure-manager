@@ -176,7 +176,8 @@ func runWave(ctx context.Context, pool *pgxpool.Pool, runID string, sessions, ad
 					HostID:               fmt.Sprintf("%s-host-%06d", runID, index),
 					ConnectionInstanceID: fmt.Sprintf("connection-%d", wave), TransportProfile: "q094-reconnect-storm",
 					ProtocolVersion: "v1", AgentArtifactDigest: fmt.Sprintf("%064x", wave), CredentialBindingRevision: int64(wave),
-					HandshakeEvidence: map[string]any{"wave": wave},
+					ExpectedSessionGeneration: int64(wave),
+					HandshakeEvidence:         map[string]any{"wave": wave},
 				})
 				databaseLatencies[index] = time.Since(databaseStarted)
 				release()

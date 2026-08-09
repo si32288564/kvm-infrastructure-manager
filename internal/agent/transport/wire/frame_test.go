@@ -2,7 +2,9 @@ package wire
 
 import (
 	"bytes"
+	"errors"
 	"testing"
+	"time"
 
 	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -25,6 +27,17 @@ func TestFrameRoundTrip(t *testing.T) {
 	}
 	if converted.MessageID != envelope.MessageID || converted.PayloadDigest != envelope.PayloadDigest || !bytes.Equal(converted.Payload, envelope.Payload) {
 		t.Fatalf("round trip = %#v, want %#v", converted, envelope)
+	}
+}
+
+func TestValidateSessionDecisionReturnsTypedRejection(t *testing.T) {
+	frame := &agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Rejected{Rejected: &agentprotocolv1.SessionRejected{
+		Code: "GATEWAY_ADMISSION_LIMITED", Retryable: true, RetryAfterMillis: 25,
+	}}}
+	err := ValidateSessionDecision(frame, session.Handshake{HostIdentity: "host-1", SessionGeneration: 1})
+	var rejection *session.AdmissionRejectedError
+	if !errors.As(err, &rejection) || rejection.Code != "GATEWAY_ADMISSION_LIMITED" || rejection.RetryAfter != 25*time.Millisecond || !rejection.Retryable {
+		t.Fatalf("session rejection = %#v, error = %v", rejection, err)
 	}
 }
 

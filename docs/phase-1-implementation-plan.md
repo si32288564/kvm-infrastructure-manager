@@ -17,9 +17,9 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 |---|---|---|
 | P1-A01 | In Progress | Go module、command scaffold、CI、format/vet/test/document contract lint を開始。component runtime wiring は未着手 |
 | P1-A02 | In Progress | fresh PostgreSQL schema、checksummed migration runner、transaction helper を実装。session current/immutable attempt/event、Host-scoped session admission lock、Outbox claim generation/UNKNOWN evidence を PostgreSQL 17 で検証。failure test は継続 |
-| P1-A03/A05 | In Progress | versioned protobuf Envelope、Session Manager/Module interface、bounded priority queue、Authority View、stale session fence、gRPC/typed HTTP/2 mTLS adapter を実装。durable spool/resync は未実装 |
-| P1-A04 | In Progress | PostgreSQL current generation、immutable Attempt/Event、idempotent grant、stale Attempt replay fence、Gateway admission limiter を実装。production mTLS handler wiring は未実装 |
-| Q-094 | In Progress | 両 candidate が basic contract と 10,000-session handoff を通過。gRPC は operational/control-path leader、typed HTTP/2 は density leader。[reconnect storm result](spikes/results/q094-reconnect-storm-20260809.md) を記録し、proxy/spool 評価を継続 |
+| P1-A03/A05 | In Progress | versioned protobuf Envelope/SessionAccepted/SessionRejected、Session Manager/Module interface、bounded priority queue、Authority View、stale session fence、gRPC/typed HTTP/2 mTLS adapter を実装。durable spool/resync は未実装 |
+| P1-A04 | In Progress | PostgreSQL current generation、immutable Attempt/Event、idempotent grant、stale Attempt replay fence、Gateway admission limiter、gRPC mTLS→DB Grant wiring を実装。Credential Binding verifier と production listener wiring は未実装 |
+| Q-094 | In Progress | 両 candidate が basic contract と 10,000-session handoff を通過。gRPC は operational/control-path leader、typed HTTP/2 は density leader。[real gRPC authority storm](spikes/results/q094-grpc-authority-storm-20260809.md) まで完了し、proxy/spool 評価を継続 |
 
 ## 2. Implementation Principles
 

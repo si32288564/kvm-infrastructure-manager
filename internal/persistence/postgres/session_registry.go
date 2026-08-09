@@ -16,6 +16,7 @@ var (
 	ErrDatabaseAuthorityNotActive = errors.New("database authority is not active")
 	ErrHostNotApproved            = errors.New("Host is not approved for Agent session admission")
 	ErrSessionAttemptConflict     = errors.New("Agent session attempt evidence conflict")
+	ErrSessionGenerationConflict  = errors.New("Agent proposed session generation is not current")
 )
 
 type AgentSessionAdmission struct {
@@ -27,6 +28,7 @@ type AgentSessionAdmission struct {
 	AgentArtifactDigest       string
 	CredentialBindingRevision int64
 	HandshakeEvidence         map[string]any
+	ExpectedSessionGeneration int64
 }
 
 type AgentSessionGrant struct {
@@ -129,6 +131,9 @@ func AdmitAgentSessionTx(ctx context.Context, tx pgx.Tx, request AgentSessionAdm
 	}
 	if !createdAttempt {
 		return AgentSessionGrant{}, ErrSessionAttemptConflict
+	}
+	if request.ExpectedSessionGeneration > 0 && request.ExpectedSessionGeneration != newGeneration {
+		return AgentSessionGrant{}, ErrSessionGenerationConflict
 	}
 	if oldAttemptID != nil {
 		if err := appendSessionEventTx(ctx, tx, *oldAttemptID, "FENCED", oldGeneration, map[string]any{"superseded_by": request.SessionAttemptID}); err != nil {

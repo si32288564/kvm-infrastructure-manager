@@ -9,6 +9,22 @@ message SessionHello {
   uint64 session_generation = 2;
   string protocol_version = 3;
   repeated string capabilities = 4;
+  string session_attempt_id = 5;
+  string connection_instance_id = 6;
+  string agent_artifact_digest = 7;
+  int64 credential_binding_revision = 8;
+}
+
+message SessionAccepted {
+  string host_identity = 1;
+  uint64 session_generation = 2;
+  string session_attempt_id = 3;
+}
+
+message SessionRejected {
+  string code = 1;
+  uint64 retry_after_millis = 2;
+  bool retryable = 3;
 }
 
 message Envelope {
@@ -29,6 +45,8 @@ message Frame {
   oneof body {
     SessionHello hello = 1;
     Envelope envelope = 2;
+    SessionAccepted accepted = 3;
+    SessionRejected rejected = 4;
   }
 }
 

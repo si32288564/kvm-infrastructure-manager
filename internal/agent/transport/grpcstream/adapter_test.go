@@ -1,6 +1,7 @@
 package grpcstream
 
 import (
+	"errors"
 	"net"
 	"testing"
 
@@ -33,6 +34,26 @@ func TestGRPCAdapterContract(t *testing.T) {
 	})
 	if countingListener.Accepted() != 1 {
 		t.Fatalf("physical connection count = %d, want 1", countingListener.Accepted())
+	}
+}
+
+func TestGRPCAdapterReturnsTypedAdmissionRejection(t *testing.T) {
+	serverTLS, clientTLS, err := contracttest.TLSConfigs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(serverTLS)))
+	agentprotocolv1.RegisterAgentTransportServer(server, EchoServer{Reject: &agentprotocolv1.SessionRejected{Code: "GATEWAY_ADMISSION_LIMITED", Retryable: true, RetryAfterMillis: 25}})
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+	_, err = (&Adapter{Target: listener.Addr().String(), TLSConfig: clientTLS, MaxMessageBytes: 64 * 1024}).Open(t.Context(), session.Handshake{HostIdentity: "host-reject", SessionGeneration: 1, ProtocolVersion: "v1"})
+	var rejection *session.AdmissionRejectedError
+	if !errors.As(err, &rejection) || rejection.Code != "GATEWAY_ADMISSION_LIMITED" {
+		t.Fatalf("Open rejection = %#v, error = %v", rejection, err)
 	}
 }
 

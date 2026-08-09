@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -53,11 +54,40 @@ func EnvelopeFromProto(envelope *agentprotocolv1.Envelope) (session.Envelope, er
 // HelloToProto converts the transport-neutral handshake.
 func HelloToProto(handshake session.Handshake) *agentprotocolv1.SessionHello {
 	return &agentprotocolv1.SessionHello{
-		HostIdentity:      handshake.HostIdentity,
-		SessionGeneration: handshake.SessionGeneration,
-		ProtocolVersion:   handshake.ProtocolVersion,
-		Capabilities:      append([]string(nil), handshake.Capabilities...),
+		HostIdentity:              handshake.HostIdentity,
+		SessionGeneration:         handshake.SessionGeneration,
+		ProtocolVersion:           handshake.ProtocolVersion,
+		Capabilities:              append([]string(nil), handshake.Capabilities...),
+		SessionAttemptId:          handshake.SessionAttemptID,
+		ConnectionInstanceId:      handshake.ConnectionInstanceID,
+		AgentArtifactDigest:       handshake.AgentArtifactDigest,
+		CredentialBindingRevision: handshake.CredentialBindingRevision,
 	}
+}
+
+// ValidateSessionDecision requires an explicit Gateway decision before a live
+// transport becomes a usable current Agent session.
+func ValidateSessionDecision(frame *agentprotocolv1.Frame, handshake session.Handshake) error {
+	if frame == nil {
+		return errors.New("Gateway session decision is required")
+	}
+	if rejected := frame.GetRejected(); rejected != nil {
+		return &session.AdmissionRejectedError{
+			Code: rejected.GetCode(), RetryAfter: time.Duration(rejected.GetRetryAfterMillis()) * time.Millisecond,
+			Retryable: rejected.GetRetryable(),
+		}
+	}
+	accepted := frame.GetAccepted()
+	if accepted == nil {
+		return errors.New("Gateway first response must be a session decision")
+	}
+	if accepted.GetHostIdentity() != handshake.HostIdentity || accepted.GetSessionGeneration() != handshake.SessionGeneration {
+		return errors.New("Gateway session grant identity/generation mismatch")
+	}
+	if handshake.SessionAttemptID != "" && accepted.GetSessionAttemptId() != handshake.SessionAttemptID {
+		return errors.New("Gateway session grant Attempt mismatch")
+	}
+	return nil
 }
 
 // WriteFrame writes one bounded length-prefixed protobuf Frame.

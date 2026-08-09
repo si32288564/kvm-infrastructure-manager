@@ -94,6 +94,19 @@ func (adapter *Adapter) Open(ctx context.Context, handshake session.Handshake) (
 			_ = result.response.Body.Close()
 			return nil, fmt.Errorf("HTTP/2 Agent stream response is %s over %s", result.response.Status, result.response.Proto)
 		}
+		decision, err := wire.ReadFrame(result.response.Body, adapter.MaxMessageBytes)
+		if err != nil {
+			cancel()
+			_ = requestWriter.Close()
+			_ = result.response.Body.Close()
+			return nil, fmt.Errorf("receive HTTP/2 Agent session decision: %w", err)
+		}
+		if err := wire.ValidateSessionDecision(decision, handshake); err != nil {
+			cancel()
+			_ = requestWriter.Close()
+			_ = result.response.Body.Close()
+			return nil, err
+		}
 		connection := &connection{
 			requestWriter:  requestWriter,
 			responseBody:   result.response.Body,

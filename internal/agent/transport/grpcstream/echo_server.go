@@ -14,6 +14,7 @@ import (
 type EchoServer struct {
 	agentprotocolv1.UnimplementedAgentTransportServer
 	FrameReadDelay time.Duration
+	Reject         *agentprotocolv1.SessionRejected
 }
 
 // Connect requires Hello first and echoes subsequent envelopes.
@@ -24,6 +25,15 @@ func (server EchoServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1
 	}
 	if first.GetHello() == nil || first.GetHello().GetHostIdentity() == "" || first.GetHello().GetSessionGeneration() == 0 {
 		return errors.New("first gRPC Agent frame must be a complete hello")
+	}
+	if server.Reject != nil {
+		return stream.Send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Rejected{Rejected: server.Reject}})
+	}
+	if err := stream.Send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Accepted{Accepted: &agentprotocolv1.SessionAccepted{
+		HostIdentity: first.GetHello().GetHostIdentity(), SessionGeneration: first.GetHello().GetSessionGeneration(),
+		SessionAttemptId: first.GetHello().GetSessionAttemptId(),
+	}}}); err != nil {
+		return err
 	}
 	for {
 		if server.FrameReadDelay > 0 {
