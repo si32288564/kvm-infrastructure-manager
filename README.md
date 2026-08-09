@@ -54,6 +54,7 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 - [Phase 0 Exit Review](docs/phase-0-exit-review.md)
 - [ADR Decision Gate Review](docs/adr-decision-gate-review.md)
 - [v1 Gap Analysis](docs/v1-gap-analysis.md)
+- [Phase 1 Implementation Plan](docs/phase-1-implementation-plan.md)
 - [System-wide Failure Model](docs/failure-model.md)
 - [Extensibility Architecture](docs/extensibility-architecture.md)
 - [Architecture Invariants](docs/architecture-invariants.md)

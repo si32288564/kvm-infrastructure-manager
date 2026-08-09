@@ -100,6 +100,7 @@
 | Q-091 | Offline trust update | full/delta Bundle、sequence/previous digest、update cadence、maximum disconnected intervalを決定 | Technical Preview 前 |
 | Q-092 | PKI DR/key custody | CA/Secret Provider key backup、new Site reissue、old Site/issuer fencing、revocation sequence recoveryを決定 | Technical Preview 前 |
 | Q-093 | Cross-domain trust | NFVO/VNFM/WIM/backend/customer PKIのexplicit relationship、name constraint、trust exposureを決定 | Product Beta 前 |
+| Q-094 | Initial Agent multiplexed transport | HTTP/2/gRPC等のimplementation、library、proxy/LB、stream priority、message/chunk limitを選定。Agent capability contractとは分離する | Developer Preview P1-A exit前 |
 
 ## Phase 0 Close / Defer Register
 

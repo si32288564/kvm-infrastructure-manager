@@ -24,6 +24,7 @@
 | Storage | Storage Backend/Class、Volume、Backend Binding、Snapshot/Clone、Attachment Intent/Claim/Observation、Fencing Proof、Handoff |
 | Operations | Operation、Step、Event、Notification |
 | Execution | Job、Command、Lease、Attempt、Result |
+| Agent Transport | Agent Session/Generation、Logical Stream、Message Envelope/Receipt、Resync Checkpoint |
 | Assurance | Alarm、Metric、Audit Record、Diagnostic Bundle |
 
 ## 2. 主要エンティティ
@@ -103,6 +104,11 @@ erDiagram
     JOB ||--o{ COMMAND : dispatches
     COMMAND ||--o{ ATTEMPT : attempts
     COMMAND ||--o| LEASE : authorizes
+    HOST ||--o{ AGENT_SESSION : establishes
+    AGENT_SESSION ||--o{ LOGICAL_STREAM : multiplexes
+    LOGICAL_STREAM ||--o{ MESSAGE_ENVELOPE : carries
+    MESSAGE_ENVELOPE ||--o| MESSAGE_RECEIPT : acknowledges
+    AGENT_SESSION ||--o{ RESYNC_CHECKPOINT : resumes
     OPERATION ||--o{ OUTBOX_RECORD : emits
     INBOX_RECORD ||--o| DELIVERY_RECEIPT : returns
     BACKUP_MANIFEST ||--o{ RESTORE_EPOCH : restores

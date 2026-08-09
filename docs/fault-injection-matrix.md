@@ -53,6 +53,9 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-BUS-002 | Bus停止後に復旧 | consumer/work age alarm | durable acceptance後のdispatch待機 | pending work age | DB authority loss、成功推測 | DBから未完work再駆動 |
 | FI-GATEWAY-001 | Lease前にAgent Gateway partition | heartbeat/session loss | 新Lease停止、Host ineligible | gateway/Host alarm | Agent cached/autonomous mutation | session+capability再検証 |
 | FI-GATEWAY-002 | Gateway再接続、Host authorityはdisarmed | session restored | authorityをdisarmedのまま維持 | authority generation/audit | 自動arm/Command配送 | operatorによる明示arm |
+| FI-GATEWAY-003 | reconnect/credential rotation で old/new session を重複させ、old session から Result、Inventory、Observation、Command ACK を送る | session generation mismatch | old session message 拒否または quarantine、current session だけ継続 | old/current session generation、message digest、receipt、audit | stale Result/Inventory/ACK による authority 進行 | old session drain/close と current generation で resync 完了 |
+| FI-GATEWAY-004 | module operation 開始後に multiplexed transport を切断し、module 別に異なる Result/Observation delivery 状態を作る | session loss と per-message delivery gap | resource authority を維持し Attempt/Observation を UNKNOWN または pending evidence として保持 | Agent journal、message IDs、stream sequences、Attempts | 全 module FAILED 化、resource 解放、反対 mutation | reconnect 後に journal/result/observation read-back で各 scope 収束 |
+| FI-GATEWAY-005 | Inventory/Observation/Resync bulk stream を飽和させ、同時に Heartbeat、Control、Lease、Result を送る | queue/stream pressure と priority SLO violation | bulk を bounded/coalesce/pause し priority stream を継続、memory/disk 上限維持 | per-stream depth/bytes/drop/coalesce/latency、session generation | unbounded queue、heartbeat/Lease/Result starvation、silent result loss | pressure 解消後 resync し全 priority message receipt を確認 |
 | FI-TRANSPORT-001 | ResultをLease expiry後まで遅延し、その間に新AttemptをLease | lease expiry、stale attempt | 旧Attempt UNKNOWN、新token | 2 Attempts、distinct token、stale conflict | 旧ResultによるJob進行 | current Attempt/evidenceだけで収束 |
 | FI-TRANSPORT-002 | Resultをcommit後responseだけdrop | client retry | accepted digest完全一致のみ冪等receipt | 単一Result/Attempt completion | 新Attempt/異なるResult受理 | 同じreceipt返却 |
 | FI-AGENT-001 | journal write直後、backend実行前にAgent kill | started journal record | 新Command実行停止、read-back | journal+UNKNOWN/未適用evidence | 無条件再実行 | 未適用証明後のnew Attempt |
@@ -223,7 +226,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | API / Control Plane | FI-CP-001..002 |
 | Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..015 |
 | Internal Message | FI-BUS-001..002 |
-| Agent Gateway / Transport | FI-GATEWAY-001..002, FI-TRANSPORT-001..002 |
+| Agent Gateway / Transport | FI-GATEWAY-001..005, FI-TRANSPORT-001..002 |
 | Agent | FI-AGENT-001..002 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
 | Host Grouping / Failure Domain | FI-HGR-001..008 |

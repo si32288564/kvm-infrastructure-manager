@@ -19,6 +19,7 @@ Requirements、Architecture、ADRを二重の正本にしません。それぞ�
 | Release Plan | exit criteriaと品質gate |
 | Phase 0 Exit Review | 特定commitを対象にした横断監査とgate判定。参照先の正本を置き換えない |
 | Writing Conventions | 日本語文書の表記、例外、段階的lint適用規則 |
+| Phase Implementation Plan | Accepted baselineをworkstream、dependency、exit evidenceへ展開する。Architecture authorityを置き換えない |
 | Release Manifest / Compatibility Matrix | 出荷artifact、upgrade path、contract range、support/rollback boundaryのrelease正本 |
 | Architecture Invariants / Traceability | 実装禁止条件とRequirement-to-Test coverage |
 | Fault Injection / Conformance Contract | 検証可能なfailure/extension test authority |

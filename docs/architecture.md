@@ -103,10 +103,11 @@ flowchart TB
 ### Agent Gateway / Command Service
 
 - 内部Message BusをHost側Trust Boundaryへ公開しない。
-- Agentが確立したmTLS session上でInventory、heartbeat、Command Lease、Resultを扱う。
+- 原則として1 Host Agent identityにつき一つのcurrent long-lived outbound mTLS sessionを確立し、Inventory、Heartbeat、Observation、Command/Lease、Result、Control、Resync、credential renewalをlogical streamとしてmultiplexする。
 - certificateからHost identityを導出し、body/headerのHost IDをauthorityに使わない。
 - Command execution authorityはMessage BusではなくPostgreSQLのLeaseから発行する。
 - transportをJob/Command/Lease/Attempt semanticsから分離する。
+- module/capability数をconnection/certificate数へ連動させず、current session generationでstale sessionの全messageをfenceする。
 
 詳細は [Agent Protocol Architecture](agent-protocol.md) を参照します。
 
@@ -122,6 +123,7 @@ flowchart TB
 - 再起動後も重複実行を防げる command journal を持つ。
 - outbound mTLS session、inventory/observation loop、durable journal、Command/Lease/deadline processing を Go の structured concurrency で実装し、単一 binary として配布可能にする。
 - native API が必要な箇所では minimal cgo または narrow wrapper を許可する。低レイヤ処理に不可欠な場合だけ小さな native helper を分離し、Agent 全体を C/C++ 実装に置き換えない。
+- Agent Session Managerだけがtransport、TLS credential、session generation、multiplexing、reconnect/backpressureを所有し、typed moduleへsocket/certificateを公開しない。
 
 ### Host Lifecycle and Compliance
 
@@ -202,6 +204,7 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 | Volume/Backend Binding/Attachment Claim/Fencing decision | PostgreSQL | 実体とclient/device stateはbackend/libvirtのobserved state |
 | Operation history | PostgreSQL | 長期監査とは分離 |
 | Job、Command、Lease、Attempt | PostgreSQL | Execution authority と履歴 |
+| Agent current Session generation、Message Receipt、Resync Checkpoint | PostgreSQL | live connection/stream bufferはGateway上のephemeral stateでauthorityではない |
 | Outbox、Inbox、Receipt | PostgreSQL | delivery journal。domain decisionとtransactionalに接続 |
 | Schema/Retention Catalog、Migration/GC record、Backup Manifest、Restore Epoch | PostgreSQL | persistence lifecycleとrestore fencing authority |
 | Audit log | Append-only sink | 外部転送を推奨 |

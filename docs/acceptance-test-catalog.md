@@ -32,6 +32,10 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AGT-008 | upstream/標準Linux KVM、QEMU、libvirt packageだけでKIM core lifecycleを実行し、KIM専用patch/forkを依存関係に含めない |
 | AT-AGT-009 | KIMが作成・管理するVM/deviceを標準libvirt/QEMU/KVM interfaceでinspectionでき、KIM metadataがunderlying standard operationを封鎖しない |
 | AT-AGT-010 | Agent artifact/build reviewでGoがprimary daemonであり、cgo/wrapper/native helperが列挙済みnarrow interfaceと独立testへ限定される |
+| AT-AGT-011 | libvirt/Storage/OVS/SR-IOV/DPDK/PCI/Clock/Compliance module を同時有効化しても Host identity の current mTLS session/certificate が一組のまま全 logical stream を処理する |
+| AT-AGT-012 | HTTP/2/gRPC 等の transport 実装を差し替えても同じ typed module、capability advertisement、Command/Lease authorization contract を再利用できる |
+| AT-AGT-013 | logical stream/resource scope ごとの sequence/generation で duplicate/reorder を処理し、transport arrival 順から global ordering を推測しない |
+| AT-AGT-014 | 別 endpoint/connection 追加を trust/security/traffic/QoS/artifact 要件、threat analysis、approval、lifecycle test なしに受け入れない |
 
 ## 4. Host Lifecycle / Baseline / Compliance
 

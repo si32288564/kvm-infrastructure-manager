@@ -76,6 +76,7 @@ Phase 0では検証契約を`Planned`以上にすることを求めます。実�
 - 単一 Control Plane
 - containerized Control Plane artifact と supported non-Kubernetes deployment
 - Host Agent 登録と inventory
+- 1 Host identity / 1 current multiplexed outbound mTLS session、Agent Session Manager、typed module routing
 - manual Enrollment approval、Host Profile/Baseline Assignment、read-only Compliance
 - provenance付きidentity evidence収集とEvaluator artifact/input digest付きResult
 - explicit HostGroup、Placement Pool、materialized membership generation
@@ -116,6 +117,8 @@ Phase 0では検証契約を`Planned`以上にすることを求めます。実�
 - N-1/N reader/writer fixture、artifact digest mismatch、Feature Gate前のnew-only write拒否を検証する。
 - future Host timestampがfreshnessを延長せず、reboot後cached Commandを開始しないことを検証する。
 - valid certificateだけでHostをarmせず、bootstrap replay/unknown profile/stale trust generationを拒否することを検証する。
+- 全initial Agent module有効時もcurrent mTLS session/certificateが一組で、stale sessionのResult/Inventory/ACKがauthorityを進めないことを検証する。
+- Inventory/Observation/Resync streamを飽和させてもControl、Lease、Result、Heartbeatをstarveせず、bounded queue/spoolで収束することを検証する。
 
 ## Phase 2: Technical Preview
 

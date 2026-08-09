@@ -441,6 +441,22 @@
 | PKI-031 | Trust publish、issuance override、revoke/distrust、CA rollover、emergency recovery、Secret administrationを個別permission/approval/auditで保護する | Must |
 | PKI-032 | trust/credential/session/revocation/rollover/offline/DR状態をsecret/raw identityを漏らさず観測・fault injectionできる | Must |
 
+### 2.20 Agent Transport Multiplexing
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| AGT-001 | 原則として 1 つの KIM Host Agent identity につき 1 つの current long-lived outbound mTLS session を Agent Gateway へ確立する | Must |
+| AGT-002 | Command、Result、Inventory、Heartbeat、Observation、Control、Resync、credential renewal を同一 secure transport 上の typed logical message/stream として multiplex する | Must |
+| AGT-003 | libvirt、Storage、OVS、SR-IOV、DPDK、PCI、Clock、Compliance 等の Agent module ごとに独立 mTLS connection または独立 Host certificate を要求しない | Must |
+| AGT-004 | capability 分離を connection/certificate ではなく typed message、schema version、capability advertisement、authorization、Command/Lease authority で実施する | Must |
+| AGT-005 | Agent module 追加だけを理由に Agent Gateway connection 数を増加させない | Must |
+| AGT-006 | session generation を Host Agent transport session 全体の current authority とし、stale session の Result、Inventory、Observation、Command acknowledgment 等で current authority を進めない | Must |
+| AGT-007 | transport connection loss を各 Agent module の resource authority loss とみなさず、既開始 operation を journal、UNKNOWN、read-back semantics で解決する | Must |
+| AGT-008 | trust domain、security isolation、traffic/QoS、artifact transfer 等の独立要件がある場合だけ、明示 contract と approval 付きで別 endpoint/connection を許可する | Must |
+| AGT-009 | transport は multiplexing、reconnect、bounded backoff/queue/message size、backpressure、session generation、idempotency、logical ordering contract を提供する | Must |
+| AGT-010 | HTTP/2、gRPC 等の transport implementation detail を Agent capability/module contract から分離する | Must |
+| AGT-011 | reconnect または credential rotation 中の bounded old/new session overlap でも current session generation を一つに保ち、old session を drain/fence する | Must |
+
 ## 3. 非機能要件
 
 ### Availability and Recovery

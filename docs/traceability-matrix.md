@@ -34,6 +34,16 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HST-007, HST-008, HST-009, HST-010, HST-011 | architecture, extensibility-architecture | ADR-0004, ADR-0011 | INV-AGT-006, INV-AGT-007, INV-EXT-004 | AT-AGT-006, AT-AGT-007, XCT-AGENT-001 | Planned |
 | HST-012, HST-013, HST-014 | product-vision, architecture | ADR-0003, ADR-0004 | INV-AGT-008, INV-AGT-009, INV-AGT-010 | AT-AGT-008, AT-AGT-009, AT-AGT-010 | Planned |
 
+## 4.1 Agent Transport Multiplexing
+
+| Requirements | Architecture | ADR | Invariants | Tests | 状態 |
+|---|---|---|---|---|---|
+| AGT-001, AGT-002, AGT-003, AGT-004, AGT-005 | agent-protocol, phase-1-implementation-plan | ADR-0008 | INV-AGT-011, INV-AGT-014 | AT-AGT-011, AT-AGT-012 | Planned |
+| AGT-006, AGT-011 | agent-protocol, pki-and-trust-lifecycle-architecture, phase-1-implementation-plan | ADR-0008, ADR-0023 | INV-AGT-012 | FI-GATEWAY-003 | Planned |
+| AGT-007 | agent-protocol, execution-architecture, failure-model | ADR-0007, ADR-0008, ADR-0010 | INV-AGT-013 | FI-GATEWAY-004 | Planned |
+| AGT-008 | agent-protocol, security, extensibility-architecture | ADR-0008, ADR-0011 | INV-AGT-017 | AT-AGT-014 | Planned |
+| AGT-009, AGT-010 | agent-protocol, phase-1-implementation-plan | ADR-0008 | INV-AGT-015, INV-AGT-016 | AT-AGT-012, AT-AGT-013, FI-GATEWAY-005 | Planned |
+
 ## 5. Host Lifecycle / Baseline / Compliance
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |

@@ -93,6 +93,13 @@
 | INV-AGT-008 | KIM core functionはLinux KVM、QEMU、libvirtのpatch、fork、proprietary modificationを要求しない | AT-AGT-008 |
 | INV-AGT-009 | KIM metadataの有無によってunderlying resourceを標準libvirt/QEMU/KVM interfaceから扱えなくしない | AT-AGT-009 |
 | INV-AGT-010 | KIM Host AgentはGoをprimary implementation languageとし、cgo/native helperをnarrow audited boundaryに限定する | AT-AGT-010 |
+| INV-AGT-011 | Agent module/capability 数を Host identity あたりの mTLS connection/certificate 数へ連動させない | AT-AGT-011 |
+| INV-AGT-012 | 一つの Host Agent identity に PostgreSQL current transport session generation は最大一つで、live socket を authority にせず stale session の全 message は current authority を進めない | FI-GATEWAY-003 |
+| INV-AGT-013 | transport loss を module/resource authority loss または operation 失敗の証明にせず、UNKNOWN/journal/read-back で解決する | FI-GATEWAY-004 |
+| INV-AGT-014 | transport implementation、connection、certificate を Agent capability/module authorization の代替にしない | AT-AGT-012 |
+| INV-AGT-015 | logical stream は bounded message/queue と priority-aware backpressure を持ち、bulk stream が Control/Lease/Heartbeat/Result を無期限 starve させない | FI-GATEWAY-005 |
+| INV-AGT-016 | transport arrival 順を global resource ordering にせず、ordering scope ごとの sequence/generation/idempotency contract を使用する | AT-AGT-013 |
+| INV-AGT-017 | 別 endpoint/connection は明示的な別要件と contract/approval なしに追加しない | AT-AGT-014 |
 
 ## 8. Network and Storage
 
