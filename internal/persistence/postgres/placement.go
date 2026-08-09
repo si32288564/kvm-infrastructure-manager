@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"sort"
 
 	"github.com/jackc/pgx/v5"
@@ -33,6 +35,7 @@ type HostPlacementMembership struct {
 type PlacementAdmissionRequest struct {
 	RequestID, ProjectID, WorkloadID, ImageID, FlavorID, PoolID string
 	PCI                                                         []placement.PCIRequirement
+	Network                                                     []placement.NetworkRequirement
 }
 
 type PlacementAdmission struct {
@@ -113,6 +116,7 @@ func DryEvaluatePlacement(ctx context.Context, db TxBeginner, request PlacementA
 		return placement.Evaluation{}, err
 	}
 	request.PCI = normalizePlacementPCIRequirements(request.PCI)
+	request.Network = normalizePlacementNetworkRequirements(request.Network)
 	var evaluation placement.Evaluation
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		var err error
@@ -129,7 +133,12 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 		return PlacementAdmission{}, err
 	}
 	request.PCI = normalizePlacementPCIRequirements(request.PCI)
+	request.Network = normalizePlacementNetworkRequirements(request.Network)
 	pciRequirementsPayload, pciRequirementsDigest, err := placementPCIRequirementsPayload(request.PCI)
+	if err != nil {
+		return PlacementAdmission{}, err
+	}
+	networkRequirementsPayload, networkRequirementsDigest, err := placementNetworkRequirementsPayload(request.Network)
 	if err != nil {
 		return PlacementAdmission{}, err
 	}
@@ -142,20 +151,22 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return err
 		}
 		var existing PlacementAdmission
-		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest string
+		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest, existingNetworkDigest string
 		err := tx.QueryRow(ctx, `
 			SELECT decision.admission_id, claim.allocation_id, decision.request_id,
 			       decision.request_digest, decision.host_id, decision.pool_id,
 			       decision.evaluation_digest, decision.project_id, decision.workload_id,
-			       decision.image_id, decision.flavor_id, decision.pci_requirements_digest
+			       decision.image_id, decision.flavor_id, decision.pci_requirements_digest,
+			       decision.network_requirements_digest
 			FROM kim.placement_admission_decisions decision
 			JOIN kim.compute_allocation_claims claim ON claim.admission_id=decision.admission_id
 			WHERE decision.request_id=$1
 		`, request.RequestID).Scan(&existing.AdmissionID, &existing.AllocationID, &existing.RequestID,
 			&existing.RequestDigest, &existing.HostID, &existing.PoolID, &existing.EvaluationDigest,
-			&existingProjectID, &existingWorkloadID, &existingImageID, &existingFlavorID, &existingPCIDigest)
+			&existingProjectID, &existingWorkloadID, &existingImageID, &existingFlavorID,
+			&existingPCIDigest, &existingNetworkDigest)
 		if err == nil {
-			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest {
+			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest || existingNetworkDigest != networkRequirementsDigest {
 				return ErrPlacementConflict
 			}
 			admission = existing
@@ -173,6 +184,12 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return err
 		}
 		if err := lockHostAuthorityTx(ctx, tx, dry.HostID); err != nil {
+			return err
+		}
+		if err := lockNetworkRequirementKeys(ctx, tx, request.Network); err != nil {
+			return err
+		}
+		if err := lockNetworkAuthorityRows(ctx, tx, dry.HostID, request.Network); err != nil {
 			return err
 		}
 		current, err := evaluatePlacementTx(ctx, tx, request, dry.HostID)
@@ -203,8 +220,9 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				flavor_revision, flavor_shape_digest, capability_generation,
 				baseline_assignment_generation, preflight_generation,
 				compliance_generation, pci_requirements, pci_requirements_digest,
+				network_requirements, network_requirements_digest,
 				decision_state, explanation
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'ACCEPTED',$24)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'ACCEPTED',$26)
 		`, admission.AdmissionID, request.RequestID, current.RequestDigest, current.EvaluationDigest,
 			request.ProjectID, request.WorkloadID, current.HostID, current.PoolID,
 			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration,
@@ -212,7 +230,8 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			current.FlavorID, current.FlavorRevision, current.FlavorShapeDigest,
 			current.CapabilityGeneration, current.BaselineAssignmentGeneration,
 			current.PreflightGeneration, current.ComplianceGeneration,
-			pciRequirementsPayload, pciRequirementsDigest, explanation)
+			pciRequirementsPayload, pciRequirementsDigest,
+			networkRequirementsPayload, networkRequirementsDigest, explanation)
 		if err != nil {
 			return fmt.Errorf("record Placement admission decision: %w", err)
 		}
@@ -228,6 +247,11 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				RequiredNUMANodeID: required.RequiredNUMANodeID, RequiredIOMMUGroup: required.RequiredIOMMUGroup,
 			}
 			if err := claimQualifiedVFTx(ctx, tx, claimRequest); err != nil {
+				return err
+			}
+		}
+		for _, required := range request.Network {
+			if err := claimNetworkPortTx(ctx, tx, admission.AdmissionID, request, current, required); err != nil {
 				return err
 			}
 		}
@@ -280,6 +304,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		CPUAllocation: shape.CPUAllocation, CPUPinning: shape.CPUPinning, ExtraSpecs: shape.ExtraSpecs,
 		CatalogAccessAllowed: catalogAccessAllowed,
 		PCI:                  request.PCI,
+		Network:              request.Network,
 	}
 	var authority placement.AuthoritySnapshot
 	var snapshotPayload []byte
@@ -324,6 +349,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 	}
 	authority.ClaimedHugePages = map[uint64]uint64{}
 	authority.PCIDevices = map[string]placement.PCIDeviceAuthority{}
+	authority.Networks = map[string]placement.NetworkAuthority{}
 	rows, err := queryHugePageClaims(ctx, row, hostID)
 	if err != nil {
 		return placement.Evaluation{}, err
@@ -338,6 +364,15 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		}
 		if found {
 			authority.PCIDevices[required.DeviceAddress] = device
+		}
+	}
+	for _, required := range request.Network {
+		network, found, err := loadNetworkAuthority(ctx, row, request.ProjectID, hostID, required)
+		if err != nil {
+			return placement.Evaluation{}, err
+		}
+		if found {
+			authority.Networks[required.PortID] = network
 		}
 	}
 	authority.Inventory, err = agentinventory.DecodeSnapshot(snapshotPayload)
@@ -390,6 +425,135 @@ func loadPCIDeviceAuthority(ctx context.Context, row QueryRower, hostID string, 
 	return device, true, nil
 }
 
+func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID string, required placement.NetworkRequirement) (placement.NetworkAuthority, bool, error) {
+	var authority placement.NetworkAuthority
+	err := row.QueryRow(ctx, `
+		SELECT $3, network.network_id, network.project_id, network.network_generation,
+		       network.lifecycle_state, network.mtu,
+		       subnet.subnet_id, subnet.subnet_generation, subnet.lifecycle_state,
+		       segment.segment_claim_id, segment.segment_generation, segment.claim_state,
+		       mapping.mapping_generation, mapping.mapping_state, mapping.maximum_mtu,
+		       ($7::inet <<= subnet.cidr
+		         AND $7::inet >= subnet.allocation_start
+		         AND $7::inet <= subnet.allocation_end
+		         AND NOT ($7::inet = ANY(subnet.excluded_addresses))),
+		       EXISTS (
+		           SELECT 1 FROM kim.network_identity_claims identity
+		           WHERE identity.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
+		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=$7::inet)
+		               OR (identity.claim_type='MAC' AND identity.network_id=network.network_id AND identity.mac_address=$8::macaddr))
+		       ),
+		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3),
+		       ($9 = ANY(mapping.supported_binding_types))
+		FROM kim.networks_current network
+		JOIN kim.network_subnets_current subnet
+		  ON subnet.network_id=network.network_id AND subnet.subnet_id=$5
+		JOIN kim.network_segment_claims_current segment
+		  ON segment.network_id=network.network_id AND segment.segment_claim_id=$6
+		JOIN kim.host_network_mappings_current mapping
+		  ON mapping.host_id=$2 AND mapping.segment_claim_id=segment.segment_claim_id
+		WHERE network.network_id=$4 AND network.project_id=$1
+	`, projectID, hostID, required.PortID, required.NetworkID, required.SubnetID,
+		required.SegmentClaimID, required.IPAddress, required.MACAddress,
+		required.BindingType).Scan(
+		&authority.PortID, &authority.NetworkID, &authority.NetworkProjectID,
+		&authority.NetworkGeneration, &authority.NetworkState, &authority.NetworkMTU,
+		&authority.SubnetID, &authority.SubnetGeneration, &authority.SubnetState,
+		&authority.SegmentClaimID, &authority.SegmentGeneration, &authority.SegmentState,
+		&authority.HostMappingGeneration, &authority.MappingState, &authority.MappingMaximumMTU,
+		&authority.IPAddressAllowed, &authority.IdentityConflict, &authority.PortConflict,
+		&authority.BindingSupported,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return placement.NetworkAuthority{}, false, nil
+	}
+	if err != nil {
+		return placement.NetworkAuthority{}, false, err
+	}
+	return authority, true, nil
+}
+
+func lockNetworkRequirementKeys(ctx context.Context, tx pgx.Tx, requirements []placement.NetworkRequirement) error {
+	keys := make([]string, 0, len(requirements)*3)
+	for _, required := range requirements {
+		keys = append(keys,
+			"network-port/"+required.PortID,
+			"network-ip/"+required.SubnetID+"/"+required.IPAddress,
+			"network-mac/"+required.NetworkID+"/"+required.MACAddress,
+		)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func lockNetworkAuthorityRows(ctx context.Context, tx pgx.Tx, hostID string, requirements []placement.NetworkRequirement) error {
+	for _, required := range requirements {
+		var networkID string
+		if err := tx.QueryRow(ctx, `
+			SELECT network.network_id
+			FROM kim.networks_current network
+			JOIN kim.network_subnets_current subnet
+			  ON subnet.network_id=network.network_id AND subnet.subnet_id=$2
+			JOIN kim.network_segment_claims_current segment
+			  ON segment.network_id=network.network_id AND segment.segment_claim_id=$3
+			JOIN kim.host_network_mappings_current mapping
+			  ON mapping.host_id=$4 AND mapping.segment_claim_id=segment.segment_claim_id
+			WHERE network.network_id=$1
+			FOR SHARE OF network, subnet, segment, mapping
+		`, required.NetworkID, required.SubnetID, required.SegmentClaimID, hostID).Scan(&networkID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.NetworkRequirement) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.network_ports_current (
+			port_id, placement_admission_id, project_id, workload_id,
+			network_id, subnet_id, port_generation, desired_state
+		) VALUES ($1,$2,$3,$4,$5,$6,1,'RESERVED')
+	`, required.PortID, admissionID, request.ProjectID, request.WorkloadID,
+		required.NetworkID, required.SubnetID); err != nil {
+		return fmt.Errorf("reserve Network Port %s: %w", required.PortID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.network_identity_claims (
+			identity_claim_id, placement_admission_id, port_id, project_id,
+			network_id, subnet_id, claim_type, ip_address,
+			allocation_source, claim_generation, claim_state
+		) VALUES ($1,$2,$3,$4,$5,$6,'IP',$7::inet,'EXPLICIT',1,'RESERVED')
+	`, "ip:"+request.RequestID+":"+required.PortID, admissionID, required.PortID,
+		request.ProjectID, required.NetworkID, required.SubnetID, required.IPAddress); err != nil {
+		return fmt.Errorf("reserve IP identity for Port %s: %w", required.PortID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.network_identity_claims (
+			identity_claim_id, placement_admission_id, port_id, project_id,
+			network_id, subnet_id, claim_type, mac_address,
+			allocation_source, claim_generation, claim_state
+		) VALUES ($1,$2,$3,$4,$5,$6,'MAC',$7::macaddr,'EXPLICIT',1,'RESERVED')
+	`, "mac:"+request.RequestID+":"+required.PortID, admissionID, required.PortID,
+		request.ProjectID, required.NetworkID, required.SubnetID, required.MACAddress); err != nil {
+		return fmt.Errorf("reserve MAC identity for Port %s: %w", required.PortID, err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO kim.port_bindings_current (
+			port_id, placement_admission_id, host_id, segment_claim_id,
+			binding_generation, binding_type, device_address, binding_state
+		) VALUES ($1,$2,$3,$4,1,$5,NULLIF($6,''),'RESERVED')
+	`, required.PortID, admissionID, current.HostID, required.SegmentClaimID,
+		required.BindingType, required.DeviceAddress); err != nil {
+		return fmt.Errorf("reserve Port Binding %s: %w", required.PortID, err)
+	}
+	return nil
+}
+
 func queryHugePageClaims(ctx context.Context, row QueryRower, hostID string) (map[uint64]uint64, error) {
 	// QueryRower intentionally exposes only QueryRow. Aggregate the supported
 	// sizes used by the current Flavor at call sites through one JSON object.
@@ -426,16 +590,60 @@ func validatePlacementAdmissionRequest(request PlacementAdmissionRequest, hostID
 	if request.RequestID == "" || request.ProjectID == "" || request.WorkloadID == "" || request.ImageID == "" || request.FlavorID == "" || request.PoolID == "" || hostID == "" {
 		return errors.New("complete Placement admission request and candidate Host are required")
 	}
+	for _, required := range request.Network {
+		address, err := netip.ParseAddr(required.IPAddress)
+		if err != nil || address.IsUnspecified() || address.IsMulticast() {
+			return errors.New("valid explicit Network IP identity is required")
+		}
+		mac, err := net.ParseMAC(required.MACAddress)
+		if err != nil || len(mac) != 6 || mac[0]&1 != 0 || isZeroMAC(mac) {
+			return errors.New("valid explicit Network MAC identity is required")
+		}
+	}
 	return nil
 }
 
+func isZeroMAC(address net.HardwareAddr) bool {
+	for _, octet := range address {
+		if octet != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func normalizePlacementPCIRequirements(requirements []placement.PCIRequirement) []placement.PCIRequirement {
-	normalized := append([]placement.PCIRequirement(nil), requirements...)
+	normalized := make([]placement.PCIRequirement, len(requirements))
+	copy(normalized, requirements)
 	sort.Slice(normalized, func(i, j int) bool { return normalized[i].DeviceAddress < normalized[j].DeviceAddress })
 	return normalized
 }
 
+func normalizePlacementNetworkRequirements(requirements []placement.NetworkRequirement) []placement.NetworkRequirement {
+	normalized := make([]placement.NetworkRequirement, len(requirements))
+	copy(normalized, requirements)
+	for index := range normalized {
+		if address, err := netip.ParseAddr(normalized[index].IPAddress); err == nil {
+			normalized[index].IPAddress = address.String()
+		}
+		if address, err := net.ParseMAC(normalized[index].MACAddress); err == nil {
+			normalized[index].MACAddress = address.String()
+		}
+	}
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].PortID < normalized[j].PortID })
+	return normalized
+}
+
 func placementPCIRequirementsPayload(requirements []placement.PCIRequirement) ([]byte, string, error) {
+	payload, err := json.Marshal(requirements)
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(payload)
+	return payload, hex.EncodeToString(digest[:]), nil
+}
+
+func placementNetworkRequirementsPayload(requirements []placement.NetworkRequirement) ([]byte, string, error) {
 	payload, err := json.Marshal(requirements)
 	if err != nil {
 		return nil, "", err

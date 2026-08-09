@@ -51,6 +51,54 @@ func TestEvaluateHugePageAndPinnedCPUClaims(t *testing.T) {
 	}
 }
 
+func TestEvaluateNetworkIdentityAndBindingFailClosed(t *testing.T) {
+	request := placementRequestFixture()
+	request.Network = []NetworkRequirement{{
+		PortID: "port", NetworkID: "network", NetworkGeneration: 1,
+		SubnetID: "subnet", SubnetGeneration: 1,
+		SegmentClaimID: "segment", SegmentGeneration: 1, HostMappingGeneration: 1,
+		IPAddress: "192.0.2.10", MACAddress: "02:00:00:00:00:10",
+		BindingType: "OVS", RequiredMTU: 1500,
+	}}
+	authority := authorityFixture("host", "READY", 8, 4, 16*1024, 8*1024, 8)
+	authority.Networks = map[string]NetworkAuthority{"port": {
+		PortID: "port", NetworkID: "network", NetworkProjectID: "project",
+		NetworkGeneration: 1, NetworkState: "ACTIVE", NetworkMTU: 1500,
+		SubnetID: "subnet", SubnetGeneration: 1, SubnetState: "ACTIVE",
+		SegmentClaimID: "segment", SegmentGeneration: 1, SegmentState: "ACTIVE",
+		HostMappingGeneration: 1, MappingState: "CURRENT", MappingMaximumMTU: 9000,
+		IPAddressAllowed: true, BindingSupported: true,
+	}}
+	evaluation, err := Evaluate(request, authority)
+	if err != nil || !evaluation.Eligible {
+		t.Fatalf("eligible Network evaluation/error = %#v/%v", evaluation, err)
+	}
+
+	network := authority.Networks["port"]
+	network.IdentityConflict = true
+	authority.Networks["port"] = network
+	blocked, err := Evaluate(request, authority)
+	if err != nil || blocked.Eligible || !contains(blocked.ReasonCodes, "network:port:identity_claim_conflict") {
+		t.Fatalf("conflicting Network identity evaluation/error = %#v/%v", blocked, err)
+	}
+
+	network.IdentityConflict = false
+	network.MappingState = "STALE"
+	authority.Networks["port"] = network
+	stale, err := Evaluate(request, authority)
+	if err != nil || stale.Eligible || !contains(stale.ReasonCodes, "network:port:host_mapping_not_current") {
+		t.Fatalf("stale Host Network mapping evaluation/error = %#v/%v", stale, err)
+	}
+
+	sriov := request
+	sriov.Network = append([]NetworkRequirement(nil), request.Network...)
+	sriov.Network[0].BindingType = "SRIOV_DIRECT"
+	sriov.Network[0].DeviceAddress = "0000:03:00.1"
+	if _, err := Evaluate(sriov, authority); err == nil {
+		t.Fatal("SR-IOV Network requirement without qualified PCI request was accepted")
+	}
+}
+
 func placementRequestFixture() Request {
 	numa := uint32(2)
 	huge := uint64(1048576)

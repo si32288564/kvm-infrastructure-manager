@@ -189,14 +189,14 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
 | NET-001, NET-008, NET-019, NET-020 | network-resource-architecture, architecture, execution-architecture | ADR-0007, ADR-0011, ADR-0020 | INV-NET-006, INV-NET-009 | AT-NET-002, AT-NET-007, AT-NET-011, FI-NET-006, FI-NET-007, XCT-NET-001, XCT-NET-002, XCT-NET-003, XCT-NET-004 | Planned |
-| NET-002, NET-003, NET-013, NET-014 | network-resource-architecture | ADR-0020 | INV-NET-005 | AT-NET-008, FI-NET-005 | Planned |
+| NET-002, NET-003, NET-013, NET-014 | network-resource-architecture | ADR-0020 | INV-NET-005 | AT-NET-008, FI-NET-005 | Partial (VLAN Segment Claim authority/current generation implemented; VNI and lifecycle cleanup pending) |
 | NET-004, NET-022, NET-023, NET-027 | network-resource-architecture, security | ADR-0010, ADR-0020 | INV-NET-011, INV-NET-013 | AT-NET-012, AT-NET-013, AT-NET-017, FI-NET-010, FI-NET-013 | Planned |
 | NET-005, NET-024, NET-025, NET-026 | network-resource-architecture, failure-model | ADR-0010, ADR-0020 | INV-NET-012 | AT-NET-014, AT-NET-016, FI-NET-011, FI-NET-012 | Planned |
-| NET-006, NET-029, NET-030 | network-resource-architecture, placement-architecture, nfv-dataplane-resource-architecture | ADR-0006, ADR-0012, ADR-0020 | INV-NET-015, INV-PLC-004, INV-PLC-007 | AT-NET-006, AT-NET-020, FI-NET-018 | Planned |
+| NET-006, NET-029, NET-030 | network-resource-architecture, placement-architecture, nfv-dataplane-resource-architecture | ADR-0006, ADR-0012, ADR-0020 | INV-NET-015, INV-PLC-004, INV-PLC-007 | AT-NET-006, AT-NET-020, FI-NET-018 | Partial (qualified VF and SRIOV_DIRECT Port claims atomically admitted; realization pending) |
 | NET-007 | network-resource-architecture, failure-model | ADR-0010, ADR-0020 | INV-NET-002, INV-NET-007, INV-NET-010, INV-NET-018, INV-FAIL-003 | AT-NET-010, AT-NET-022, FI-NET-001, FI-NET-002, XCT-NET-004, XCT-NET-005 | Planned |
-| NET-009, NET-010, NET-011, NET-012 | network-resource-architecture, data-persistence-architecture | ADR-0018, ADR-0020 | INV-NET-003, INV-NET-004 | AT-NET-003, AT-NET-004, AT-NET-005, FI-NET-003, FI-NET-004 | Planned |
+| NET-009, NET-010, NET-011, NET-012 | network-resource-architecture, data-persistence-architecture | ADR-0018, ADR-0020 | INV-NET-003, INV-NET-004 | AT-NET-003, AT-NET-004, AT-NET-005, FI-NET-003, FI-NET-004 | Partial (explicit IP/MAC uniqueness and atomic Port Claim implemented; automatic/external allocation and release quarantine workflow pending) |
 | NET-015 | network-resource-architecture, responsibility-boundaries | ADR-0020 | INV-NET-001, INV-NET-019 | AT-NET-001, AT-NET-015 | Planned |
-| NET-016, NET-017, NET-018 | network-resource-architecture, placement-architecture | ADR-0006, ADR-0020 | INV-NET-007, INV-NET-008 | AT-NET-009, AT-NET-010, FI-NET-007, FI-NET-008 | Planned |
+| NET-016, NET-017, NET-018 | network-resource-architecture, placement-architecture | ADR-0006, ADR-0020 | INV-NET-007, INV-NET-008 | AT-NET-009, AT-NET-010, FI-NET-007, FI-NET-008 | Partial (single current RESERVED Port Binding authority implemented; realization, ACTIVE verification, and handoff pending) |
 | NET-021 | network-resource-architecture, execution-architecture, failure-model | ADR-0007, ADR-0010, ADR-0020 | INV-NET-010 | FI-NET-004, FI-NET-006, FI-NET-011, FI-NET-013 | Planned |
 | NET-028 | network-resource-architecture, placement-architecture | ADR-0006, ADR-0020 | INV-NET-014 | AT-NET-018, FI-NET-014 | Planned |
 | NET-031 | network-resource-architecture, availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015, ADR-0020 | INV-NET-016 | AT-NET-019, FI-NET-008, FI-NET-009 | Planned |

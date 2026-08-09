@@ -45,6 +45,24 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	acceptPlacementInventory(t, ctx, pool, hostID)
 	qualificationID := hostID + "-vf-qualification"
 	qualifyPlacementVF(t, ctx, pool, hostID, qualificationID)
+	networkID, subnetID, segmentClaimID := "network-"+suffix, "subnet-"+suffix, "segment-"+suffix
+	if err := UpsertNetworkFoundation(ctx, pool, NetworkFoundation{
+		NetworkID: networkID, ProjectID: "project", NetworkGeneration: 1,
+		NetworkState: "ACTIVE", MTU: 1500,
+		SubnetID: subnetID, SubnetGeneration: 1, SubnetState: "ACTIVE",
+		CIDR: "192.0.2.0/24", AllocationStart: "192.0.2.10", AllocationEnd: "192.0.2.200",
+		ExcludedAddresses: []string{"192.0.2.1"},
+		SegmentClaimID:    segmentClaimID, SegmentType: "VLAN", ScopeID: "physnet-a-" + suffix,
+		SegmentID: 120, SegmentGeneration: 1, ProviderMappingRevision: 1, SegmentState: "ACTIVE",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertHostNetworkMapping(ctx, pool, HostNetworkMapping{
+		HostID: hostID, SegmentClaimID: segmentClaimID, Generation: 1,
+		State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS", "SRIOV_DIRECT"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: hostID, CapabilityGeneration: 1, BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED", ComplianceGeneration: 1, ComplianceState: "COMPLIANT"}); err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +90,23 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			QualificationID: qualificationID, QualificationRevision: 1,
 			RequiredNUMANodeID: &numaNode, RequiredIOMMUGroup: "13",
 		}},
+		Network: []placement.NetworkRequirement{{
+			PortID: "port-" + suffix, NetworkID: networkID, NetworkGeneration: 1,
+			SubnetID: subnetID, SubnetGeneration: 1,
+			SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
+			IPAddress: "192.0.2.10", MACAddress: "02:00:00:00:00:10",
+			BindingType: "SRIOV_DIRECT", DeviceAddress: "0000:03:00.1", RequiredMTU: 1500,
+		}},
+	}
+	excludedRequest := request
+	excludedRequest.RequestID, excludedRequest.WorkloadID = "request-excluded-"+suffix, "vm-excluded-"+suffix
+	excludedRequest.Network = append([]placement.NetworkRequirement(nil), request.Network...)
+	excludedRequest.Network[0].PortID = "port-excluded-" + suffix
+	excludedRequest.Network[0].IPAddress = "192.0.2.1"
+	excludedRequest.Network[0].MACAddress = "02:00:00:00:00:01"
+	excluded, err := DryEvaluatePlacement(ctx, pool, excludedRequest, hostID)
+	if err != nil || excluded.Eligible || !containsReason(excluded.ReasonCodes, "network:"+excludedRequest.Network[0].PortID+":ip_not_allowed") {
+		t.Fatalf("excluded IP dry evaluation/error = %#v/%v", excluded, err)
 	}
 	before := placementMutationCounts(t, ctx, pool)
 	dry, err := DryEvaluatePlacement(ctx, pool, request, hostID)
@@ -102,6 +137,8 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	competingRequest := request
 	competingRequest.RequestID = "request-competing-" + suffix
 	competingRequest.WorkloadID = "vm-competing-" + suffix
+	competingRequest.Network = append([]placement.NetworkRequirement(nil), request.Network...)
+	competingRequest.Network[0].PortID = "port-competing-" + suffix
 	competing, err := DryEvaluatePlacement(ctx, pool, competingRequest, hostID)
 	if err != nil || !competing.Eligible {
 		t.Fatalf("competing dry evaluation/error = %#v/%v", competing, err)
@@ -158,6 +195,65 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if _, err := FinalAdmitPlacement(ctx, pool, changedPCI, winner.evaluation); !errors.Is(err, ErrPlacementConflict) {
 		t.Fatalf("request identity reused with different PCI requirements: %v", err)
 	}
+	changedNetwork := winner.request
+	changedNetwork.Network = append([]placement.NetworkRequirement(nil), winner.request.Network...)
+	changedNetwork.Network[0].HostMappingGeneration++
+	if _, err := FinalAdmitPlacement(ctx, pool, changedNetwork, winner.evaluation); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("request identity reused with different Network requirements: %v", err)
+	}
+
+	// A second concurrent pair has distinct Ports and no PCI requirement. Its
+	// only shared scarce authority is the IP/MAC identity, proving Network
+	// conflict serialization independently from VF claim serialization.
+	networkOnlyA := request
+	networkOnlyA.RequestID, networkOnlyA.WorkloadID = "request-network-a-"+suffix, "vm-network-a-"+suffix
+	networkOnlyA.PCI = nil
+	networkOnlyA.Network = []placement.NetworkRequirement{{
+		PortID: "port-network-a-" + suffix, NetworkID: networkID, NetworkGeneration: 1,
+		SubnetID: subnetID, SubnetGeneration: 1,
+		SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
+		IPAddress: "192.0.2.11", MACAddress: "02:00:00:00:00:11", BindingType: "OVS", RequiredMTU: 1500,
+	}}
+	networkOnlyB := networkOnlyA
+	networkOnlyB.RequestID, networkOnlyB.WorkloadID = "request-network-b-"+suffix, "vm-network-b-"+suffix
+	networkOnlyB.Network = append([]placement.NetworkRequirement(nil), networkOnlyA.Network...)
+	networkOnlyB.Network[0].PortID = "port-network-b-" + suffix
+	dryNetworkA, err := DryEvaluatePlacement(ctx, pool, networkOnlyA, hostID)
+	if err != nil || !dryNetworkA.Eligible {
+		t.Fatalf("network-only A dry evaluation/error = %#v/%v", dryNetworkA, err)
+	}
+	dryNetworkB, err := DryEvaluatePlacement(ctx, pool, networkOnlyB, hostID)
+	if err != nil || !dryNetworkB.Eligible {
+		t.Fatalf("network-only B dry evaluation/error = %#v/%v", dryNetworkB, err)
+	}
+	startNetwork := make(chan struct{})
+	networkResults := make(chan error, 2)
+	for _, candidate := range []struct {
+		request    PlacementAdmissionRequest
+		evaluation placement.Evaluation
+	}{{networkOnlyA, dryNetworkA}, {networkOnlyB, dryNetworkB}} {
+		candidate := candidate
+		go func() {
+			<-startNetwork
+			_, err := FinalAdmitPlacement(ctx, pool, candidate.request, candidate.evaluation)
+			networkResults <- err
+		}()
+	}
+	close(startNetwork)
+	networkSuccesses, networkRejected := 0, 0
+	for range 2 {
+		switch err := <-networkResults; {
+		case err == nil:
+			networkSuccesses++
+		case errors.Is(err, ErrPlacementIneligible):
+			networkRejected++
+		default:
+			t.Fatalf("concurrent Network Final Admission error = %v", err)
+		}
+	}
+	if networkSuccesses != 1 || networkRejected != 1 {
+		t.Fatalf("concurrent Network Final Admission success/rejected = %d/%d", networkSuccesses, networkRejected)
+	}
 	var decisions, claims int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.placement_admission_decisions WHERE host_id=$1`, hostID).Scan(&decisions); err != nil {
 		t.Fatal(err)
@@ -165,7 +261,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.compute_allocation_claims WHERE host_id=$1`, hostID).Scan(&claims); err != nil {
 		t.Fatal(err)
 	}
-	if decisions != 1 || claims != 1 {
+	if decisions != 2 || claims != 2 {
 		t.Fatalf("decision/claim count = %d/%d", decisions, claims)
 	}
 	var vfClaims int
@@ -175,17 +271,37 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if vfClaims != 1 {
 		t.Fatalf("atomic Placement VF claims = %d", vfClaims)
 	}
+	var ports, identities, bindings int
+	if err := pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM kim.network_ports_current WHERE network_id=$1),
+		       (SELECT count(*) FROM kim.network_identity_claims WHERE network_id=$1),
+		       (SELECT count(*) FROM kim.port_bindings_current binding JOIN kim.network_ports_current port USING (port_id) WHERE port.network_id=$1)
+	`, networkID).Scan(&ports, &identities, &bindings); err != nil {
+		t.Fatal(err)
+	}
+	if ports != 2 || identities != 4 || bindings != 2 {
+		t.Fatalf("atomic Network Port/identity/binding claims = %d/%d/%d", ports, identities, bindings)
+	}
+}
+
+func containsReason(reasons []string, expected string) bool {
+	for _, reason := range reasons {
+		if reason == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func acceptPlacementInventory(t *testing.T, ctx context.Context, db TxBeginner, hostID string) {
 	t.Helper()
-	threads := make([]agentinventory.CPUThread, 8)
+	threads := make([]agentinventory.CPUThread, 24)
 	for index := range threads {
 		threads[index] = agentinventory.CPUThread{LinuxID: index, CoreID: index / 2, SocketID: 0, NUMANodeID: index % 2, Online: true, Isolated: true}
 	}
 	snapshot := agentinventory.Snapshot{SchemaVersion: agentinventory.SnapshotSchemaV3, HostIdentity: hostID, ObservationGeneration: 1, CollectionStatus: "COMPLETE", Fragments: []agentinventory.Fragment{
 		{Domain: agentinventory.DomainCompute, Source: agentinventory.Source{ModuleName: "linux-compute", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("compute-module"))}, Capabilities: []agentinventory.Capability{{Name: "kim.host.cpu-topology.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}}, Compute: &agentinventory.Compute{Architecture: "x86_64", CPUModel: "fixture", Threads: threads}},
-		{Domain: agentinventory.DomainMemory, Source: agentinventory.Source{ModuleName: "linux-memory", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("memory-module"))}, Capabilities: []agentinventory.Capability{{Name: "kim.host.memory.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}}, Memory: &agentinventory.Memory{TotalBytes: 16 * 1024 * 1024 * 1024, AvailableBytes: 16 * 1024 * 1024 * 1024, NUMANodes: []agentinventory.NUMANode{{LinuxID: 0, CPUThreadIDs: []int{0, 2, 4, 6}, MemoryTotalBytes: 8 * 1024 * 1024 * 1024}, {LinuxID: 1, CPUThreadIDs: []int{1, 3, 5, 7}, MemoryTotalBytes: 8 * 1024 * 1024 * 1024}}, HugePagePools: []agentinventory.HugePagePool{{PageSizeBytes: 1024 * 1024 * 1024, TotalPages: 8, FreePages: 8}}}},
+		{Domain: agentinventory.DomainMemory, Source: agentinventory.Source{ModuleName: "linux-memory", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("memory-module"))}, Capabilities: []agentinventory.Capability{{Name: "kim.host.memory.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}}, Memory: &agentinventory.Memory{TotalBytes: 32 * 1024 * 1024 * 1024, AvailableBytes: 32 * 1024 * 1024 * 1024, NUMANodes: []agentinventory.NUMANode{{LinuxID: 0, CPUThreadIDs: []int{0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22}, MemoryTotalBytes: 16 * 1024 * 1024 * 1024}, {LinuxID: 1, CPUThreadIDs: []int{1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23}, MemoryTotalBytes: 16 * 1024 * 1024 * 1024}}, HugePagePools: []agentinventory.HugePagePool{{PageSizeBytes: 1024 * 1024 * 1024, TotalPages: 24, FreePages: 24}}}},
 		{Domain: agentinventory.DomainPCI, Source: agentinventory.Source{ModuleName: "linux-pci", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("pci-module"))}, Capabilities: []agentinventory.Capability{
 			{Name: "kim.host.iommu-observation.v1", Version: "v1", State: agentinventory.AvailabilityAvailable},
 			{Name: "kim.host.pci-numa-locality.v1", Version: "v1", State: agentinventory.AvailabilityAvailable},
@@ -236,9 +352,9 @@ func qualifyPlacementVF(t *testing.T, ctx context.Context, db *pgxpool.Pool, hos
 
 func placementMutationCounts(t *testing.T, ctx context.Context, db QueryRower) string {
 	t.Helper()
-	var decisions, claims, vfClaims int
-	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.placement_admission_decisions), (SELECT count(*) FROM kim.compute_allocation_claims), (SELECT count(*) FROM kim.pci_vf_allocation_claims)`).Scan(&decisions, &claims, &vfClaims); err != nil {
+	var decisions, claims, vfClaims, ports, identities, bindings int
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.placement_admission_decisions), (SELECT count(*) FROM kim.compute_allocation_claims), (SELECT count(*) FROM kim.pci_vf_allocation_claims), (SELECT count(*) FROM kim.network_ports_current), (SELECT count(*) FROM kim.network_identity_claims), (SELECT count(*) FROM kim.port_bindings_current)`).Scan(&decisions, &claims, &vfClaims, &ports, &identities, &bindings); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf("%d/%d/%d", decisions, claims, vfClaims)
+	return fmt.Sprintf("%d/%d/%d/%d/%d/%d", decisions, claims, vfClaims, ports, identities, bindings)
 }

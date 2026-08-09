@@ -24,12 +24,21 @@ type Request struct {
 	CatalogAccessAllowed                                        bool
 	ExtraSpecs                                                  map[string]string
 	PCI                                                         []PCIRequirement
+	Network                                                     []NetworkRequirement
 }
 
 type PCIRequirement struct {
 	DeviceAddress, PolicyID, QualificationID, RequiredIOMMUGroup string
 	PolicyGeneration, QualificationRevision                      uint64
 	RequiredNUMANodeID                                           *int
+}
+
+type NetworkRequirement struct {
+	PortID, NetworkID, SubnetID, SegmentClaimID            string
+	IPAddress, MACAddress, BindingType, DeviceAddress      string
+	NetworkGeneration, SubnetGeneration, SegmentGeneration uint64
+	HostMappingGeneration                                  uint64
+	RequiredMTU                                            uint32
 }
 
 type PCIDeviceAuthority struct {
@@ -42,6 +51,17 @@ type PCIDeviceAuthority struct {
 	PolicyGeneration                                                          uint64
 	AssignmentQualified                                                       bool
 	ActiveClaim                                                               bool
+}
+
+type NetworkAuthority struct {
+	PortID, NetworkID, NetworkState, NetworkProjectID      string
+	SubnetID, SubnetState, SegmentClaimID, SegmentState    string
+	MappingState                                           string
+	NetworkGeneration, SubnetGeneration, SegmentGeneration uint64
+	HostMappingGeneration                                  uint64
+	NetworkMTU, MappingMaximumMTU                          uint32
+	IPAddressAllowed, IdentityConflict, PortConflict       bool
+	BindingSupported                                       bool
 }
 
 type AuthoritySnapshot struct {
@@ -59,6 +79,7 @@ type AuthoritySnapshot struct {
 	ClaimedVCPUs, ClaimedMemoryMiB                                          uint64
 	ClaimedHugePages                                                        map[uint64]uint64
 	PCIDevices                                                              map[string]PCIDeviceAuthority
+	Networks                                                                map[string]NetworkAuthority
 }
 
 type RequiredClaim struct {
@@ -93,6 +114,34 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		if required.DeviceAddress == "" || required.PolicyID == "" || required.PolicyGeneration == 0 || required.QualificationID == "" || required.QualificationRevision == 0 || (index > 0 && request.PCI[index-1].DeviceAddress == required.DeviceAddress) {
 			return Evaluation{}, fmt.Errorf("invalid or duplicate PCI requirement for device %q", required.DeviceAddress)
 		}
+	}
+	request.Network = append([]NetworkRequirement(nil), request.Network...)
+	sort.Slice(request.Network, func(i, j int) bool { return request.Network[i].PortID < request.Network[j].PortID })
+	ipIdentities, macIdentities := map[string]struct{}{}, map[string]struct{}{}
+	for index, required := range request.Network {
+		if required.PortID == "" || required.NetworkID == "" || required.NetworkGeneration == 0 || required.SubnetID == "" || required.SubnetGeneration == 0 || required.SegmentClaimID == "" || required.SegmentGeneration == 0 || required.HostMappingGeneration == 0 || required.IPAddress == "" || required.MACAddress == "" || required.RequiredMTU < 576 || (required.BindingType != "OVS" && required.BindingType != "SRIOV_DIRECT") || (index > 0 && request.Network[index-1].PortID == required.PortID) {
+			return Evaluation{}, fmt.Errorf("invalid or duplicate Network requirement for Port %q", required.PortID)
+		}
+		if required.BindingType == "OVS" && required.DeviceAddress != "" {
+			return Evaluation{}, fmt.Errorf("OVS Port %q cannot request a PCI device", required.PortID)
+		}
+		if required.BindingType == "SRIOV_DIRECT" {
+			matched := false
+			for _, pci := range request.PCI {
+				matched = matched || pci.DeviceAddress == required.DeviceAddress
+			}
+			if required.DeviceAddress == "" || !matched {
+				return Evaluation{}, fmt.Errorf("SR-IOV Port %q requires the same qualified PCI device", required.PortID)
+			}
+		}
+		ipKey, macKey := required.SubnetID+"/"+required.IPAddress, required.NetworkID+"/"+required.MACAddress
+		if _, duplicate := ipIdentities[ipKey]; duplicate {
+			return Evaluation{}, fmt.Errorf("duplicate IP identity %q in Placement request", required.IPAddress)
+		}
+		if _, duplicate := macIdentities[macKey]; duplicate {
+			return Evaluation{}, fmt.Errorf("duplicate MAC identity %q in Placement request", required.MACAddress)
+		}
+		ipIdentities[ipKey], macIdentities[macKey] = struct{}{}, struct{}{}
 	}
 	requestDigest, err := digest(request)
 	if err != nil {
@@ -137,6 +186,23 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		addReason(required.RequiredNUMANodeID != nil && device.NUMANodeID != *required.RequiredNUMANodeID, prefix+"numa_mismatch")
 		addReason(required.RequiredIOMMUGroup != "" && device.IOMMUGroup != required.RequiredIOMMUGroup, prefix+"iommu_group_mismatch")
 		addReason(device.ActiveClaim, prefix+"already_claimed")
+	}
+	for _, required := range request.Network {
+		network, present := authority.Networks[required.PortID]
+		prefix := "network:" + required.PortID + ":"
+		addReason(!present, prefix+"authority_missing")
+		if !present {
+			continue
+		}
+		addReason(network.NetworkID != required.NetworkID || network.NetworkProjectID != request.ProjectID || network.NetworkState != "ACTIVE" || network.NetworkGeneration != required.NetworkGeneration, prefix+"network_not_current")
+		addReason(network.SubnetID != required.SubnetID || network.SubnetState != "ACTIVE" || network.SubnetGeneration != required.SubnetGeneration, prefix+"subnet_not_current")
+		addReason(network.SegmentClaimID != required.SegmentClaimID || network.SegmentState != "ACTIVE" || network.SegmentGeneration != required.SegmentGeneration, prefix+"segment_not_current")
+		addReason(network.MappingState != "CURRENT" || network.HostMappingGeneration != required.HostMappingGeneration, prefix+"host_mapping_not_current")
+		addReason(network.NetworkMTU < required.RequiredMTU || network.MappingMaximumMTU < required.RequiredMTU, prefix+"mtu_not_eligible")
+		addReason(!network.IPAddressAllowed, prefix+"ip_not_allowed")
+		addReason(network.IdentityConflict, prefix+"identity_claim_conflict")
+		addReason(network.PortConflict, prefix+"port_conflict")
+		addReason(!network.BindingSupported, prefix+"binding_not_supported")
 	}
 
 	capacity, capacityReasons := extractCapacity(authority.Inventory, request)
