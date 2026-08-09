@@ -173,12 +173,12 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	// The same transport/receipt path now carries a normalized typed Inventory
 	// snapshot into immutable evidence and a rebuildable capability projection.
 	inventorySnapshot := agentinventory.Snapshot{
-		SchemaVersion: agentinventory.SnapshotSchemaV1, HostIdentity: hostID,
+		SchemaVersion: agentinventory.SnapshotSchemaV2, HostIdentity: hostID,
 		ObservationGeneration: 1, CollectionStatus: "COMPLETE",
 		Fragments: []agentinventory.Fragment{{
 			Domain:         agentinventory.DomainVirtualization,
 			Source:         agentinventory.Source{ModuleName: "libvirt", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: deliveryDigest([]byte("libvirt-module"))},
-			Capabilities:   []agentinventory.Capability{{Name: "kim.host.kvm.v1", Version: "v1", Available: true}},
+			Capabilities:   []agentinventory.Capability{{Name: "kim.host.kvm.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}},
 			Virtualization: &agentinventory.Virtualization{KVMAvailable: true, LibvirtVersion: "fixture", QEMUVersion: "fixture", MachineTypes: []string{"pc-q35"}},
 		}},
 	}

@@ -7,7 +7,7 @@ func NewEnvelope(snapshot Snapshot, sessionGeneration uint64, messageID string) 
 	if err != nil {
 		return session.Envelope{}, err
 	}
-	envelope := session.NewEnvelope(snapshot.HostIdentity, sessionGeneration, session.StreamInventory, messageID, SnapshotSchemaV1, "host-inventory", snapshot.ObservationGeneration, payload)
+	envelope := session.NewEnvelope(snapshot.HostIdentity, sessionGeneration, session.StreamInventory, messageID, SnapshotSchemaV2, "host-inventory", snapshot.ObservationGeneration, payload)
 	envelope.ResourceGeneration = snapshot.ObservationGeneration
 	return envelope, nil
 }

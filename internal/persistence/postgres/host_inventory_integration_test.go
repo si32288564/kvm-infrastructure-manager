@@ -81,12 +81,12 @@ func TestHostInventoryProjectionPostgreSQLIntegration(t *testing.T) {
 func inventoryFixture(t *testing.T, hostID string, generation uint64, status, capability string) agentinventory.Snapshot {
 	t.Helper()
 	return agentinventory.Snapshot{
-		SchemaVersion: agentinventory.SnapshotSchemaV1, HostIdentity: hostID,
+		SchemaVersion: agentinventory.SnapshotSchemaV2, HostIdentity: hostID,
 		ObservationGeneration: generation, CollectionStatus: status,
 		Fragments: []agentinventory.Fragment{{
 			Domain:         agentinventory.DomainVirtualization,
 			Source:         agentinventory.Source{ModuleName: "libvirt", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("module"))},
-			Capabilities:   []agentinventory.Capability{{Name: capability, Version: "v1", Available: true}},
+			Capabilities:   []agentinventory.Capability{{Name: capability, Version: "v1", State: agentinventory.AvailabilityAvailable}},
 			Virtualization: &agentinventory.Virtualization{KVMAvailable: true, LibvirtVersion: "fixture", QEMUVersion: "fixture"},
 		}},
 	}

@@ -107,6 +107,8 @@
 | INV-AGT-022 | session generation 変更後の同一 message replay は original Receipt へ冪等収束し、stale/new session、response loss、restart のいずれも duplicate decision または evidence rewrite を起こさない | AT-AGT-016 |
 | INV-AGT-023 | Inventory module は descriptor で宣言した closed typed domain/schema/capability の外へ evidence を出せず、一つでも module collection が失敗した snapshot を current capability projection にしない | FI-AGENT-003 |
 | INV-AGT-024 | Host capability projection は immutable normalized Inventory evidence からだけ導出し、同一 generation の異なる digest を拒否し、古い generation で current projection を巻き戻さない | AT-HST-005 |
+| INV-AGT-025 | OS Integration Adapter は raw source の read/parse outcome を typed evidence state と reason code へ変換し、Normalizer は provenance を失わず Snapshot/Projection へ伝播する | AT-HST-006 |
+| INV-AGT-026 | AVAILABLE、UNAVAILABLE、UNKNOWN、UNSUPPORTED は相互に置換せず、UNKNOWN を含む snapshot は DEGRADED とし、既知の UNAVAILABLE/UNSUPPORTED だけを理由に observation 全体を UNKNOWN にしない | FI-AGENT-004 |
 
 ## 8. Network and Storage
 

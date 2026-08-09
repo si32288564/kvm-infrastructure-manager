@@ -11,11 +11,11 @@ import (
 func TestRegistryCollectsNormalizedTypedSnapshot(t *testing.T) {
 	registry := NewRegistry()
 	compute := &testModule{descriptor: descriptor("compute", DomainCompute, "kim.host.cpu-topology.v1"), fragment: Fragment{
-		Domain: DomainCompute, Capabilities: []Capability{{Name: "kim.host.cpu-topology.v1", Version: "v1", Available: true}},
+		Domain: DomainCompute, Capabilities: []Capability{{Name: "kim.host.cpu-topology.v1", Version: "v1", State: AvailabilityAvailable}},
 		Compute: &Compute{Architecture: "x86_64", CPUModel: "fixture", Threads: []CPUThread{{LinuxID: 1, CoreID: 0, SocketID: 0, NUMANodeID: 0, Online: true}, {LinuxID: 0, CoreID: 0, SocketID: 0, NUMANodeID: 0, Online: true}}},
 	}}
 	memory := &testModule{descriptor: descriptor("memory", DomainMemory, "kim.host.numa.v1", "kim.host.hugepages.v1"), fragment: Fragment{
-		Domain: DomainMemory, Capabilities: []Capability{{Name: "kim.host.hugepages.v1", Version: "v1", Available: true}, {Name: "kim.host.numa.v1", Version: "v1", Available: true}},
+		Domain: DomainMemory, Capabilities: []Capability{{Name: "kim.host.hugepages.v1", Version: "v1", State: AvailabilityAvailable}, {Name: "kim.host.numa.v1", Version: "v1", State: AvailabilityAvailable}},
 		Memory: &Memory{TotalBytes: 16 << 30, NUMANodes: []NUMANode{{LinuxID: 0, CPUThreadIDs: []int{0, 1}, MemoryTotalBytes: 16 << 30}}},
 	}}
 	if err := registry.Register(memory); err != nil {
@@ -50,7 +50,7 @@ func TestRegistryCollectsNormalizedTypedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if envelope.ResourceGeneration != 42 || envelope.SessionGeneration != 7 || envelope.SchemaVersion != SnapshotSchemaV1 {
+	if envelope.ResourceGeneration != 42 || envelope.SessionGeneration != 7 || envelope.SchemaVersion != SnapshotSchemaV2 {
 		t.Fatalf("inventory envelope = %#v", envelope)
 	}
 }
@@ -58,7 +58,7 @@ func TestRegistryCollectsNormalizedTypedSnapshot(t *testing.T) {
 func TestRegistryRejectsDomainAndCapabilityEscape(t *testing.T) {
 	registry := NewRegistry()
 	module := &testModule{descriptor: descriptor("compute", DomainCompute, "kim.host.cpu.v1"), fragment: Fragment{
-		Domain: DomainMemory, Capabilities: []Capability{{Name: "kim.host.unapproved.v1", Version: "v1", Available: true}}, Memory: &Memory{},
+		Domain: DomainMemory, Capabilities: []Capability{{Name: "kim.host.unapproved.v1", Version: "v1", State: AvailabilityAvailable}}, Memory: &Memory{},
 	}}
 	if err := registry.Register(module); err != nil {
 		t.Fatal(err)

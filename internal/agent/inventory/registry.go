@@ -94,7 +94,15 @@ func (registry *Registry) Collect(ctx context.Context, hostID string, generation
 	if err := group.Wait(); err != nil {
 		return Snapshot{}, err
 	}
-	snapshot := Snapshot{SchemaVersion: SnapshotSchemaV1, HostIdentity: hostID, ObservationGeneration: generation, CollectionStatus: "COMPLETE", Fragments: fragments}
+	status := "COMPLETE"
+	for _, fragment := range fragments {
+		for _, capability := range fragment.Capabilities {
+			if capability.State == AvailabilityUnknown {
+				status = "DEGRADED"
+			}
+		}
+	}
+	snapshot := Snapshot{SchemaVersion: SnapshotSchemaV2, HostIdentity: hostID, ObservationGeneration: generation, CollectionStatus: status, Fragments: fragments}
 	if err := snapshot.NormalizeAndValidate(); err != nil {
 		return Snapshot{}, err
 	}

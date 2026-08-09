@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-grpc-reconnect-storm test-agent-reconnect-storm test-agent-transport test-postgres-integration vet
+.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-grpc-reconnect-storm test-agent-reconnect-storm test-agent-transport test-linux-host-inventory test-postgres-integration validate-linux-host-inventory vet
 
 PROTOC_GEN_GO_VERSION := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
@@ -26,6 +26,12 @@ test:
 
 test-agent-transport:
 	$(GO) test -count=1 ./internal/agent/session ./internal/agent/transport/...
+
+test-linux-host-inventory:
+	$(GO) test -count=1 ./internal/agent/inventory/...
+
+validate-linux-host-inventory:
+	$(GO) run ./cmd/kim-host-inventory-validate
 
 bench-agent-transport:
 	$(GO) test -run '^$$' -bench 'Benchmark(GRPC|HTTP2)RoundTrip' -benchmem -benchtime=500ms -count=3 ./internal/agent/transport/grpcstream ./internal/agent/transport/http2stream

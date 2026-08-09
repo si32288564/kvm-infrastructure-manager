@@ -12,7 +12,7 @@ import (
 	"sort"
 )
 
-const SnapshotSchemaV1 = "kim.inventory.snapshot/v1"
+const SnapshotSchemaV2 = "kim.inventory.snapshot/v2"
 
 type Domain string
 
@@ -32,8 +32,29 @@ var knownDomains = map[Domain]struct{}{
 type Capability struct {
 	Name        string       `json:"name"`
 	Version     string       `json:"version"`
-	Available   bool         `json:"available"`
+	State       Availability `json:"state"`
+	ReasonCode  string       `json:"reason_code,omitempty"`
 	Constraints []Constraint `json:"constraints,omitempty"`
+}
+
+// Availability preserves the difference between known absence, observation
+// uncertainty, and an interface that the Host does not implement.
+type Availability string
+
+const (
+	AvailabilityAvailable   Availability = "AVAILABLE"
+	AvailabilityUnavailable Availability = "UNAVAILABLE"
+	AvailabilityUnknown     Availability = "UNKNOWN"
+	AvailabilityUnsupported Availability = "UNSUPPORTED"
+)
+
+func (state Availability) Valid() bool {
+	switch state {
+	case AvailabilityAvailable, AvailabilityUnavailable, AvailabilityUnknown, AvailabilityUnsupported:
+		return true
+	default:
+		return false
+	}
 }
 
 type Constraint struct {
@@ -46,6 +67,15 @@ type Source struct {
 	ModuleVersion  string `json:"module_version"`
 	SchemaVersion  string `json:"schema_version"`
 	ArtifactDigest string `json:"artifact_digest"`
+}
+
+// EvidenceRef records the typed source and observation outcome used by a
+// normalizer. Raw bytes stay inside the OS Integration Adapter boundary.
+type EvidenceRef struct {
+	Field      string       `json:"field"`
+	SourcePath string       `json:"source_path"`
+	State      Availability `json:"state"`
+	ReasonCode string       `json:"reason_code,omitempty"`
 }
 
 type CPUThread struct {
@@ -74,12 +104,15 @@ type HugePagePool struct {
 	PageSizeBytes uint64 `json:"page_size_bytes"`
 	TotalPages    uint64 `json:"total_pages"`
 	FreePages     uint64 `json:"free_pages"`
+	ReservedPages uint64 `json:"reserved_pages"`
+	SurplusPages  uint64 `json:"surplus_pages"`
 }
 
 type Memory struct {
-	TotalBytes    uint64         `json:"total_bytes"`
-	NUMANodes     []NUMANode     `json:"numa_nodes"`
-	HugePagePools []HugePagePool `json:"hugepage_pools"`
+	TotalBytes     uint64         `json:"total_bytes"`
+	AvailableBytes uint64         `json:"available_bytes"`
+	NUMANodes      []NUMANode     `json:"numa_nodes"`
+	HugePagePools  []HugePagePool `json:"hugepage_pools"`
 }
 
 type PCIDevice struct {
@@ -131,6 +164,7 @@ type Virtualization struct {
 type Fragment struct {
 	Domain         Domain          `json:"domain"`
 	Source         Source          `json:"source"`
+	Evidence       []EvidenceRef   `json:"evidence"`
 	Capabilities   []Capability    `json:"capabilities"`
 	Compute        *Compute        `json:"compute,omitempty"`
 	Memory         *Memory         `json:"memory,omitempty"`
@@ -150,7 +184,7 @@ type Snapshot struct {
 }
 
 func (snapshot *Snapshot) NormalizeAndValidate() error {
-	if snapshot.SchemaVersion != SnapshotSchemaV1 || snapshot.HostIdentity == "" || snapshot.ObservationGeneration == 0 {
+	if snapshot.SchemaVersion != SnapshotSchemaV2 || snapshot.HostIdentity == "" || snapshot.ObservationGeneration == 0 {
 		return errors.New("complete Host inventory snapshot identity is required")
 	}
 	if snapshot.CollectionStatus != "COMPLETE" && snapshot.CollectionStatus != "DEGRADED" {
@@ -231,10 +265,30 @@ func normalizeFragment(fragment *Fragment) error {
 	if nonNil != 1 || (fragment.Domain == DomainCompute) != (fragment.Compute != nil) || (fragment.Domain == DomainMemory) != (fragment.Memory != nil) || (fragment.Domain == DomainPCI) != (fragment.PCI != nil) || (fragment.Domain == DomainNetwork) != (fragment.Network != nil) || (fragment.Domain == DomainStorage) != (fragment.Storage != nil) || (fragment.Domain == DomainVirtualization) != (fragment.Virtualization != nil) {
 		return fmt.Errorf("Host inventory domain %s does not match its typed payload", fragment.Domain)
 	}
+	sort.Slice(fragment.Evidence, func(i, j int) bool {
+		if fragment.Evidence[i].Field != fragment.Evidence[j].Field {
+			return fragment.Evidence[i].Field < fragment.Evidence[j].Field
+		}
+		return fragment.Evidence[i].SourcePath < fragment.Evidence[j].SourcePath
+	})
+	for index, evidence := range fragment.Evidence {
+		if evidence.Field == "" || evidence.SourcePath == "" || !evidence.State.Valid() || (evidence.State == AvailabilityAvailable && evidence.ReasonCode != "") || (evidence.State != AvailabilityAvailable && evidence.ReasonCode == "") {
+			return errors.New("Host inventory evidence requires a typed field, source, state, and failure reason")
+		}
+		if index > 0 && fragment.Evidence[index-1].Field == evidence.Field && fragment.Evidence[index-1].SourcePath == evidence.SourcePath {
+			return errors.New("duplicate Host inventory evidence reference")
+		}
+	}
 	for index := range fragment.Capabilities {
 		capability := &fragment.Capabilities[index]
-		if capability.Name == "" || capability.Version == "" {
-			return errors.New("Host capability name and version are required")
+		if capability.Name == "" || capability.Version == "" || !capability.State.Valid() {
+			return errors.New("Host capability name, version, and availability state are required")
+		}
+		if capability.State == AvailabilityAvailable && capability.ReasonCode != "" {
+			return errors.New("available Host capability cannot carry a failure reason")
+		}
+		if capability.State != AvailabilityAvailable && capability.ReasonCode == "" {
+			return errors.New("non-available Host capability requires a reason code")
 		}
 		sort.Slice(capability.Constraints, func(i, j int) bool { return capability.Constraints[i].Name < capability.Constraints[j].Name })
 		for i, constraint := range capability.Constraints {
@@ -246,24 +300,24 @@ func normalizeFragment(fragment *Fragment) error {
 	sort.Slice(fragment.Capabilities, func(i, j int) bool { return fragment.Capabilities[i].Name < fragment.Capabilities[j].Name })
 	switch fragment.Domain {
 	case DomainCompute:
-		if fragment.Compute.Architecture == "" || fragment.Compute.CPUModel == "" || len(fragment.Compute.Threads) == 0 {
-			return errors.New("Compute inventory requires architecture, CPU model, and threads")
+		if capabilityIsAvailable(fragment.Capabilities, "kim.host.cpu-topology.v1") && (fragment.Compute.Architecture == "" || len(fragment.Compute.Threads) == 0) {
+			return errors.New("available Compute topology requires architecture and threads")
 		}
 		sort.Slice(fragment.Compute.Threads, func(i, j int) bool { return fragment.Compute.Threads[i].LinuxID < fragment.Compute.Threads[j].LinuxID })
 		for index, thread := range fragment.Compute.Threads {
-			if thread.LinuxID < 0 || thread.CoreID < 0 || thread.SocketID < 0 || thread.NUMANodeID < 0 || (index > 0 && fragment.Compute.Threads[index-1].LinuxID == thread.LinuxID) {
+			if thread.LinuxID < 0 || thread.CoreID < 0 || thread.SocketID < 0 || thread.NUMANodeID < -1 || (index > 0 && fragment.Compute.Threads[index-1].LinuxID == thread.LinuxID) {
 				return errors.New("Compute thread topology contains invalid or duplicate IDs")
 			}
 		}
 	case DomainMemory:
-		if fragment.Memory.TotalBytes == 0 {
+		if capabilityIsAvailable(fragment.Capabilities, "kim.host.memory.v1") && fragment.Memory.TotalBytes == 0 {
 			return errors.New("Memory inventory total bytes must be positive")
 		}
 		sort.Slice(fragment.Memory.NUMANodes, func(i, j int) bool {
 			return fragment.Memory.NUMANodes[i].LinuxID < fragment.Memory.NUMANodes[j].LinuxID
 		})
 		for index := range fragment.Memory.NUMANodes {
-			if fragment.Memory.NUMANodes[index].LinuxID < 0 || fragment.Memory.NUMANodes[index].MemoryTotalBytes == 0 || (index > 0 && fragment.Memory.NUMANodes[index-1].LinuxID == fragment.Memory.NUMANodes[index].LinuxID) {
+			if fragment.Memory.NUMANodes[index].LinuxID < 0 || (capabilityIsAvailable(fragment.Capabilities, "kim.host.numa.v1") && fragment.Memory.NUMANodes[index].MemoryTotalBytes == 0) || (index > 0 && fragment.Memory.NUMANodes[index-1].LinuxID == fragment.Memory.NUMANodes[index].LinuxID) {
 				return errors.New("NUMA topology contains invalid or duplicate nodes")
 			}
 			sort.Ints(fragment.Memory.NUMANodes[index].CPUThreadIDs)
@@ -279,7 +333,7 @@ func normalizeFragment(fragment *Fragment) error {
 			return left.PageSizeBytes < right.PageSizeBytes
 		})
 		for _, pool := range fragment.Memory.HugePagePools {
-			if pool.PageSizeBytes == 0 || pool.FreePages > pool.TotalPages || (pool.NUMANodeID != nil && *pool.NUMANodeID < 0) {
+			if pool.PageSizeBytes == 0 || (capabilityIsAvailable(fragment.Capabilities, "kim.host.hugepages.v1") && pool.FreePages > pool.TotalPages) || (pool.NUMANodeID != nil && *pool.NUMANodeID < 0) {
 				return errors.New("HugePage pool contains invalid capacity or NUMA locality")
 			}
 		}
@@ -313,6 +367,15 @@ func normalizeFragment(fragment *Fragment) error {
 		}
 	}
 	return nil
+}
+
+func capabilityIsAvailable(capabilities []Capability, name string) bool {
+	for _, capability := range capabilities {
+		if capability.Name == name {
+			return capability.State == AvailabilityAvailable
+		}
+	}
+	return false
 }
 
 func validDigest(value string) bool {

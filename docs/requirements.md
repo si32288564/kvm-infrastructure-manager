@@ -49,6 +49,8 @@
 | HST-015 | Inventory module は versioned descriptor、artifact digest、closed domain、schema version、capability allow-list を宣言し、未宣言 domain/capability または任意 opaque payload を報告できない | Must |
 | HST-016 | normalized Host Inventory は Host identity、observation generation、collection status、module provenance、typed resource fragment、capability/constraint を canonical schema で保持する | Must |
 | HST-017 | durable Inventory Receipt、immutable snapshot evidence、current capability projection を一つの PostgreSQL transaction で処理し、古い observation generation で current projection を巻き戻さない | Must |
+| HST-018 | Linux Host inventory は Raw Source → Raw Evidence → OS Integration Adapter → Normalizer → typed Fragment → Capability Mapping → Snapshot/Projection の evidence chain を保持し、各 normalized field の source path、observation state、reason を追跡できる | Must |
+| HST-019 | Host capability の状態は AVAILABLE、UNAVAILABLE、UNKNOWN、UNSUPPORTED を区別し、既知の未設定、観測不能、interface 非対応を 0、false、空配列へ縮退させない | Must |
 
 ### 2.3 Host Lifecycle、Baseline、Compliance
 

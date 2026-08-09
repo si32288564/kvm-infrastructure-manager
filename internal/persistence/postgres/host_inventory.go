@@ -22,7 +22,7 @@ func AcceptHostInventory(ctx context.Context, db TxBeginner, envelope session.En
 	if err := envelope.Validate(maxMessageBytes); err != nil {
 		return session.Receipt{}, err
 	}
-	if envelope.Stream != session.StreamInventory || envelope.SchemaVersion != agentinventory.SnapshotSchemaV1 {
+	if envelope.Stream != session.StreamInventory || envelope.SchemaVersion != agentinventory.SnapshotSchemaV2 {
 		return session.Receipt{}, errors.New("normalized Host inventory envelope is required")
 	}
 	snapshot, err := agentinventory.DecodeSnapshot(envelope.Payload)

@@ -26,6 +26,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HST-003 | HostGroup/Placement Scope/trait変更がplacement snapshotへversion付きで反映される |
 | AT-HST-004 | CPU/Memory/PCI/Network/Storage/Virtualization module を同じ registry で収集し、descriptor provenance、canonical ordering、top-level capability と typed fragment の一致を検証する |
 | AT-HST-005 | gRPC Inventory Envelope の Receipt、immutable snapshot、current capability projection を不可分に commitし、duplicate replayを冪等化し、older generationでprojectionを巻き戻さない |
+| AT-HST-006 | CPU、NUMA、Memory、HugePages の sysfs/procfs raw source を Linux OS Integration Adapter で読み、source path/state/reason を持つ evidence から canonical typed Fragment と Capability Projection を再現する |
+| AT-HST-007 | Linux 実環境で CPU topology、Memory、NUMA interface、HugePage pool を読み、fixture で NUMA 非対応、HugePages 未設定、sysfs 欠損、permission denied、kernel interface 差異を検証する |
 | AT-AGT-001 | shell/argv/unknown Command/arbitrary libvirt XML/path payloadをschema境界で拒否する |
 | AT-AGT-002 | Agent artifact/configにBus credential/subject accessがなくGateway mTLSだけを使用する |
 | AT-AGT-003 | identity/capability/armed authority/current Leaseの一つでも欠ければCommandを取得・実行できない |
