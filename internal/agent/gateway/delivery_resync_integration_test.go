@@ -65,7 +65,7 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := session.NewEnvelope(hostID, 1, session.StreamResult, hostID+"-result-1", "v1", "command-result", 1, []byte(`{"outcome":"SUCCEEDED"}`))
+	original := session.NewEnvelope(hostID, 1, session.StreamResync, hostID+"-resync-1", "kim.resync.checkpoint/v1", "resync-checkpoint", 1, []byte(`{"checkpoint":"pending"}`))
 	if err := journal.Enqueue(original); err != nil {
 		t.Fatal(err)
 	}

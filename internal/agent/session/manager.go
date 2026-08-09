@@ -20,6 +20,70 @@ type ModuleDescriptor struct {
 	Capabilities     []string
 	MinSchemaVersion string
 	MaxSchemaVersion string
+	MessageSchemas   []string
+}
+
+// ReceiveAndRoute receives one Gateway message from the Manager-owned
+// connection and routes it by the closed module schema advertisement.
+func (manager *Manager) ReceiveAndRoute(ctx context.Context) error {
+	manager.mu.Lock()
+	connection := manager.connection
+	manager.mu.Unlock()
+	if connection == nil {
+		return ErrSessionNotOpen
+	}
+	envelope, err := connection.Receive(ctx)
+	if err != nil {
+		return err
+	}
+	if err := manager.validateCurrent(envelope); err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	var selected Module
+	for _, module := range manager.modules {
+		for _, schema := range module.Descriptor().MessageSchemas {
+			if schema != envelope.SchemaVersion {
+				continue
+			}
+			if selected != nil {
+				manager.mu.Unlock()
+				return fmt.Errorf("multiple Agent modules advertise schema %q", schema)
+			}
+			selected = module
+		}
+	}
+	manager.mu.Unlock()
+	if selected == nil {
+		return fmt.Errorf("no Agent module advertises schema %q", envelope.SchemaVersion)
+	}
+	return selected.Handle(ctx, envelope)
+}
+
+// FlushOne sends one queued application message over the current connection.
+// A send error requeues the stable envelope because it cannot prove delivery.
+func (manager *Manager) FlushOne(ctx context.Context) (bool, error) {
+	manager.mu.Lock()
+	connection := manager.connection
+	manager.mu.Unlock()
+	if connection == nil {
+		return false, ErrSessionNotOpen
+	}
+	envelope, found := manager.queue.Dequeue()
+	if !found {
+		return false, nil
+	}
+	if err := manager.validateCurrent(envelope); err != nil {
+		_ = manager.queue.Enqueue(envelope)
+		return false, err
+	}
+	if err := connection.Send(ctx, envelope); err != nil {
+		if queueErr := manager.queue.Enqueue(envelope); queueErr != nil {
+			return false, errors.Join(err, queueErr)
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // Module handles typed messages and never receives a transport connection.
@@ -108,6 +172,18 @@ func (manager *Manager) RegisterModule(module Module) error {
 	}
 	if _, exists := manager.modules[descriptor.Name]; exists {
 		return fmt.Errorf("Agent module %q is already registered", descriptor.Name)
+	}
+	for _, schema := range descriptor.MessageSchemas {
+		if schema == "" {
+			return errors.New("Agent module message schema must not be empty")
+		}
+		for _, existing := range manager.modules {
+			for _, existingSchema := range existing.Descriptor().MessageSchemas {
+				if schema == existingSchema {
+					return fmt.Errorf("Agent message schema %q is already registered", schema)
+				}
+			}
+		}
 	}
 	manager.modules[descriptor.Name] = module
 	manager.handshake.Capabilities = append(manager.handshake.Capabilities, descriptor.Capabilities...)

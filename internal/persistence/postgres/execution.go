@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 )
 
 var (
@@ -88,6 +89,112 @@ type CommandVerification struct {
 	State                  string
 	VerifierArtifactDigest string
 	Evidence               map[string]any
+}
+
+type AgentCommandResultDecision struct {
+	Start        CommandAttemptStart
+	Result       CommandResultSubmission
+	Verification *CommandVerification
+}
+
+type nestedTxBeginner struct{ tx pgx.Tx }
+
+func (beginner nestedTxBeginner) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
+	return beginner.tx.Begin(ctx)
+}
+
+// AcceptAgentCommandResult atomically commits Agent journal evidence, Result,
+// optional read-back Verification, and the application-level message receipt.
+// Nested savepoints reuse the standalone decision functions without exposing a
+// partial domain decision if receipt commit fails.
+func AcceptAgentCommandResult(ctx context.Context, db TxBeginner, envelope session.Envelope, maxMessageBytes int, decision AgentCommandResultDecision) (receipt session.Receipt, returnedErr error) {
+	if err := envelope.Validate(maxMessageBytes); err != nil {
+		return session.Receipt{}, err
+	}
+	if decision.Start.CommandID == "" || decision.Start.CommandID != decision.Result.CommandID || envelope.CorrelationKey != decision.Result.CommandID || envelope.Sequence != uint64(decision.Result.AttemptIndex) {
+		return session.Receipt{}, ErrCommandEvidenceConflict
+	}
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		existing, found, err := readAgentReceiptTx(ctx, tx, envelope.HostIdentity, envelope.MessageID)
+		if err != nil {
+			return err
+		}
+		if found {
+			if err := existing.ValidateFor(envelope); err != nil {
+				return ErrAgentMessageEvidenceConflict
+			}
+			receipt = existing
+			return nil
+		}
+		var commandHost, sessionState string
+		var currentSessionGeneration int64
+		if err := tx.QueryRow(ctx, `
+			SELECT command.host_id, session.session_generation, session.state
+			FROM kim.execution_commands command
+			JOIN kim.agent_transport_sessions_current session ON session.host_id=command.host_id
+			WHERE command.command_id=$1
+		`, decision.Result.CommandID).Scan(&commandHost, &currentSessionGeneration, &sessionState); err != nil {
+			return ErrCommandEvidenceConflict
+		}
+		if commandHost != envelope.HostIdentity || currentSessionGeneration != int64(envelope.SessionGeneration) || sessionState != "CURRENT" {
+			return ErrStaleCommandResult
+		}
+		beginner := nestedTxBeginner{tx: tx}
+		if err := MarkCommandAttemptJournaled(ctx, beginner, decision.Start); err != nil {
+			return err
+		}
+		if _, err := AcceptCommandResult(ctx, beginner, decision.Result); err != nil {
+			return err
+		}
+		if decision.Verification != nil {
+			if err := RecordCommandVerification(ctx, beginner, *decision.Verification); err != nil {
+				return err
+			}
+		}
+		receipt, err = acceptAgentMessageTx(ctx, tx, envelope)
+		return err
+	})
+	return receipt, err
+}
+
+type CommandDispatchCandidate struct {
+	CommandID               string
+	HostID                  string
+	HostAuthorityGeneration int64
+	SessionGeneration       int64
+	CommandType             string
+	SchemaVersion           string
+	TargetResourceID        string
+	Payload                 json.RawMessage
+	PayloadDigest           string
+}
+
+func LoadCommandDispatchCandidate(ctx context.Context, db TxBeginner, commandID string) (CommandDispatchCandidate, error) {
+	var candidate CommandDispatchCandidate
+	var state string
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT command.command_id, command.host_id,
+			       authority.authority_generation, authority.session_generation,
+			       command.command_type, command.schema_version,
+			       command.target_resource_id, command.payload, command.payload_digest,
+			       current.command_state
+			FROM kim.execution_commands command
+			JOIN kim.execution_commands_current current USING(command_id)
+			JOIN kim.host_operation_authorities_current authority ON authority.host_id=command.host_id
+			WHERE command.command_id=$1
+		`, commandID).Scan(&candidate.CommandID, &candidate.HostID,
+			&candidate.HostAuthorityGeneration, &candidate.SessionGeneration,
+			&candidate.CommandType, &candidate.SchemaVersion,
+			&candidate.TargetResourceID, &candidate.Payload, &candidate.PayloadDigest, &state)
+	})
+	if err != nil {
+		return CommandDispatchCandidate{}, ErrCommandNotDispatchable
+	}
+	if state != "PENDING" && state != "REDISPATCHABLE" {
+		return CommandDispatchCandidate{}, ErrCommandNotDispatchable
+	}
+	return candidate, nil
 }
 
 func CreateExecutionCommand(ctx context.Context, db TxBeginner, request ExecutionCommandRequest) error {
@@ -441,7 +548,21 @@ func RecordCommandVerification(ctx context.Context, db TxBeginner, verification 
 			return err
 		}
 		if tag.RowsAffected() == 0 {
-			return ErrVerificationConflict
+			var identical bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM kim.command_verification_evidence
+					WHERE verification_id=$1 AND command_id=$2 AND attempt_index=$3
+					  AND observation_generation=$4 AND observation_digest=$5
+					  AND verification_state=$6 AND verifier_artifact_digest=$7
+					  AND evidence_payload=$8::jsonb
+				)
+			`, verification.VerificationID, verification.CommandID, verification.AttemptIndex,
+				verification.ObservationGeneration, verification.ObservationDigest,
+				verification.State, verification.VerifierArtifactDigest, payload).Scan(&identical); err != nil || !identical {
+				return ErrVerificationConflict
+			}
+			return nil
 		}
 		commandNext, jobNext, eventType := "UNKNOWN", "ACTION_REQUIRED", "VERIFICATION_UNRESOLVED"
 		switch verification.State {

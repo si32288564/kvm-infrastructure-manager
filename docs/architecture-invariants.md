@@ -80,6 +80,8 @@
 | INV-EXEC-008 | UNKNOWN状態で反対mutationを推測実行しない | FI-STORAGE-001 |
 | INV-EXEC-009 | active Command Lease は発行時の Host authority generation と Agent session generation の両方が current の間だけ使用できる | AT-EXEC-008、FI-TRANSPORT-003 |
 | INV-EXEC-010 | Lease expiry、Host authority fence、session generation 変更後に旧 Lease/Attempt が再び current authority へ戻らない | AT-EXEC-009、FI-TRANSPORT-003 |
+| INV-EXEC-011 | Gateway の live outbound registry は routing projection に限定し、PostgreSQL Session Grant と一致しない Host/session generation へ Command を配送しない | AT-EXEC-010、FI-GATEWAY-003 |
+| INV-EXEC-012 | Agent は compile-time registered typed backend だけを実行し、journal 完了前の Result または read-back 未確認の success を authority へ進めない | AT-EXEC-010、FI-AGENT-001/002 |
 
 ## 7. Agent and Host
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
@@ -83,6 +84,22 @@ type GRPCServer struct {
 	Authorizer       SessionAuthorizer
 	IdentityResolver PeerIdentityResolver
 	MessageReceiver  MessageReceiver
+	OutboundRegistry *OutboundRegistry
+}
+
+type serializedFrameSender struct {
+	mu     sync.Mutex
+	stream grpc.BidiStreamingServer[agentprotocolv1.Frame, agentprotocolv1.Frame]
+}
+
+func (sender *serializedFrameSender) send(frame *agentprotocolv1.Frame) error {
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	return sender.stream.Send(frame)
+}
+
+func (sender *serializedFrameSender) Send(_ context.Context, envelope session.Envelope) error {
+	return sender.send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Envelope{Envelope: wire.EnvelopeToProto(envelope)}})
 }
 
 func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1.Frame, agentprotocolv1.Frame]) error {
@@ -115,8 +132,16 @@ func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1
 	if accepted == nil {
 		return errors.New("Agent Session Authorizer returned no decision")
 	}
-	if err := stream.Send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Accepted{Accepted: accepted}}); err != nil {
+	sender := &serializedFrameSender{stream: stream}
+	if err := sender.send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Accepted{Accepted: accepted}}); err != nil {
 		return err
+	}
+	if server.OutboundRegistry != nil {
+		release, err := server.OutboundRegistry.Register(accepted.GetHostIdentity(), accepted.GetSessionGeneration(), hello.GetConnectionInstanceId(), sender)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
 	for {
 		frame, err := stream.Recv()
@@ -139,7 +164,7 @@ func (server GRPCServer) Connect(stream grpc.BidiStreamingServer[agentprotocolv1
 			if err != nil {
 				return err
 			}
-			if err := stream.Send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Receipt{Receipt: wire.ReceiptToProto(receipt)}}); err != nil {
+			if err := sender.send(&agentprotocolv1.Frame{Body: &agentprotocolv1.Frame_Receipt{Receipt: wire.ReceiptToProto(receipt)}}); err != nil {
 				return err
 			}
 		}

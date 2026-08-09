@@ -342,6 +342,8 @@
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
 | OPS-011 | Command Lease は発行時の Host authority generation と current Agent session generation の両方へ bind し、いずれかの失効後に旧 Lease を再利用できない | Must |
 | OPS-012 | 同一 Result の再送は durable receipt で冪等化し、異なる digest または stale Attempt の Result は current authority を変更しない | Must |
+| OPS-013 | Dispatcher は PostgreSQL で grant された current Host/session generation の Lease だけを current Agent stream へ配送し、transport send failure を未配送または未実行の証明にしない | Must |
+| OPS-014 | Agent execution module は closed typed backend registry、write-before-execute journal、typed read-back を使用し、arbitrary command/path/backend method を受理しない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

@@ -200,6 +200,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-007 | terminal Job/Attempt/Event履歴がimmutableである |
 | AT-EXEC-008 | Lease grant が current Host authority generation と Agent session generation を保持し、並行要求でも active Lease が一つだけになる |
 | AT-EXEC-009 | Lease expiry または session/Host authority fence 後の Result は stale として拒否され、明示的な再 arming 後も旧 Lease は復活しない |
+| AT-EXEC-010 | PostgreSQL Lease Grant から current Gateway session、Agent typed backend、Result receipt、matching read-back verification までの round-trip が同じ authority/session/Attempt identity で収束する |
+| AT-EXEC-011 | Gateway send failure で Lease/Attempt を未実行扱いせず、stable envelope を再送待ちまたは UNKNOWN/read-back path に保持する |
 
 ## 11. Placement / Migration
 
