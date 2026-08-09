@@ -1,6 +1,6 @@
 # Q-094 Agent Transport Spike
 
-- 状態: Ready to Execute
+- 状態: In Progress
 - 更新日: 2026-08-09
 - Owner: Agent / Gateway
 - Target gate: P1-A exit
@@ -89,3 +89,16 @@ Developer Preview の具体 SLO と limit は測定前に fixture config とし�
 - rollback/replaceability、module contract非依存の確認
 
 Q-094 は blocking assertions、operational profile、dependency/security reviewを満たした候補を選び、Decision Recordを承認した時点でClosedにします。
+
+## 8. Implementation Progress
+
+初回 fixture foundation として次を実装済みです。
+
+- transport 非依存の typed `Envelope` と logical `Stream`
+- payload digest、bounded message、session generation validation
+- bulk 用 capacity が priority traffic 用 reserve を消費しない bounded queue
+- Control 優先と Command/Result/Heartbeat/Credential 間の round-robin
+- module 登録数と connection open 回数を分離する `Session Manager` / `TransportAdapter` 境界
+- stale session message を module routing 前に拒否する fixture
+
+未完了なのは gRPC/typed HTTP/2 candidate adapter、real mTLS/proxy、disconnect/reconnect、durable spool/resync、fault/scale measurement です。fixture foundation の pass は Q-094 close または candidate 採用を意味しません。

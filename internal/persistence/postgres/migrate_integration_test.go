@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/db/migrations"
 )
@@ -50,10 +51,14 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 	requiredTables := []string{
 		"agent_message_receipts",
 		"agent_resync_checkpoints",
-		"agent_transport_sessions",
+		"agent_transport_session_attempts",
+		"agent_transport_session_events",
+		"agent_transport_sessions_current",
 		"database_authority",
 		"host_identities",
 		"inbox_messages",
+		"outbox_delivery_attempts",
+		"outbox_delivery_events",
 		"outbox_messages",
 	}
 	for _, table := range requiredTables {
@@ -69,5 +74,143 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		if !exists {
 			t.Errorf("required table kim.%s does not exist", table)
 		}
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.outbox_messages (
+			message_id, aggregate_type, aggregate_id, event_type,
+			schema_version, payload_digest, payload
+		) VALUES ('integration-message', 'Host', 'host-1', 'HostObserved',
+			'v1', $1, '{"host_id":"host-1"}')
+		ON CONFLICT (message_id) DO NOTHING
+	`, digest64("a")); err != nil {
+		t.Fatal(err)
+	}
+
+	firstClaimTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := ClaimOutboxTx(ctx, firstClaimTx, OutboxClaimRequest{
+		Owner: "publisher-a",
+		Limit: 1,
+		Lease: time.Minute,
+	})
+	if err != nil {
+		_ = firstClaimTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if len(claimed) != 1 || claimed[0].ClaimGeneration != 1 {
+		_ = firstClaimTx.Rollback(ctx)
+		t.Fatalf("first claim = %#v", claimed)
+	}
+	if err := firstClaimTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	unknownTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstClaim := OutboxClaim{MessageID: claimed[0].MessageID, Owner: "publisher-a", ClaimGeneration: 1}
+	if err := RecordOutboxDispatchUnknownTx(ctx, unknownTx, firstClaim, map[string]any{"reason": "response_lost"}); err != nil {
+		_ = unknownTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := unknownTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE kim.outbox_messages
+		SET claim_expires_at = statement_timestamp() - interval '1 second'
+		WHERE message_id = 'integration-message'
+	`); err != nil {
+		t.Fatal(err)
+	}
+	secondClaimTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, err := ClaimOutboxTx(ctx, secondClaimTx, OutboxClaimRequest{
+		Owner: "publisher-b",
+		Limit: 1,
+		Lease: time.Minute,
+	})
+	if err != nil {
+		_ = secondClaimTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if len(reclaimed) != 1 || reclaimed[0].ClaimGeneration != 2 {
+		_ = secondClaimTx.Rollback(ctx)
+		t.Fatalf("reclaimed = %#v", reclaimed)
+	}
+	if err := secondClaimTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	var unknownEvidence, attempts int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM kim.outbox_delivery_events
+		WHERE message_id = 'integration-message' AND event_type = 'DISPATCH_UNKNOWN'
+	`).Scan(&unknownEvidence); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM kim.outbox_delivery_attempts
+		WHERE message_id = 'integration-message'
+	`).Scan(&attempts); err != nil {
+		t.Fatal(err)
+	}
+	if unknownEvidence != 1 || attempts != 2 {
+		t.Fatalf("unknown evidence = %d, attempts = %d", unknownEvidence, attempts)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.host_identities (host_id, enrollment_state)
+		VALUES ('session-history-host', 'APPROVED')
+		ON CONFLICT (host_id) DO NOTHING
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.agent_transport_session_attempts (
+			session_attempt_id, host_id, connection_instance_id,
+			transport_profile, protocol_version, agent_artifact_digest,
+			credential_binding_revision, handshake_evidence, handshake_evidence_digest
+		) VALUES (
+			'session-attempt-1', 'session-history-host', 'connection-1',
+			'typed-http2-spike', 'v1', $1, 1, '{}', $2
+		)
+		ON CONFLICT (session_attempt_id) DO NOTHING
+	`, digest64("b"), digest64("c")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.agent_transport_session_events (
+			session_attempt_id, event_sequence, event_type,
+			event_payload, event_payload_digest
+		) VALUES ('session-attempt-1', 1, 'OPENED', '{}', $1)
+		ON CONFLICT (session_attempt_id, event_sequence) DO NOTHING
+	`, digest64("d")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE kim.agent_transport_session_events
+		SET event_type = 'CLOSED'
+		WHERE session_attempt_id = 'session-attempt-1' AND event_sequence = 1
+	`); err == nil {
+		t.Fatal("immutable session evidence accepted UPDATE")
+	}
+
+	var oldTable, currentTable bool
+	if err := pool.QueryRow(ctx, `
+		SELECT to_regclass('kim.agent_transport_sessions') IS NOT NULL,
+		       to_regclass('kim.agent_transport_sessions_current') IS NOT NULL
+	`).Scan(&oldTable, &currentTable); err != nil {
+		t.Fatal(err)
+	}
+	if oldTable || !currentTable {
+		t.Fatalf("session authority rename: old=%v current=%v", oldTable, currentTable)
 	}
 }

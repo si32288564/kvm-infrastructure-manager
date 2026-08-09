@@ -16,8 +16,9 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 | Item | 状態 | 実装範囲 / 残作業 |
 |---|---|---|
 | P1-A01 | In Progress | Go module、command scaffold、CI、format/vet/test/document contract lint を開始。component runtime wiring は未着手 |
-| P1-A02 | In Progress | fresh PostgreSQL schema、checksummed migration runner、serializable transaction helper、Outbox/Inbox/session authority skeleton を開始。PostgreSQL 17 apply/replay integration test は通過、concurrency/failure test は未完了 |
-| Q-094 | Ready to Execute | fixed contract、候補、共通 fixture、blocking assertion、measurement を [transport spike](spikes/q094-agent-transport.md) に定義 |
+| P1-A02 | In Progress | fresh PostgreSQL schema、checksummed migration runner、serializable transaction helper を実装。session current/immutable attempt/event、Outbox claim generation/UNKNOWN evidence を PostgreSQL 17 で検証。concurrency/failure test は継続 |
+| P1-A03/A05 | In Progress | transport-neutral Envelope、Stream、Session Manager/Module interface、bounded priority queue、stale session fence を実装。wire adapter、durable spool/resync は未実装 |
+| Q-094 | In Progress | fixed contract、候補、共通 fixture、blocking assertion、measurement を [transport spike](spikes/q094-agent-transport.md) に定義。transport-neutral fixture foundation を実装し、候補 adapter/実測を継続 |
 
 ## 2. Implementation Principles
 

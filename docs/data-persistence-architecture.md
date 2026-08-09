@@ -103,6 +103,7 @@ OutboxRecord
 ```
 
 - publisherはOutbox rowを短いLeaseでclaimし、at-least-onceで配送する。
+- claim Lease expiry は次の delivery attempt を許可するだけで、旧 attempt が未配送だった証明にしない。claim generation と `DISPATCH_UNKNOWN` を append-only evidence として保持し、stale claimant の ACK で current row を完了させない。
 - publish ACKはdomain authorityを進めない。ACK喪失時は同じ`event_id`を再送する。
 - orderingが必要なconsumerはaggregate generation/sequenceを検証し、global orderingを仮定しない。
 - poison eventはbounded retry後に`BLOCKED`/dead-letter projectionへ移すが、元Outboxとdomain commitを削除しない。

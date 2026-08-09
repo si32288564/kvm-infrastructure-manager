@@ -90,6 +90,8 @@ module 追加だけを理由に connection を増やしてはいけません。�
 
 Agent Session Manager と Gateway Session Registry は、Host Agent identity ごとに一つの current `session_generation` を共有します。current generation、session handoff decision、Message Receipt、Resync Checkpoint は PostgreSQL へ永続化します。Gateway process 上の live socket/stream buffer は ephemeral であり session authority ではありません。すべての inbound/outbound envelope は少なくとも次を持ちます。
 
+PostgreSQL では mutable な current session authority と、append-only な connection/session attempt・lifecycle event evidence を分離します。reconnect、renewal、handoff で current row を更新しても、旧 attempt/event を上書きしません。attempt/event evidence だけでは current session authority を取得できず、current generation を変更する transaction が必要です。
+
 ```text
 host_identity
 session_generation
