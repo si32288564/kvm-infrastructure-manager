@@ -204,6 +204,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-011 | Gateway send failure で Lease/Attempt を未実行扱いせず、stable envelope を再送待ちまたは UNKNOWN/read-back path に保持する |
 | AT-EXEC-012 | mutation 完了後・Result 発行前に Agent が crash しても、Lease expiry で Attempt を UNKNOWN とし、restart 後の既存 journal evidence と typed read-back が MATCHED の場合だけ同じ Attempt の Verification を追記して Job を SUCCEEDED へ収束させる |
 | AT-EXEC-013 | long-running Session Runner が一つの current transport 上で inbound Command routing、priority outbound flush、durable Receipt handling を並行実行し、cancel または connection loss で bounded に停止する |
+| AT-EXEC-014 | rejected/failed session attempt が local generation を消費せず、SessionAccepted 後の durable ledger を process restart で回収して次 generation だけを提案する |
+| AT-EXEC-015 | kim-worker が expired active Lease を bounded batch で検出し、競合時は stale candidate を無視しながら各 current Lease/Attempt を UNKNOWN へ一度だけ進める |
 
 ## 11. Placement / Migration
 

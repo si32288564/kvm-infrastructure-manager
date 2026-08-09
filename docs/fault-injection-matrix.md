@@ -68,6 +68,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-AGENT-003 | Inventory module の一つを失敗させるか、未宣言 domain/capability、top-level capability mismatch、同一 observation generation の異なる digest を送る | module/schema/provenance/evidence conflict | snapshot/projection commitを全体拒否し、last current projectionを維持 | module descriptor/artifact digest、Host/session/observation generation、payload digest、error | partial snapshotをCOMPLETE化、identityだけでcapability承認、current projection上書き | 全 module のvalid typed snapshotをnew generationで再収集しReceipt/projectionをcommit |
 | FI-AGENT-004 | CPU/NUMA/Memory/HugePages の sysfs/procfs source を欠損、permission denied、malformed、未実装、または既知の未設定にする | Adapter の read/parse outcome と capability state | permission/parse/partial は UNKNOWN + DEGRADED、未実装は UNSUPPORTED、既知の未設定は UNAVAILABLE として evidence を保持 | source path、field、state、reason code、module/schema/artifact、observation generation | 0/false への縮退、UNKNOWN の AVAILABLE 化、未設定と非対応の混同、partial topology の COMPLETE 化 | source 復旧後に new generation を再収集し immutable evidence/current projection を更新 |
 | FI-AGENT-005 | write-before-execute journal 完了後に backend mutation を実行し、Result publish 前に Agent を停止して同じ journal directory から再起動する | completed/started journal evidence、backend observed state、UNKNOWN Attempt | Verification Request の Command/Attempt/digest/target を既存 journal と照合し、typed backend read-back だけを実行 | immutable journal record/digest、backend observation、Verifier digest、Message Receipt | missing journal から STARTED を生成、反対 mutation、blind retry、過去 Attempt 改変 | MATCHED/NOT_APPLIED/CONFLICTING/UNKNOWN evidence に応じた current decision へ収束 |
+| FI-AGENT-006 | SessionAccepted 前、または Accepted 後の local generation ledger fsync/rename 中に Agent process/disk を停止する | handshake/DB session evidence と local ledger generation の差 | Accepted 前は同じ proposal を再利用。DB commit 後に local persist が確認できない場合は fail closed し、generation を推測して進めない | SessionAttempt、DB Grant、local accepted generation、fsync/rename error、restart audit | 接続失敗ごとの generation 消費、same-generation implicit rearm、DB generation の推測上書き | durable ledger と DB evidence の明示 reconciliation 後に next generation を提案 |
 | FI-HOST-001 | active VM Hostのpower/network loss | heartbeat/BMC/Agent loss | Host ineligible、source fencing要求 | Host failure、affected resources | shared diskの別Host二重attach | source fenced+resource eligibility再評価 |
 | FI-HOST-002 | Host clockを閾値外へskew | clock health/lease anomaly | 新Lease停止 | clock alarm、Host state | wall clockのみでauthority判定 | clock正常化+capability/preflight |
 | FI-HLC-001 | bootstrap responseをdropし、同一Hostがidentity bootstrapを再送 | bootstrap retry/identity correlation | 単一pending Host identityへ収束 | credential request digest、fingerprint、audit | credential/Host row二重発行、auto enrollment | 同一identityを回収しapproval待ちを維持 |
@@ -240,7 +241,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..015 |
 | Internal Message | FI-BUS-001..002 |
 | Agent Gateway / Transport | FI-GATEWAY-001..008, FI-TRANSPORT-001..004 |
-| Agent | FI-AGENT-001..005 |
+| Agent | FI-AGENT-001..006 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
 | Host Grouping / Failure Domain | FI-HGR-001..008 |
 | Availability Responsibility / Managed Recovery | FI-AVR-001..010 |

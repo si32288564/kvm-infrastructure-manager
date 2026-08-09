@@ -146,6 +146,19 @@ func TestExecutionAuthorityLeaseResultAndVerificationPostgreSQLIntegration(t *te
 		t.Fatalf("old Attempt revived: %v", err)
 	}
 
+	maintenance := commandFixture(hostID, "worker-expiry")
+	if err := CreateExecutionCommand(ctx, pool, maintenance); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: maintenance.CommandID, HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Millisecond}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if expired, err := ExpireDueCommandLeases(ctx, pool, 16); err != nil || expired != 1 {
+		t.Fatalf("Worker Lease maintenance = %d, error = %v", expired, err)
+	}
+	assertExecutionState(t, ctx, pool, maintenance.CommandID, "UNKNOWN", "ACTION_REQUIRED", 1)
+
 	fenced := commandFixture(hostID, "fenced")
 	if err := CreateExecutionCommand(ctx, pool, fenced); err != nil {
 		t.Fatal(err)

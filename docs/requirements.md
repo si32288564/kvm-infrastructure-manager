@@ -346,6 +346,8 @@
 | OPS-014 | Agent execution module は closed typed backend registry、write-before-execute journal、typed read-back を使用し、arbitrary command/path/backend method を受理しない | Must |
 | OPS-015 | mutation 後に Result が不明となった Command は、current authorized Agent session へ immutable Command/Attempt identity を持つ read-only Verification Request を配送し、既存 journal evidence と backend read-back によって収束できる | Must |
 | OPS-016 | long-running Agent session runtime は inbound Command、outbound Result/Observation、durable Receipt を同一 current transport 上で並行処理し、一つの loop 障害を resource authority loss または未実行の証明として扱わない | Must |
+| OPS-017 | Host Agent process は PostgreSQL で SessionAccepted された generation だけを local durable ledger へ記録し、rejected/failed attempt では generation を消費せず、process restart 後は最後の accepted generation の次だけを提案する | Must |
+| OPS-018 | Worker process は elapsed Command Lease を bounded batch で検出し、各 Command を Host-scoped PostgreSQL transaction で再検証して UNKNOWN へ進め、expiry を non-execution proof として扱わない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

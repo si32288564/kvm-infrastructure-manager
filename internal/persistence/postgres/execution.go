@@ -598,6 +598,50 @@ func ExpireCommandLease(ctx context.Context, db TxBeginner, commandID string) er
 	})
 }
 
+// ExpireDueCommandLeases performs bounded maintenance. Candidate discovery is
+// not authority; each Command is revalidated and fenced in its own Host-scoped
+// transaction by ExpireCommandLease.
+func ExpireDueCommandLeases(ctx context.Context, db TxBeginner, limit int) (int, error) {
+	if limit < 1 || limit > 1000 {
+		return 0, errors.New("expired Command Lease batch limit must be between 1 and 1000")
+	}
+	var commandIDs []string
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT command_id FROM kim.command_leases_current
+			WHERE lease_state='ACTIVE' AND expires_at <= statement_timestamp()
+			ORDER BY expires_at, command_id LIMIT $1
+		`, limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var commandID string
+			if err := rows.Scan(&commandID); err != nil {
+				return err
+			}
+			commandIDs = append(commandIDs, commandID)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return 0, err
+	}
+	expired := 0
+	for _, commandID := range commandIDs {
+		err := ExpireCommandLease(ctx, db, commandID)
+		if errors.Is(err, ErrStaleCommandLease) {
+			continue
+		}
+		if err != nil {
+			return expired, err
+		}
+		expired++
+	}
+	return expired, nil
+}
+
 func RecordCommandVerification(ctx context.Context, db TxBeginner, verification CommandVerification) error {
 	if verification.VerificationID == "" || verification.CommandID == "" || verification.AttemptIndex < 1 || verification.ObservationGeneration < 1 || len(verification.ObservationDigest) != 64 || len(verification.VerifierArtifactDigest) != 64 {
 		return errors.New("complete verification evidence is required")
