@@ -55,6 +55,7 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 - [ADR Decision Gate Review](docs/adr-decision-gate-review.md)
 - [v1 Gap Analysis](docs/v1-gap-analysis.md)
 - [Phase 1 Implementation Plan](docs/phase-1-implementation-plan.md)
+- [Q-094 Agent Transport Spike](docs/spikes/q094-agent-transport.md)
 - [System-wide Failure Model](docs/failure-model.md)
 - [Extensibility Architecture](docs/extensibility-architecture.md)
 - [Architecture Invariants](docs/architecture-invariants.md)
@@ -73,4 +74,23 @@ KVM Infrastructure Manager（以下 KIM）は、QEMU/KVM を実行基盤とし�
 
 ## 現在の状態
 
-設計フェーズです。本文書に含まれる規模、SLO、技術選定は初期仮説であり、検証および ADR 承認を経て確定します。
+Phase 0 Architecture Baseline を完了し、Phase 1 Developer Preview の実装を開始しています。現在は repository/CI、fresh PostgreSQL authority schema、Agent transport spike を進めています。未確定の tuning 値、support matrix、実装技術は、対応する Decision Gate を通過するまで製品保証として扱いません。
+
+## 開発時の基本コマンド
+
+```sh
+make check
+make build
+```
+
+PostgreSQL migration は `KIM_DATABASE_URL` を設定して実行します。
+
+```sh
+go run ./cmd/kim-db-migrate
+```
+
+専用の空 PostgreSQL database に対する migration integration test は次で実行します。
+
+```sh
+make test-postgres-integration KIM_POSTGRES_TEST_URL='postgres://...'
+```

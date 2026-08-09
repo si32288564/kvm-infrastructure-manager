@@ -11,6 +11,14 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 
 この phase は Phase 0 Architecture を再解釈する期間ではありません。Accepted ADR、Invariant、Test Contract を実行可能な code/schema/test/evidence へ変換します。
 
+### Implementation status
+
+| Item | 状態 | 実装範囲 / 残作業 |
+|---|---|---|
+| P1-A01 | In Progress | Go module、command scaffold、CI、format/vet/test/document contract lint を開始。component runtime wiring は未着手 |
+| P1-A02 | In Progress | fresh PostgreSQL schema、checksummed migration runner、serializable transaction helper、Outbox/Inbox/session authority skeleton を開始。PostgreSQL 17 apply/replay integration test は通過、concurrency/failure test は未完了 |
+| Q-094 | Ready to Execute | fixed contract、候補、共通 fixture、blocking assertion、measurement を [transport spike](spikes/q094-agent-transport.md) に定義 |
+
 ## 2. Implementation Principles
 
 - fresh KIM schema と package namespace を作り、v1 table/API を KIM authority として直接昇格しない。
