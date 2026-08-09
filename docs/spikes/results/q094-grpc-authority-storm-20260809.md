@@ -83,10 +83,39 @@ DB-only admission profile と real mTLS transport profile は backoff tuning を
 - pre-auth limit は session authority、Host identity、credential validity の代替判定をしない。
 - Agent adapter は explicit PostgreSQL-backed Accepted を受けるまで current session を公開しない。
 
+## Pre-auth TLS Handshake Protection
+
+application admission は mTLS verification 後に動作するため、それだけでは TLS handshake CPU/memory を bound できません。gRPC server-side `TransportCredentials` を narrow wrapper で包み、TLS handshake の同時実行だけを non-blocking semaphore で制限しました。
+
+```text
+TCP accept
+    ↓ pre-auth TLS handshake limiter
+TLS 1.3 mutual authentication
+    ↓ application admission limiter
+PostgreSQL Grant
+```
+
+pre-auth rejection は peer identity をまだ確立していないため、typed `SessionRejected` を返しません。Agent は通常の transport failure として bounded backoff/jitter を適用します。limiter は Host identity、certificate validity、session generation、authority を判断しません。
+
+25 ms / 1 s backoff、application admission 16、DB pool 32 の同一 Host で、handshake limit を比較しました。各 profile は単一 run です。
+
+| Metric | no pre-auth limit | TLS limit 32 | TLS limit 16 | TLS limit 8 |
+|---|---:|---:|---:|---:|
+| convergence | 3.291 s | 2.986 s | 2.541 s | 2.513 s |
+| throughput | 304/s | 335/s | 393/s | 398/s |
+| mTLS + Grant p99 | 2.903 s | 2.584 s | 2.324 s | 2.363 s |
+| application admission rejects | 5,050 | 1,606 | 1,400 | 1,094 |
+| TLS handshake peak | unbounded | 32 | 16 | 8 |
+| warm + storm physical connections | 12,605 | 13,638 | 14,602 | 14,349 |
+
+limit 8 の最終 run では、storm だけで 4,877 pre-auth reject、1,094 application reject、6,971 physical connection が発生し、1,000 session 全てが generation 2 へ収束しました。DB pool wait は 0 です。
+
+pre-auth limiter は physical connection attempt を必ず減らすものではありません。高コスト TLS handshake の同時実行を bound し、application/DB path へ到達する load を平滑化する resource protection です。この 8 という値は 8-core local Host の単一 run で良かっただけで、production default として固定しません。
+
 ## Remaining Decision Gates
 
 - Envoy/HAProxy の GOAWAY、drain、idle timeout、rolling restart
-- pre-auth connection/TLS handshake limiter と SYN/backlog/DoS profile
+- SYN/backlog、source fairness、DoS、proxy 前後の pre-auth profile
 - production Credential Binding verifier と per-Host certificate evidence
 - multiple Gateway replica と PostgreSQL HA path
 - durable spool、response loss、resync convergence

@@ -29,22 +29,27 @@ import (
 )
 
 type result struct {
-	Sessions              int           `json:"sessions"`
-	AdmissionLimit        int           `json:"admission_limit"`
-	DatabasePoolLimit     int32         `json:"database_pool_limit"`
-	StormDuration         time.Duration `json:"storm_duration_ns"`
-	SessionsPerSecond     float64       `json:"sessions_per_second"`
-	OpenP50               time.Duration `json:"mtls_grant_open_p50_ns"`
-	OpenP95               time.Duration `json:"mtls_grant_open_p95_ns"`
-	OpenP99               time.Duration `json:"mtls_grant_open_p99_ns"`
-	AdmissionRejected     int64         `json:"admission_rejected"`
-	MaximumAttempts       int           `json:"maximum_agent_attempts"`
-	MeanAttempts          float64       `json:"mean_agent_attempts"`
-	AcceptedConnections   int64         `json:"accepted_physical_connections_total"`
-	ActiveConnections     int           `json:"active_physical_connections"`
-	CurrentGenerationTwo  int           `json:"current_generation_two"`
-	PoolEmptyAcquireCount int64         `json:"pool_empty_acquire_count"`
-	PoolAcquireDuration   time.Duration `json:"pool_acquire_duration_ns"`
+	Sessions                  int           `json:"sessions"`
+	AdmissionLimit            int           `json:"admission_limit"`
+	TLSHandshakeLimit         int           `json:"tls_handshake_limit"`
+	DatabasePoolLimit         int32         `json:"database_pool_limit"`
+	StormDuration             time.Duration `json:"storm_duration_ns"`
+	SessionsPerSecond         float64       `json:"sessions_per_second"`
+	OpenP50                   time.Duration `json:"mtls_grant_open_p50_ns"`
+	OpenP95                   time.Duration `json:"mtls_grant_open_p95_ns"`
+	OpenP99                   time.Duration `json:"mtls_grant_open_p99_ns"`
+	AdmissionRejected         int64         `json:"admission_rejected"`
+	TLSHandshakeRejected      int64         `json:"tls_handshake_rejected"`
+	TLSHandshakeRejectedTotal int64         `json:"tls_handshake_rejected_warm_and_storm"`
+	TLSHandshakePeak          int64         `json:"tls_handshake_peak"`
+	MaximumAttempts           int           `json:"maximum_agent_attempts"`
+	MeanAttempts              float64       `json:"mean_agent_attempts"`
+	AcceptedConnections       int64         `json:"accepted_physical_connections_total"`
+	StormConnections          int64         `json:"accepted_physical_connections_storm"`
+	ActiveConnections         int           `json:"active_physical_connections"`
+	CurrentGenerationTwo      int           `json:"current_generation_two"`
+	PoolEmptyAcquireCount     int64         `json:"pool_empty_acquire_count"`
+	PoolAcquireDuration       time.Duration `json:"pool_acquire_duration_ns"`
 }
 
 type waveResult struct {
@@ -62,12 +67,13 @@ func main() {
 	databaseURL := flag.String("database-url", os.Getenv("KIM_POSTGRES_TEST_URL"), "dedicated PostgreSQL URL")
 	sessions := flag.Int("sessions", 1000, "Host Agents in the reconnect wave")
 	admissionLimit := flag.Int("admission-limit", 16, "concurrent Gateway authority admissions")
+	tlsHandshakeLimit := flag.Int("tls-handshake-limit", 32, "concurrent pre-auth TLS handshakes")
 	databaseConnections := flag.Int("database-connections", 32, "PostgreSQL pool maximum")
 	baseBackoff := flag.Duration("base-backoff", 25*time.Millisecond, "Agent reconnect base delay")
 	maximumBackoff := flag.Duration("max-backoff", time.Second, "Agent reconnect maximum delay")
 	retryAfter := flag.Duration("retry-after", 25*time.Millisecond, "Gateway admission retry hint")
 	flag.Parse()
-	if *databaseURL == "" || *sessions < 1 || *admissionLimit < 1 || *databaseConnections < 1 {
+	if *databaseURL == "" || *sessions < 1 || *admissionLimit < 1 || *tlsHandshakeLimit < 1 || *databaseConnections < 1 {
 		fatal(errors.New("database URL and positive limits are required"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -101,7 +107,15 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	server := grpc.NewServer(grpc.Creds(credentials.NewTLS(serverTLS)))
+	handshakeLimiter, err := gateway.NewHandshakeLimiter(*tlsHandshakeLimit)
+	if err != nil {
+		fatal(err)
+	}
+	limitedCredentials, err := gateway.NewLimitedTransportCredentials(credentials.NewTLS(serverTLS), handshakeLimiter)
+	if err != nil {
+		fatal(err)
+	}
+	server := grpc.NewServer(grpc.Creds(limitedCredentials))
 	agentprotocolv1.RegisterAgentTransportServer(server, gateway.GRPCServer{Authorizer: gateway.PostgresSessionAuthorizer{
 		DB: pool, Admission: limiter, RetryAfter: *retryAfter,
 	}})
@@ -118,6 +132,8 @@ func main() {
 	if !waitForActive(countingListener, 0, 5*time.Second) {
 		fatal(fmt.Errorf("warm physical connections did not drain: active=%d", countingListener.Active()))
 	}
+	handshakeRejectedBeforeStorm := handshakeLimiter.Rejected()
+	acceptedBeforeStorm := countingListener.Accepted()
 	storm := runWave(ctx, adapter, pool, limiter, runID, *sessions, 2, policy)
 	if storm.err != nil {
 		fatal(storm.err)
@@ -136,11 +152,14 @@ func main() {
 		}
 	}
 	output := result{
-		Sessions: *sessions, AdmissionLimit: *admissionLimit, DatabasePoolLimit: int32(*databaseConnections),
+		Sessions: *sessions, AdmissionLimit: *admissionLimit, TLSHandshakeLimit: *tlsHandshakeLimit, DatabasePoolLimit: int32(*databaseConnections),
 		StormDuration: storm.duration, SessionsPerSecond: float64(*sessions) / storm.duration.Seconds(),
 		OpenP50: percentile(storm.latencies, 50), OpenP95: percentile(storm.latencies, 95), OpenP99: percentile(storm.latencies, 99),
-		AdmissionRejected: storm.rejected, MaximumAttempts: maximumAttempts, MeanAttempts: float64(totalAttempts) / float64(*sessions),
-		AcceptedConnections: countingListener.Accepted(), ActiveConnections: countingListener.Active(), CurrentGenerationTwo: current,
+		AdmissionRejected: storm.rejected, TLSHandshakeRejected: handshakeLimiter.Rejected() - handshakeRejectedBeforeStorm,
+		TLSHandshakeRejectedTotal: handshakeLimiter.Rejected(), TLSHandshakePeak: handshakeLimiter.Peak(),
+		MaximumAttempts: maximumAttempts, MeanAttempts: float64(totalAttempts) / float64(*sessions),
+		AcceptedConnections: countingListener.Accepted(), StormConnections: countingListener.Accepted() - acceptedBeforeStorm,
+		ActiveConnections: countingListener.Active(), CurrentGenerationTwo: current,
 		PoolEmptyAcquireCount: storm.poolAfter.EmptyAcquireCount() - storm.poolBefore.EmptyAcquireCount(),
 		PoolAcquireDuration:   storm.poolAfter.AcquireDuration() - storm.poolBefore.AcquireDuration(),
 	}
@@ -182,7 +201,11 @@ func runWave(ctx context.Context, adapter session.TransportAdapter, pool *pgxpoo
 					return
 				}
 				var rejection *session.AdmissionRejectedError
-				if !errors.As(err, &rejection) || !rejection.Retryable {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					storeError(&firstError, err)
+					return
+				}
+				if errors.As(err, &rejection) && !rejection.Retryable {
 					storeError(&firstError, err)
 					return
 				}
@@ -191,7 +214,7 @@ func runWave(ctx context.Context, adapter session.TransportAdapter, pool *pgxpoo
 					storeError(&firstError, delayErr)
 					return
 				}
-				if rejection.RetryAfter > delay {
+				if rejection != nil && rejection.RetryAfter > delay {
 					delay = rejection.RetryAfter
 				}
 				timer := time.NewTimer(delay)
