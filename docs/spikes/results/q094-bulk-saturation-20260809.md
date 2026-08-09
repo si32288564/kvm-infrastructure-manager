@@ -47,8 +47,8 @@ typed HTTP/2 の 1 run では p99 77.4 ms の outlier がありました。他 2
 
 したがって現時点では次の二軸評価とします。
 
-- gRPC: maintainability leader。今回の flow-control/HOL fixture でも優位。
-- typed HTTP/2: scale/resource-efficiency leader。slow-reader 下の tail latency は追加調査が必要。
+- gRPC: operational/control-path leader。今回の flow-control/HOL fixture で優位。
+- typed HTTP/2: density leader。slow-reader 下の tail latency は追加調査が必要。
 
 この結果は proxy/LB、network loss、Gateway DB 処理、durable spool、multiple concurrent stream workload を含まないため、Decision は `HOLD` のままです。
 
