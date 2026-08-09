@@ -50,6 +50,13 @@ func acceptAgentMessageTx(ctx context.Context, tx pgx.Tx, envelope session.Envel
 	if uint64(currentGeneration) != envelope.SessionGeneration {
 		disposition = "STALE"
 	}
+	return recordAgentReceiptTx(ctx, tx, envelope, currentGeneration, disposition)
+}
+
+func recordAgentReceiptTx(ctx context.Context, tx pgx.Tx, envelope session.Envelope, currentGeneration int64, disposition string) (session.Receipt, error) {
+	if disposition != "ACCEPTED" && disposition != "STALE" {
+		return session.Receipt{}, errors.New("unsupported Agent receipt disposition")
+	}
 	payload, err := json.Marshal(map[string]any{"accepted_session_generation": currentGeneration, "transport_session_generation": envelope.SessionGeneration})
 	if err != nil {
 		return session.Receipt{}, err

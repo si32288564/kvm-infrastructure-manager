@@ -24,16 +24,24 @@ func (spool *Spool) HandleReceipt(ctx context.Context, receipt session.Receipt) 
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
-	return spool.Acknowledge(receipt)
+	err := spool.Acknowledge(receipt)
+	if errors.Is(err, ErrNonReleasingReceipt) {
+		// A durable non-ACCEPTED disposition is domain evidence, not a
+		// transport failure. Retain it for explicit reconciliation without
+		// tearing down the otherwise-current multiplexed session.
+		return nil
+	}
+	return err
 }
 
 const recordVersion = "kim.agent.spool/v1"
 
 var (
-	ErrLocked          = errors.New("Agent spool is already locked")
-	ErrFull            = errors.New("Agent spool capacity exceeded")
-	ErrEmpty           = errors.New("Agent spool is empty")
-	ErrMessageConflict = errors.New("Agent spool message digest conflict")
+	ErrLocked              = errors.New("Agent spool is already locked")
+	ErrFull                = errors.New("Agent spool capacity exceeded")
+	ErrEmpty               = errors.New("Agent spool is empty")
+	ErrMessageConflict     = errors.New("Agent spool message digest conflict")
+	ErrNonReleasingReceipt = errors.New("durable receipt does not release Agent spool entry")
 )
 
 type Config struct {
@@ -189,7 +197,7 @@ func (spool *Spool) Acknowledge(receipt session.Receipt) error {
 		return err
 	}
 	if receipt.Disposition != "ACCEPTED" {
-		return fmt.Errorf("receipt disposition %s does not release durable message", receipt.Disposition)
+		return fmt.Errorf("%w: %s", ErrNonReleasingReceipt, receipt.Disposition)
 	}
 	if err := os.Remove(item.path); err != nil {
 		return err

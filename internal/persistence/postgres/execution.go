@@ -145,18 +145,26 @@ func AcceptAgentCommandResult(ctx context.Context, db TxBeginner, envelope sessi
 			receipt = existing
 			return nil
 		}
-		var commandHost, sessionState string
+		var commandHost, sessionState, commandState string
 		var currentSessionGeneration int64
 		if err := tx.QueryRow(ctx, `
-			SELECT command.host_id, session.session_generation, session.state
+			SELECT command.host_id, session.session_generation, session.state, current.command_state
 			FROM kim.execution_commands command
+			JOIN kim.execution_commands_current current USING(command_id)
 			JOIN kim.agent_transport_sessions_current session ON session.host_id=command.host_id
 			WHERE command.command_id=$1
-		`, decision.Result.CommandID).Scan(&commandHost, &currentSessionGeneration, &sessionState); err != nil {
+		`, decision.Result.CommandID).Scan(&commandHost, &currentSessionGeneration, &sessionState, &commandState); err != nil {
 			return ErrCommandEvidenceConflict
 		}
 		if commandHost != envelope.HostIdentity || currentSessionGeneration != int64(envelope.SessionGeneration) || sessionState != "CURRENT" {
 			return ErrStaleCommandResult
+		}
+		if commandState != "LEASED" && commandState != "EXECUTING" {
+			if err := appendAttemptEventTx(ctx, tx, decision.Result.CommandID, decision.Result.AttemptIndex, "STALE_RESULT_REJECTED", "command_authority_not_current", map[string]any{"result_id": decision.Result.ResultID, "transport_session_generation": envelope.SessionGeneration}); err != nil {
+				return err
+			}
+			receipt, err = recordAgentReceiptTx(ctx, tx, envelope, currentSessionGeneration, "STALE")
+			return err
 		}
 		beginner := nestedTxBeginner{tx: tx}
 		if err := MarkCommandAttemptJournaled(ctx, beginner, decision.Start); err != nil {

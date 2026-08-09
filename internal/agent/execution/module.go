@@ -159,12 +159,21 @@ func (module *Module) handleVerification(ctx context.Context, envelope session.E
 		return errors.New("typed backend does not support read-back verification")
 	}
 	_, journalDigest, err := module.journal.Evidence(request.CommandID, request.AttemptIndex, request.CommandPayloadDigest, request.TargetResourceID)
-	if err != nil {
+	var observation contract.Observation
+	if errors.Is(err, executionjournal.ErrNotFound) {
+		// A valid read-only Verification request with no local STARTED evidence
+		// is an UNKNOWN domain observation, not a transport/session failure. Do
+		// not manufacture a STARTED record or invoke the backend as proof that
+		// this Agent executed the Command.
+		journalDigest = digestValue("journal_evidence_absent")
+		observation = contract.Observation{State: "UNKNOWN", Generation: int64(request.AttemptIndex), Digest: digestValue("verification_journal_absent"), Evidence: map[string]any{"error_class": "journal_evidence_unavailable", "journal_state": "ABSENT"}}
+	} else if err != nil {
 		return err
-	}
-	observation, err := observer.Observe(ctx, request)
-	if err != nil {
-		observation = contract.Observation{State: "UNKNOWN", Generation: int64(request.AttemptIndex), Digest: digestValue("verification_unknown"), Evidence: map[string]any{"error_class": "read_back"}}
+	} else {
+		observation, err = observer.Observe(ctx, request)
+		if err != nil {
+			observation = contract.Observation{State: "UNKNOWN", Generation: int64(request.AttemptIndex), Digest: digestValue("verification_unknown"), Evidence: map[string]any{"error_class": "read_back"}}
+		}
 	}
 	response := contract.VerificationObservation{SchemaVersion: contract.VerificationObservationSchema, CommandID: request.CommandID, AttemptIndex: request.AttemptIndex, TargetResourceID: request.TargetResourceID, CommandPayloadDigest: request.CommandPayloadDigest, Observation: observation, VerifierDigest: module.verifierDigest, JournalDigest: journalDigest}
 	payload, err := json.Marshal(response)

@@ -46,6 +46,22 @@ func TestDurableEnvelopeSurvivesRestartAndCurrentSessionRebind(t *testing.T) {
 	}
 }
 
+func TestNonReleasingReceiptRetainsEntryWithoutFailingSessionHandler(t *testing.T) {
+	journal := openTestSpool(t, filepath.Join(t.TempDir(), "spool"), 4)
+	defer journal.Close()
+	envelope := testEnvelope(1, "result-stale", []byte("result"))
+	if err := journal.Enqueue(envelope); err != nil {
+		t.Fatal(err)
+	}
+	receipt := session.Receipt{HostIdentity: envelope.HostIdentity, AcceptedSessionGeneration: 2, Stream: envelope.Stream, MessageID: envelope.MessageID, SequenceScope: envelope.SequenceScope, Sequence: envelope.Sequence, PayloadDigest: envelope.PayloadDigest, Disposition: "STALE"}
+	if err := journal.HandleReceipt(t.Context(), receipt); err != nil {
+		t.Fatalf("durable STALE Receipt ended transport session: %v", err)
+	}
+	if stats := journal.Stats(); stats.QueuedEntries != 1 {
+		t.Fatalf("STALE Receipt released durable evidence: %#v", stats)
+	}
+}
+
 func TestSpoolRejectsDigestConflictAndCapacityOverflow(t *testing.T) {
 	spool := openTestSpool(t, filepath.Join(t.TempDir(), "spool"), 1)
 	defer spool.Close()

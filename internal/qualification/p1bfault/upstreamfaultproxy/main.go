@@ -1,7 +1,6 @@
-// Command faultproxy is an opaque TCP qualification proxy. Once armed, it
-// discards Gateway-to-Agent TLS records while preserving Agent-to-Gateway
-// delivery. A database barrier selects the application failure window; this
-// proxy never interprets TLS, identity, or authority.
+// Command upstreamfaultproxy is an opaque qualification proxy that discards
+// Agent-to-Gateway TLS records only after an external arm signal. Gateway-to-
+// Agent Command delivery remains intact. It never interprets TLS or authority.
 package main
 
 import (
@@ -23,67 +22,61 @@ const maxTLSRecord = (1 << 14) + 256
 func main() {
 	listenAddress := flag.String("listen", "", "proxy listen address")
 	targetAddress := flag.String("target", "", "Gateway target address")
-	armPath := flag.String("arm-file", "", "file whose presence arms downstream loss")
-	activatedPath := flag.String("activated-file", "", "evidence file written after the last forwarded TLS record")
+	armPath := flag.String("arm-file", "", "file whose presence arms upstream loss")
+	activatedPath := flag.String("activated-file", "", "evidence file written after the first discarded TLS record")
 	flag.Parse()
 	if *listenAddress == "" || *targetAddress == "" || *armPath == "" || *activatedPath == "" {
-		fmt.Fprintln(os.Stderr, "faultproxy: listen, target, arm-file, and activated-file are required")
+		fmt.Fprintln(os.Stderr, "upstreamfaultproxy: listen, target, arm-file, and activated-file are required")
 		os.Exit(2)
 	}
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faultproxy listen: %v\n", err)
+		fmt.Fprintf(os.Stderr, "upstreamfaultproxy listen: %v\n", err)
 		os.Exit(1)
 	}
 	defer listener.Close()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-stop
-		_ = listener.Close()
-	}()
+	go func() { <-stop; _ = listener.Close() }()
 	var activated atomic.Bool
 	for {
-		downstream, err := listener.Accept()
+		agent, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			fmt.Fprintf(os.Stderr, "faultproxy accept: %v\n", err)
+			fmt.Fprintf(os.Stderr, "upstreamfaultproxy accept: %v\n", err)
 			os.Exit(1)
 		}
-		upstream, err := net.DialTimeout("tcp", *targetAddress, 3*time.Second)
+		gateway, err := net.DialTimeout("tcp", *targetAddress, 3*time.Second)
 		if err != nil {
-			_ = downstream.Close()
+			_ = agent.Close()
 			continue
 		}
-		go bridge(downstream, upstream, *armPath, *activatedPath, &activated)
+		go bridge(agent, gateway, *armPath, *activatedPath, &activated)
 	}
 }
 
 func bridge(agent, gateway net.Conn, armPath, activatedPath string, activated *atomic.Bool) {
 	done := make(chan struct{}, 2)
+	go func() { _, _ = io.Copy(agent, gateway); done <- struct{}{} }()
 	go func() {
-		_, _ = io.Copy(gateway, agent)
-		done <- struct{}{}
-	}()
-	go func() {
+		defer func() { done <- struct{}{} }()
 		for {
-			record, err := readTLSRecord(gateway)
+			record, err := readTLSRecord(agent)
 			if err != nil {
-				break
+				return
 			}
 			if _, err := os.Stat(armPath); err == nil {
 				if activated.CompareAndSwap(false, true) {
-					_ = os.WriteFile(activatedPath, []byte("gateway_to_agent_receipt_path_blocked\n"), 0o600)
+					_ = os.WriteFile(activatedPath, []byte("agent_to_gateway_result_path_blocked\n"), 0o600)
 				}
 				continue
 			}
-			if _, err := agent.Write(record); err != nil {
-				break
+			if _, err := gateway.Write(record); err != nil {
+				return
 			}
 		}
-		done <- struct{}{}
 	}()
 	<-done
 	_ = agent.Close()
