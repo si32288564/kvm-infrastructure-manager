@@ -246,6 +246,70 @@ func TestFullProcessCommandDeliveryFaultCampaign(t *testing.T) {
 	waitSessionGeneration(t, ctx, pool, hostID, 5)
 	waitAgentSpoolEmpty(t, agentState)
 	assertResultReceipt(t, ctx, pool, hostID, receiptLossCommand, 4)
+
+	// Hold ROUTE_ACCEPTED persistence after the live gRPC stream write but
+	// before the Handler can return ConsumeAck to JetStream. The PostgreSQL
+	// trigger is qualification-only and blocks on the target message advisory
+	// lock; no product fault switch or authority shortcut is introduced.
+	authority, err = postgres.ArmHostOperationAuthority(ctx, pool, postgres.HostAuthorityArmRequest{HostID: hostID, PolicyID: "manual", PolicyGeneration: 5, ActorID: "qualification", ReasonCode: "pre_bus_ack_kill"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installGatewayAckBarrier(t, ctx, pool)
+	ackBarrierCommand := "p1b-gateway-pre-ack-kill"
+	ackBarrierMessage := "command-lease-delivery/" + ackBarrierCommand + "/1"
+	barrierConnection, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var barrierKey int64
+	if err := barrierConnection.QueryRow(ctx, `SELECT hashtextextended($1,0)`, ackBarrierMessage).Scan(&barrierKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := barrierConnection.Exec(ctx, `SELECT pg_advisory_lock($1)`, barrierKey); err != nil {
+		t.Fatal(err)
+	}
+	created := createProtectedCommand(t, ctx, pool, hostID, "gateway-pre-ack-kill", authority.AuthorityGeneration, deliveryKey)
+	if created != ackBarrierCommand {
+		t.Fatalf("ack barrier Command identity = %s, want %s", created, ackBarrierCommand)
+	}
+	waitGatewayAckBarrier(t, ctx, pool)
+	waitJobState(t, ctx, pool, ackBarrierCommand, "SUCCEEDED")
+	waitAgentSpoolEmpty(t, agentState)
+	assertResultReceipt(t, ctx, pool, hostID, ackBarrierCommand, 5)
+	ackBarrierMarker := filepath.Join(agentState, "qualification-state", digest(ackBarrierCommand+"-target")+".json")
+	markerBefore, err := os.Stat(ackBarrierMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerDigestBefore := fileDigest(t, ackBarrierMarker)
+
+	// Hard-kill the Gateway while its delivery Handler is blocked between the
+	// stream write and JetStream ACK. Releasing the fixture lock cannot commit
+	// the killed transaction; the durable Bus message must redeliver.
+	gatewayProcess.kill(t)
+	if _, err := barrierConnection.Exec(ctx, `SELECT pg_advisory_unlock($1)`, barrierKey); err != nil {
+		t.Fatal(err)
+	}
+	barrierConnection.Release()
+	gatewayProcess = startGateway("four")
+	if !waitTCP(ctx, gatewayAddress) {
+		t.Fatal("Gateway after pre-ACK kill did not listen")
+	}
+	waitSessionGeneration(t, ctx, pool, hostID, 6)
+	eventually(t, 15*time.Second, func() bool {
+		info, err := consumer.Info(ctx)
+		return err == nil && info.NumAckPending == 0 && info.NumPending == 0
+	}, "pre-ACK Gateway kill redelivery did not reach terminal Bus handling")
+	assertGatewayPreAckConvergence(t, ctx, pool, ackBarrierCommand, ackBarrierMessage)
+	assertResultReceipt(t, ctx, pool, hostID, ackBarrierCommand, 5)
+	markerAfter, err := os.Stat(ackBarrierMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if markerDigestAfter := fileDigest(t, ackBarrierMarker); markerDigestAfter != markerDigestBefore || !markerAfter.ModTime().Equal(markerBefore.ModTime()) {
+		t.Fatal("pre-ACK redelivery repeated the backend side effect")
+	}
 	workerProcess.requireRunning(t)
 	gatewayProcess.requireRunning(t)
 	agentProcess.requireRunning(t)
@@ -362,6 +426,83 @@ func assertResultReceipt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	if count != 1 || generation != acceptedGeneration {
 		t.Fatalf("durable Result Receipt count/generation = %d/%d, want 1/%d", count, generation, acceptedGeneration)
 	}
+}
+
+func installGatewayAckBarrier(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION kim.qualification_gateway_ack_barrier() RETURNS trigger
+		LANGUAGE plpgsql AS $$
+		BEGIN
+			IF NEW.event_type = 'ROUTE_ACCEPTED' THEN
+				PERFORM pg_advisory_xact_lock(hashtextextended(NEW.message_id,0));
+			END IF;
+			RETURN NEW;
+		END
+		$$
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DROP TRIGGER IF EXISTS qualification_gateway_ack_barrier ON kim.gateway_command_delivery_events`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		CREATE TRIGGER qualification_gateway_ack_barrier
+		BEFORE INSERT ON kim.gateway_command_delivery_events
+		FOR EACH ROW EXECUTE FUNCTION kim.qualification_gateway_ack_barrier()
+	`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitGatewayAckBarrier(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	eventually(t, 15*time.Second, func() bool {
+		var blocked bool
+		err := pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_stat_activity
+				WHERE datname=current_database()
+				  AND wait_event_type='Lock' AND wait_event='advisory'
+				  AND query LIKE '%gateway_command_delivery_events%'
+			)
+		`).Scan(&blocked)
+		return err == nil && blocked
+	}, "Gateway delivery Handler did not block between stream write and JetStream ACK")
+}
+
+func assertGatewayPreAckConvergence(t *testing.T, ctx context.Context, pool *pgxpool.Pool, commandID, messageID string) {
+	t.Helper()
+	var started, accepted int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE event_type='ROUTE_STARTED'),
+		       count(*) FILTER (WHERE event_type='ROUTE_ACCEPTED')
+		FROM kim.gateway_command_delivery_events WHERE message_id=$1
+	`, messageID).Scan(&started, &accepted); err != nil {
+		t.Fatal(err)
+	}
+	if started != 1 || accepted != 0 {
+		t.Fatalf("pre-ACK route evidence started/accepted = %d/%d, want 1/0", started, accepted)
+	}
+	var leases, attempts int
+	if err := pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM kim.command_lease_grants WHERE command_id=$1),
+		       (SELECT count(*) FROM kim.command_attempts WHERE command_id=$1)
+	`, commandID).Scan(&leases, &attempts); err != nil {
+		t.Fatal(err)
+	}
+	if leases != 1 || attempts != 1 {
+		t.Fatalf("pre-ACK Lease/Attempt count = %d/%d, want 1/1", leases, attempts)
+	}
+}
+
+func fileDigest(t *testing.T, path string) string {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest(string(payload))
 }
 
 func waitTCPAttempt(address string) bool {

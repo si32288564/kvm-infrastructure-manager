@@ -94,6 +94,7 @@
 | INV-EXEC-022 | JetStream stream/consumer failover は stable Bus message identity/digest と durable consumer state を維持し、redelivery を新しい domain decision、Lease、Attempt、Agent receipt、backend execution evidence へ昇格させない | AT-EXEC-020、FI-BUS-007 |
 | INV-EXEC-023 | process restart または Bus leader change は Host/session authority を暗黙 rearm せず、Agent 不在中の delivery は NAK/redelivery、new session generation により stale となった Lease は terminal fence とし、NATS ACK だけで Agent spool を削除しない | AT-EXEC-021、FI-BUS-008 |
 | INV-EXEC-024 | Result/Observation と application Receipt の PostgreSQL commit 後に Receipt transport response が失われても、Agent は spool を保持し、new session generation から同一 message identity/digest を replay して original accepted generation の Receipt を回収した後だけ spool entry を一度削除する | AT-EXEC-022、FI-GATEWAY-008 |
+| INV-EXEC-025 | Agent stream write と JetStream ACK の間で Gateway が停止しても、redelivery は PostgreSQL current Lease/Command authority を再検証し、terminal Command を Agent へ再配送せず、新しい Lease/Attempt または重複 backend side effect を生成しない | AT-EXEC-023、FI-BUS-009 |
 
 ## 7. Agent and Host
 

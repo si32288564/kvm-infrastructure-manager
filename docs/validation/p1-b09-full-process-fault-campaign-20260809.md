@@ -64,6 +64,22 @@ Gateway/Agent restart/session generation 5
 same message identity/digest replay
   ↓
 original generation 4 Receipt recovery + one-time spool delete
+  ↓
+session generation 5 + explicit Host rearm
+  ↓
+qualification advisory-lock barrier
+  ↓
+Gateway live Agent stream write
+  ↓
+Result/Observation/Receipt commit + Job success
+  ↓
+Gateway hard-kill before JetStream ACK
+  ↓
+Gateway restart + Agent session generation 6
+  ↓
+same Bus message redelivery
+  ↓
+terminal authority revalidation + no Agent re-route
 ```
 
 ## 3. Validation Results
@@ -91,8 +107,16 @@ original generation 4 Receipt recovery + one-time spool delete
 | stable replay | same message identity/digest で original accepted generation 4 Receipt を回収: PASS |
 | replay 後の Receipt | exactly 1 row、accepted generation 4 のまま: PASS |
 | replay 後の Agent spool | empty、一度だけ削除: PASS |
+| pre-ACK qualification barrier | `ROUTE_ACCEPTED` transaction が advisory lock wait: PASS |
+| barrier 中の Agent delivery | Job `SUCCEEDED`、Receipt exactly 1、spool empty: PASS |
+| Gateway process hard-kill | live stream write 後、JetStream ACK 前: PASS |
+| Gateway/Agent recovery | session generation 5 → 6、implicit Host rearm なし: PASS |
+| durable Bus redelivery | terminal PostgreSQL authority で Agent へ再 route せず ACK: PASS |
+| route evidence | `ROUTE_STARTED` exactly 1、killed `ROUTE_ACCEPTED` 0: PASS |
+| duplicate execution | Lease/Attempt/Receipt は各 1、backend marker digest/mtime 不変: PASS |
+| Bus convergence | consumer pending/ack-pending 0: PASS |
 | transient JetStream consumer leadership change | bounded retry 後に同一 durable consumer で収束: PASS |
-| extended campaign repeat | post-fix 2 consecutive runs: PASS |
+| extended campaign repeat | fresh PostgreSQL を再作成した 2 consecutive runs: PASS |
 | normal test lane without dedicated PostgreSQL | explicit skip: PASS |
 
 ## 4. Authority Boundary
@@ -105,12 +129,13 @@ original generation 4 Receipt recovery + one-time spool delete
 - Receipt transport response loss は Result/Observation/Receipt commit を取り消さない。Agent は spool entry を保持し、new session generation から stable message identity/digest を replay する。
 - replay は accepted session generation を current generation へ書き換えない。original generation 4 の immutable Receipt を回収した後だけ、Agent は spool entry を一度削除する。
 - JetStream consumer leadership change または一時的な unavailable/timeout は ACK 成功または authority evidence と解釈せず、bounded retry する。
+- qualification-only trigger は `ROUTE_ACCEPTED` transaction を advisory lock で停止するだけで、product runtime に fault flag を追加しない。実 Gateway の stream write 完了後、Handler が JetStream ACK disposition を返す前に process を hard-killする。
+- ACK 前の hard-kill 後も redelivery は新しい Lease/Attempt を作らない。既に terminal となった Command を current PostgreSQL authority で拒否し、Agent または backend へ再配送しない。
 
 ## 5. Remaining Qualification
 
-- Gateway kill between live Agent stream write and NATS ACK を deterministic barrier で発生させる process fixture
 - PostgreSQL HA failover を同時に含む campaign
 - NATS network partition、rolling restart、TLS/JWT credential rotation、large backlog pressure
 - state-marker ではなく実 libvirt backend を使用する Host kill/read-back campaign
 
-本増分により、NATS leader、Gateway、Agent の OS process fault、stale authority redelivery、Receipt commit 後の response loss と new generation replay は一つの distributed runtime campaign で qualification 済みとなった。次の主要 hardening gate は Gateway stream write/NATS ACK 境界と実 libvirt Host kill/read-back である。
+本増分により、NATS leader、Gateway、Agent の OS process fault、stale authority redelivery、Receipt commit 後の response loss、new generation replay、Gateway stream write/JetStream ACK 間の hard-kill は一つの distributed runtime campaign で qualification 済みとなった。delivery side の主要 ambiguity gate は閉じ、次の主要 gate は実 libvirt Host kill/UNKNOWN/read-back である。

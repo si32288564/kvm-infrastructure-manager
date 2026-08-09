@@ -94,6 +94,24 @@ func (process *fixtureProcess) stop(t *testing.T) {
 	})
 }
 
+func (process *fixtureProcess) kill(t *testing.T) {
+	t.Helper()
+	process.once.Do(func() {
+		if process.cmd.Process == nil {
+			return
+		}
+		select {
+		case <-process.done:
+			return
+		default:
+		}
+		if err := process.cmd.Process.Kill(); err != nil {
+			t.Fatalf("kill %s: %v", process.name, err)
+		}
+		<-process.done
+	})
+}
+
 func (process *fixtureProcess) requireRunning(t *testing.T) {
 	t.Helper()
 	select {
