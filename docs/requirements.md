@@ -46,6 +46,9 @@
 | HST-012 | KIM の core management function は Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求しない | Must |
 | HST-013 | KIM Host Agent は標準 interface を使用し、KIM metadata がなくても underlying resource を通常の標準 interface から扱える状態を維持する | Must |
 | HST-014 | KIM を hypervisor distribution または KIM 専用 KVM/QEMU/libvirt build の提供主体にしない | Must |
+| HST-015 | Inventory module は versioned descriptor、artifact digest、closed domain、schema version、capability allow-list を宣言し、未宣言 domain/capability または任意 opaque payload を報告できない | Must |
+| HST-016 | normalized Host Inventory は Host identity、observation generation、collection status、module provenance、typed resource fragment、capability/constraint を canonical schema で保持する | Must |
+| HST-017 | durable Inventory Receipt、immutable snapshot evidence、current capability projection を一つの PostgreSQL transaction で処理し、古い observation generation で current projection を巻き戻さない | Must |
 
 ### 2.3 Host Lifecycle、Baseline、Compliance
 

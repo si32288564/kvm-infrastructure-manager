@@ -8,7 +8,7 @@
 | Context | 主な責務 |
 |---|---|
 | Tenancy and Authorization | Tenant、Project、Membership、Role Binding、Policy、Quota |
-| Infrastructure Inventory | Site、Host、Device、Capacity、Trait |
+| Infrastructure Inventory | Site、Host、Inventory Module Descriptor、Normalized Snapshot/Fragment、Capability Projection、Device、Capacity、Trait |
 | Host Lifecycle and Compliance | Hardware Identity Evidence、Enrollment Policy、Host Profile、Baseline、Control、Evaluator、Assignment、Compliance、External Remediation、Maintenance |
 | Host Grouping | Host Group、Dimension、Membership、Hierarchy、Policy Binding、Membership Snapshot、Placement Scope |
 | Availability and Recovery | Availability Policy/Binding、Host Failure Epoch、Failure Campaign/Membership、Recovery Campaign Claim、Recovery Plan/Operation、Budget Queue/Lease/Consumption、Manual Recovery Decision |
@@ -73,6 +73,11 @@ erDiagram
     IMAGE ||--o{ VM : boots
     FLAVOR ||--o{ VM : sizes
     HOST ||--o{ VM : runs
+    HOST ||--o{ HOST_INVENTORY_SNAPSHOT : observes
+    HOST_INVENTORY_SNAPSHOT ||--o{ INVENTORY_FRAGMENT : contains
+    INVENTORY_MODULE_DESCRIPTOR ||--o{ INVENTORY_FRAGMENT : produced
+    HOST ||--o| HOST_CAPABILITY_PROJECTION : derives
+    HOST_INVENTORY_SNAPSHOT ||--o| HOST_CAPABILITY_PROJECTION : projects
     VM ||--o{ PORT : attaches
     NETWORK ||--o{ SUBNET : contains
     NETWORK ||--o{ PORT : contains

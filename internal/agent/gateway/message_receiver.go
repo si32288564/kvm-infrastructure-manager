@@ -18,6 +18,9 @@ func (receiver PostgresMessageReceiver) Receive(ctx context.Context, envelope se
 	if receiver.DB == nil || receiver.MaxMessageBytes < 1 {
 		return session.Receipt{}, errors.New("Agent message receiver database and positive message limit are required")
 	}
+	if envelope.Stream == session.StreamInventory {
+		return postgres.AcceptHostInventory(ctx, receiver.DB, envelope, receiver.MaxMessageBytes)
+	}
 	return postgres.AcceptAgentMessage(ctx, receiver.DB, envelope, receiver.MaxMessageBytes)
 }
 

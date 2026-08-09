@@ -183,6 +183,10 @@ typed module が所有するもの:
 - module 固有 Inventory/Observation producer と evidence schema
 - local operation state。ただし Command/Lease/session authority は所有しない
 
+Inventory producer module は `module name/version + artifact digest + closed domain + schema version + capability allow-list` を descriptor として登録します。CPU、Memory/NUMA/HugePages、PCI/IOMMU/SR-IOV、Network、Storage、Virtualization/libvirt の fragment は closed typed union とし、任意 JSON、未宣言 capability、transport object を observation contract に含めません。同じ domain に複数 moduleを登録できますが、module nameとcapability名はsnapshot内で一意に解決します。
+
+収集は cancellable structured concurrency で行い、一つの module failureを隠して `COMPLETE` snapshotを作りません。snapshotはHost identity、observation generation、collection status、module provenance、artifact digest、typed fragments、normalized capability/constraintを持ちます。GatewayはInventory Receipt、immutable snapshot、current capability projectionを同じPostgreSQL transactionへ接続し、古いgenerationをhistoryとして保持してもcurrent projectionを巻き戻しません。
+
 module interface は transport object、socket、TLS credential、Gateway endpoint を受け取りません。Session Manager へ typed envelope/handler を登録するため、transport implementation の変更が module contract を変更しない構造にします。
 
 ## 4. Trust and Authorization

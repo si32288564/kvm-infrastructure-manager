@@ -33,6 +33,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HST-005 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-001, INV-HGR-007 | AT-HST-003, AT-HGR-001, AT-HGR-007 | Planned |
 | HST-007, HST-008, HST-009, HST-010, HST-011 | architecture, extensibility-architecture | ADR-0004, ADR-0011 | INV-AGT-006, INV-AGT-007, INV-EXT-004 | AT-AGT-006, AT-AGT-007, XCT-AGENT-001 | Planned |
 | HST-012, HST-013, HST-014 | product-vision, architecture | ADR-0003, ADR-0004 | INV-AGT-008, INV-AGT-009, INV-AGT-010 | AT-AGT-008, AT-AGT-009, AT-AGT-010 | Planned |
+| HST-015, HST-016, HST-017 | architecture, domain-model, agent-protocol, phase-1-implementation-plan | ADR-0001, ADR-0004, ADR-0024 | INV-AGT-023, INV-AGT-024 | AT-HST-004, AT-HST-005, FI-AGENT-003 | Implemented |
 
 ## 4.1 Agent Transport Multiplexing
 

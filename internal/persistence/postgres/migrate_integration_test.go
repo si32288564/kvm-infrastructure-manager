@@ -51,6 +51,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 	requiredTables := []string{
 		"agent_message_receipts",
 		"agent_resync_checkpoints",
+		"host_inventory_snapshots",
+		"host_capability_projections",
 		"agent_transport_session_attempts",
 		"agent_transport_session_events",
 		"agent_transport_sessions_current",
@@ -74,6 +76,14 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		if !exists {
 			t.Errorf("required table kim.%s does not exist", table)
 		}
+	}
+	// Keep the integration contract repeatable against the same disposable DB.
+	if _, err := pool.Exec(ctx, `
+		DELETE FROM kim.outbox_delivery_events WHERE message_id = 'integration-message';
+		DELETE FROM kim.outbox_delivery_attempts WHERE message_id = 'integration-message';
+		DELETE FROM kim.outbox_messages WHERE message_id = 'integration-message';
+	`); err != nil {
+		t.Fatal(err)
 	}
 
 	if _, err := pool.Exec(ctx, `

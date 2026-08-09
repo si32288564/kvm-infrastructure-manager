@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	agentprotocolv1 "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1"
+	agentinventory "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/inventory"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/spool"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/transport/contracttest"
@@ -167,6 +168,49 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	}
 	if stats.QueuedEntries != 0 || receiptCount != 1 || checkpointGeneration != 2 {
 		t.Fatalf("convergence queue/receipts/checkpoint = %d/%d/%d", stats.QueuedEntries, receiptCount, checkpointGeneration)
+	}
+
+	// The same transport/receipt path now carries a normalized typed Inventory
+	// snapshot into immutable evidence and a rebuildable capability projection.
+	inventorySnapshot := agentinventory.Snapshot{
+		SchemaVersion: agentinventory.SnapshotSchemaV1, HostIdentity: hostID,
+		ObservationGeneration: 1, CollectionStatus: "COMPLETE",
+		Fragments: []agentinventory.Fragment{{
+			Domain:         agentinventory.DomainVirtualization,
+			Source:         agentinventory.Source{ModuleName: "libvirt", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: deliveryDigest([]byte("libvirt-module"))},
+			Capabilities:   []agentinventory.Capability{{Name: "kim.host.kvm.v1", Version: "v1", Available: true}},
+			Virtualization: &agentinventory.Virtualization{KVMAvailable: true, LibvirtVersion: "fixture", QEMUVersion: "fixture", MachineTypes: []string{"pc-q35"}},
+		}},
+	}
+	inventoryEnvelope, err := agentinventory.NewEnvelope(inventorySnapshot, 2, hostID+"-inventory-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Enqueue(inventoryEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if err := secondConnection.Send(ctx, inventoryEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	inventoryReceiptContext, inventoryCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer inventoryCancel()
+	inventoryReceipt, err := receiptConnection.ReceiveReceipt(inventoryReceiptContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Acknowledge(inventoryReceipt); err != nil {
+		t.Fatal(err)
+	}
+	var projectedGeneration int
+	var projectionState, capabilityDigest string
+	if err := pool.QueryRow(ctx, `
+		SELECT observation_generation, projection_state, capability_digest
+		FROM kim.host_capability_projections WHERE host_id = $1
+	`, hostID).Scan(&projectedGeneration, &projectionState, &capabilityDigest); err != nil {
+		t.Fatal(err)
+	}
+	if projectedGeneration != 1 || projectionState != "CURRENT" || len(capabilityDigest) != 64 || journal.Stats().QueuedEntries != 0 {
+		t.Fatalf("Inventory projection generation/state/digest/queue = %d/%s/%s/%d", projectedGeneration, projectionState, capabilityDigest, journal.Stats().QueuedEntries)
 	}
 }
 

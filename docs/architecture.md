@@ -182,6 +182,8 @@ OS Integration Adapter は最低限、以下のdiscovery/validation契約を実�
 
 Host capability は「OS名」ではなく、機能と制約として Scheduler へ公開します。新しいディストリビューション対応で Control Plane に OS 名による条件分岐を追加してはいけません。
 
+Agent Inventory module は versioned descriptor、artifact digest、closed typed domain/schema、capability allow-list を持ちます。CPU、NUMA/HugePages、PCI/IOMMU/SR-IOV、Network、Storage、Virtualization/libvirt の normalized fragmentを一つのHost observation generationへ統合します。Inventory Message Receipt、immutable snapshot evidence、current capability projectionは一つのPostgreSQL transactionで処理し、projectionは再構築可能なderived dataとして扱います。
+
 KIM の core management function は upstream/standard Linux KVM、QEMU、libvirt の patch、fork、proprietary modification を要求しません。Agent は標準 interface と versioned adapter contract を通じて Host を管理します。KIM metadata は correlation のために付与できますが、underlying VM/device を標準 libvirt/QEMU/KVM interface から扱えなくしてはなりません。OS Integration Adapter はこの neutrality を維持したまま OS 差異を吸収します。
 
 KIM は hypervisor distribution を構築・配布する責務を持ちません。Validated support matrix は標準 component の組合せと KIM adapter/capability contract の検証結果を表し、KIM 専用 fork の存在を前提にしません。
@@ -205,6 +207,7 @@ OS変更は別のtyped infrastructure remediation境界です。任意package/se
 | Operation history | PostgreSQL | 長期監査とは分離 |
 | Job、Command、Lease、Attempt | PostgreSQL | Execution authority と履歴 |
 | Agent current Session generation、Message Receipt、Resync Checkpoint | PostgreSQL | live connection/stream bufferはGateway上のephemeral stateでauthorityではない |
+| Host Inventory Snapshot、Capability Projection | PostgreSQL | Snapshotはimmutable evidence、Projectionはaccepted generationから再構築可能なcurrent derived data |
 | Outbox、Inbox、Receipt | PostgreSQL | delivery journal。domain decisionとtransactionalに接続 |
 | Schema/Retention Catalog、Migration/GC record、Backup Manifest、Restore Epoch | PostgreSQL | persistence lifecycleとrestore fencing authority |
 | Audit log | Append-only sink | 外部転送を推奨 |

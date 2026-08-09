@@ -24,6 +24,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HST-001 | Agent register/approve/disable/deleteとHost state transitionを認可・監査付きで行う |
 | AT-HST-002 | CPU/NUMA/memory/HugePages/NIC/storage/libvirt inventoryとgenerationを正規化する |
 | AT-HST-003 | HostGroup/Placement Scope/trait変更がplacement snapshotへversion付きで反映される |
+| AT-HST-004 | CPU/Memory/PCI/Network/Storage/Virtualization module を同じ registry で収集し、descriptor provenance、canonical ordering、top-level capability と typed fragment の一致を検証する |
+| AT-HST-005 | gRPC Inventory Envelope の Receipt、immutable snapshot、current capability projection を不可分に commitし、duplicate replayを冪等化し、older generationでprojectionを巻き戻さない |
 | AT-AGT-001 | shell/argv/unknown Command/arbitrary libvirt XML/path payloadをschema境界で拒否する |
 | AT-AGT-002 | Agent artifact/configにBus credential/subject accessがなくGateway mTLSだけを使用する |
 | AT-AGT-003 | identity/capability/armed authority/current Leaseの一つでも欠ければCommandを取得・実行できない |

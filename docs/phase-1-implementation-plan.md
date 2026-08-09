@@ -20,6 +20,8 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 | P1-A03/A05 | In Progress | versioned protobuf Envelope/Session Decision/Message Receipt、Session Manager/Module interface、bounded priority queue、Authority View、stale session fence、bounded fsync spool、receipt replay/resync checkpoint、gRPC/typed HTTP/2 mTLS adapter を実装。production wiring と multi-message scale qualification は継続 |
 | P1-A04 | In Progress | PostgreSQL current generation、immutable Attempt/Event、idempotent grant、stale Attempt replay fence、pre-auth TLS handshake limiter、Gateway admission、gRPC mTLS→DB Grant wiring を実装。Credential Binding verifier と production listener configuration は未実装 |
 | Q-094 | Closed | ADR-0024 で Developer Preview transport に gRPC bidirectional stream を採用。[durable delivery/resync](spikes/results/q094-durable-delivery-resync-20260809.md) を含む blocking assertion を完了。typed HTTP/2 は density-oriented future profile 候補として adapter 境界と測定結果を保持 |
+| P1-A06 | In Progress | closed typed Inventory module descriptor/registry、artifact/schema/capability allow-list、parallel fail-closed collection、canonical normalized snapshotを実装。Command handler/evidence interfaceとの統合は継続 |
+| P1-A07 | In Progress | CPU/Memory/PCI/Network/Storage/Virtualization の normalized model、Inventory Envelope、immutable snapshot/current capability projectionを実装。v1 collector移植と実Host validationは継続 |
 
 ## 2. Implementation Principles
 
@@ -156,8 +158,8 @@ credential renewal/rekey または reconnect で一時的に old/new connection 
 | P1-A03 | Agent Protocol envelope、logical stream/schema registry、compatibility negotiation | A01 | adapt v1 envelope/digest | AT-AGT-012/013、FI-UPG-006 |
 | P1-A04 | Agent Gateway Session Registry、single-current-session generation、mTLS authentication | A02/A03 | new boundary、reuse v1 TLS primitive | AT-AGT-002/011、FI-GATEWAY-003 |
 | P1-A05 | Agent Session Manager、router、bounded spool/backpressure/resync | A03/A04 | reuse v1 publisher/spool/watch | FI-GATEWAY-004/005 |
-| P1-A06 | module descriptor/handler/evidence interface | A03/A05 | adapt compile-time v1 registry | AT-AGT-011/012、XCT-AGENT-001 |
-| P1-A07 | CPU/NUMA/HugePages/PCI/network/storage/libvirt inventory modules | A06 | reuse v1 collector/normalizer | AT-HST-002、AT-DPL-001 |
+| P1-A06 | module descriptor/handler/evidence interface | A03/A05 | closed typed Inventory registry実装済み。compile-time v1 registryを段階適合 | AT-AGT-011/012、AT-HST-004、XCT-AGENT-001 |
+| P1-A07 | CPU/NUMA/HugePages/PCI/network/storage/libvirt inventory modules | A06 | normalized schema/projection実装済み。v1 collector/normalizer移植を継続 | AT-HST-002/005、AT-DPL-001、FI-AGENT-003 |
 | P1-A08 | manual Enrollment、bootstrap/CSR、Credential Binding、Host session/authority view | A02/A04 | reuse v1 PKI primitive、new KIM Binding | AT-HLC-001/002/017、AT-PKI-006/009 |
 
 P1-A exit では、全 module を有効化しても一つの current Host session/certificate で動作し、bulk stream saturation、stale session、connection loss test を通過する必要があります。
