@@ -83,6 +83,14 @@ make check
 make build
 ```
 
+Agent transport spike の contract test、loopback benchmark、wire schema 再生成は次で実行します。
+
+```sh
+make test-agent-transport
+make bench-agent-transport
+make generate-agent-protocol
+```
+
 PostgreSQL migration は `KIM_DATABASE_URL` を設定して実行します。
 
 ```sh

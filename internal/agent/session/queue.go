@@ -14,24 +14,26 @@ var (
 // QueueLimits reserve capacity so bulk streams cannot consume authority and
 // health traffic capacity. Limits are local safety bounds, not authority.
 type QueueLimits struct {
-	MaxMessageBytes       int
-	MaxTotalMessages      int
-	MaxTotalBytes         int
-	ReservedPriorityMsgs  int
-	ReservedPriorityBytes int
-	PerStreamMessages     map[Stream]int
+	MaxMessageBytes        int
+	MaxTotalMessages       int
+	MaxTotalBytes          int
+	ReservedPriorityMsgs   int
+	ReservedPriorityBytes  int
+	MaxConsecutivePriority int
+	PerStreamMessages      map[Stream]int
 }
 
 // PriorityQueue is a bounded application-level scheduler shared by one Agent
 // transport session. FIFO is guaranteed only inside one logical stream.
 type PriorityQueue struct {
-	mu              sync.Mutex
-	limits          QueueLimits
-	lanes           map[Stream][]Envelope
-	totalCount      int
-	totalBytes      int
-	authorityCursor int
-	bulkCursor      int
+	mu                  sync.Mutex
+	limits              QueueLimits
+	lanes               map[Stream][]Envelope
+	totalCount          int
+	totalBytes          int
+	authorityCursor     int
+	bulkCursor          int
+	consecutivePriority int
 }
 
 var (
@@ -50,6 +52,9 @@ func NewPriorityQueue(limits QueueLimits) (*PriorityQueue, error) {
 	}
 	if limits.ReservedPriorityBytes < 0 || limits.ReservedPriorityBytes >= limits.MaxTotalBytes {
 		return nil, errors.New("reserved priority byte capacity is invalid")
+	}
+	if limits.MaxConsecutivePriority < 1 {
+		return nil, errors.New("maximum consecutive priority dequeue must be positive")
 	}
 	for stream := range knownStreams {
 		if limits.PerStreamMessages[stream] < 1 {
@@ -91,13 +96,25 @@ func (queue *PriorityQueue) Enqueue(envelope Envelope) error {
 func (queue *PriorityQueue) Dequeue() (Envelope, bool) {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
+	if queue.consecutivePriority >= queue.limits.MaxConsecutivePriority {
+		if envelope, ok := queue.popFirst(bulkStreams, &queue.bulkCursor); ok {
+			queue.consecutivePriority = 0
+			return envelope, true
+		}
+	}
 	if envelope, ok := queue.popFirst(controlStreams, nil); ok {
+		queue.consecutivePriority++
 		return envelope, true
 	}
 	if envelope, ok := queue.popFirst(authorityStreams, &queue.authorityCursor); ok {
+		queue.consecutivePriority++
 		return envelope, true
 	}
-	return queue.popFirst(bulkStreams, &queue.bulkCursor)
+	envelope, ok := queue.popFirst(bulkStreams, &queue.bulkCursor)
+	if ok {
+		queue.consecutivePriority = 0
+	}
+	return envelope, ok
 }
 
 // Stats returns bounded in-memory queue use.

@@ -1,6 +1,9 @@
 GO ?= go
 
-.PHONY: all build check docs-check fmt fmt-check test test-postgres-integration vet
+.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol test test-agent-transport test-postgres-integration vet
+
+PROTOC_GEN_GO_VERSION := v1.36.11
+PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
 
 all: check build
 
@@ -21,9 +24,24 @@ fmt-check:
 test:
 	$(GO) test ./...
 
+test-agent-transport:
+	$(GO) test -count=1 ./internal/agent/session ./internal/agent/transport/...
+
+bench-agent-transport:
+	$(GO) test -run '^$$' -bench 'Benchmark(GRPC|HTTP2)RoundTrip' -benchmem -benchtime=500ms -count=3 ./internal/agent/transport/grpcstream ./internal/agent/transport/http2stream
+
 test-postgres-integration:
 	test -n "$(KIM_POSTGRES_TEST_URL)"
 	KIM_POSTGRES_TEST_URL="$(KIM_POSTGRES_TEST_URL)" $(GO) test -count=1 -run TestMigratePostgreSQLIntegration ./internal/persistence/postgres
 
 vet:
 	$(GO) vet ./...
+
+generate-agent-protocol:
+	mkdir -p bin/tools
+	GOBIN="$(CURDIR)/bin/tools" $(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	GOBIN="$(CURDIR)/bin/tools" $(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	PATH="$(CURDIR)/bin/tools:$$PATH" protoc \
+		--go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		api/agentprotocol/v1/transport.proto

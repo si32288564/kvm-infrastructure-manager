@@ -61,6 +61,44 @@ func TestStaleSessionIsFencedBeforeModule(t *testing.T) {
 	}
 }
 
+func TestAuthorityRevalidationFencesLiveConnectionBeforeRouting(t *testing.T) {
+	adapter := &countingAdapter{}
+	authority, err := NewMemoryAuthorityView("host-1", 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManagerWithAuthority(
+		Handshake{HostIdentity: "host-1", SessionGeneration: 9, ProtocolVersion: "v1"},
+		adapter,
+		newTestQueue(t),
+		authority,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := &testModule{name: "libvirt"}
+	if err := manager.RegisterModule(module); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Open(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.Apply(AuthoritySnapshot{
+		HostIdentity:      "host-1",
+		SessionGeneration: 10,
+		State:             AuthorityFenced,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	message := NewEnvelope("host-1", 9, StreamResult, "result-1", "v1", "attempt-1", 1, []byte("result"))
+	if err := manager.AcceptInbound(context.Background(), "libvirt", message); !errors.Is(err, ErrSessionFenced) {
+		t.Fatalf("AcceptInbound error = %v", err)
+	}
+	if module.handled != 0 {
+		t.Fatalf("fenced message reached module %d times", module.handled)
+	}
+}
+
 type countingAdapter struct {
 	opens int
 }

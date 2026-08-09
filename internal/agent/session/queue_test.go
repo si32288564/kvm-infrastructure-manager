@@ -43,6 +43,28 @@ func TestAuthorityStreamsRoundRobin(t *testing.T) {
 	}
 }
 
+func TestContinuousPriorityTrafficCannotStarveBulkForever(t *testing.T) {
+	queue := newTestQueue(t)
+	if err := queue.Enqueue(testEnvelope(StreamInventory, "inventory", 1, []byte("bulk"))); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 5; index++ {
+		if err := queue.Enqueue(testEnvelope(StreamCommand, fmt.Sprintf("command-%d", index), index, []byte("command"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index := 0; index < 4; index++ {
+		envelope, ok := queue.Dequeue()
+		if !ok || envelope.Stream != StreamCommand {
+			t.Fatalf("priority dequeue %d = %#v, %v", index, envelope, ok)
+		}
+	}
+	envelope, ok := queue.Dequeue()
+	if !ok || envelope.Stream != StreamInventory {
+		t.Fatalf("bounded bulk service dequeue = %#v, %v", envelope, ok)
+	}
+}
+
 func TestEnvelopeRejectsDigestConflictAndOversize(t *testing.T) {
 	envelope := testEnvelope(StreamResult, "result", 1, []byte("result"))
 	if err := envelope.Validate(64); err != nil {
@@ -65,12 +87,13 @@ func newTestQueue(t *testing.T) *PriorityQueue {
 		perStream[stream] = 8
 	}
 	queue, err := NewPriorityQueue(QueueLimits{
-		MaxMessageBytes:       64,
-		MaxTotalMessages:      8,
-		MaxTotalBytes:         64,
-		ReservedPriorityMsgs:  2,
-		ReservedPriorityBytes: 16,
-		PerStreamMessages:     perStream,
+		MaxMessageBytes:        64,
+		MaxTotalMessages:       8,
+		MaxTotalBytes:          64,
+		ReservedPriorityMsgs:   2,
+		ReservedPriorityBytes:  16,
+		MaxConsecutivePriority: 4,
+		PerStreamMessages:      perStream,
 	})
 	if err != nil {
 		t.Fatal(err)

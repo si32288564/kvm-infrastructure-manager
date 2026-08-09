@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package kim.agent.v1;
+
+option go_package = "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/api/agentprotocol/v1;agentprotocolv1";
+
+message SessionHello {
+  string host_identity = 1;
+  uint64 session_generation = 2;
+  string protocol_version = 3;
+  repeated string capabilities = 4;
+}
+
+message Envelope {
+  string host_identity = 1;
+  uint64 session_generation = 2;
+  string logical_stream = 3;
+  string message_id = 4;
+  string schema_version = 5;
+  string sequence_scope = 6;
+  uint64 sequence = 7;
+  uint64 resource_generation = 8;
+  string payload_digest = 9;
+  string correlation_key = 10;
+  bytes payload = 11;
+}
+
+message Frame {
+  oneof body {
+    SessionHello hello = 1;
+    Envelope envelope = 2;
+  }
+}
+
+service AgentTransport {
+  rpc Connect(stream Frame) returns (stream Frame);
+}

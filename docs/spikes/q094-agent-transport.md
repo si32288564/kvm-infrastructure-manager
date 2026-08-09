@@ -101,4 +101,6 @@ Q-094 は blocking assertions、operational profile、dependency/security review
 - module 登録数と connection open 回数を分離する `Session Manager` / `TransportAdapter` 境界
 - stale session message を module routing 前に拒否する fixture
 
-未完了なのは gRPC/typed HTTP/2 candidate adapter、real mTLS/proxy、disconnect/reconnect、durable spool/resync、fault/scale measurement です。fixture foundation の pass は Q-094 close または candidate 採用を意味しません。
+gRPC/typed HTTP/2 candidate adapter、real mTLS、basic disconnect detection まで実装済みです。proxy/LB、reconnect/handoff storm、durable spool/resync、HOL/scale measurement は未完了です。fixture foundation の pass は Q-094 close または candidate 採用を意味しません。
+
+初回の real mTLS adapter、functional contract、loopback benchmark は [Q-094 Loopback Smoke Result](results/q094-loopback-20260809.md) に記録しました。両候補が基本 contract を通過し、この限定条件では gRPC が低い round-trip latency を示しましたが、proxy/HOL/reconnect storm/spool 未評価のため Decision は `HOLD` です。
