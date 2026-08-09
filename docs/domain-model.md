@@ -240,6 +240,9 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - Quota 消費と Allocation claim は VM dispatch より前に確定する。
 - Host が maintenance または disabled の場合、新規 Allocation を作らない。
 - authenticatedだけのHostをenrolled/ready/armedとして扱わない。
+- Enrollment Decision、Credential Binding Evidence、session attempt/event は immutable evidence とし、current Enrollment/Credential/Session Authorization/Host Authority projection と分離する。
+- Session Authorization は current Enrollment、Credential Binding、session、capability generation を必要とするが、それ自体を Host mutation authority にしない。
+- reconnect、renewal、capability/Compliance/Enrollment 変更は armed authority を fence し、explicit arming なしに authority generation を進めない。
 - Baseline versionとCompliance historyを上書きしない。
 - Critical NON_COMPLIANT/UNKNOWN HostまたはcapabilityをPlacement eligibleにしない。
 - Enrollment decisionはHardware Identity Evidence setとPolicy generationへbindし、単一可変identifierをauthorityにしない。

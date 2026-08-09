@@ -78,6 +78,11 @@
 | HLC-020 | Compliance Evaluatorをimmutable artifact digest、contract/control/evidence compatibility、build/certification provenanceでversion管理する | Must |
 | HLC-021 | Evaluator更新をCI comparison、shadow、canary、batch、failure threshold付きrolloutで進め、過去Resultを改変しない | Must |
 | HLC-022 | External remediationの要求/応答を認証・generation・expiry・idempotency付きcontractで管理し、外部完了claimだけでCOMPLIANT/READY/armedへ遷移しない | Must |
+| HLC-023 | Enrollment Decision を immutable evidence と current binding に分離し、manual approval、quarantine、decommission の変更を Host identity と session authorization へ generation 付きで反映する | Must |
+| HLC-024 | Agent Credential Binding を Host、certificate fingerprint、public key、issuer/profile、trust generation、Enrollment Decision、validity interval へ bind し、renewal/rekey を新 revision として保持する | Must |
+| HLC-025 | Session Authorization を current Enrollment、Credential Binding、transport session generation、Host capability generation の全てへ bind し、不足または不一致時は PENDING、STALE、FENCED とする | Must |
+| HLC-026 | mTLS authentication、current Credential Binding、current Session Authorization、current capability だけでは Host mutation authority を発行しない | Must |
+| HLC-027 | Host Operation Authority は Enrollment、Credential、session、capability、Baseline Assignment、preflight、Compliance、policy を一 transaction で検証した明示 arming だけで generation を進め、依存 generation 変更は fence のみ行う | Must |
 
 ### 2.4 Host Grouping
 

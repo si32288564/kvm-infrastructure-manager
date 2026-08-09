@@ -195,6 +195,11 @@
 | INV-HLC-016 | Evaluator更新は旧Resultを改変せず、比較/canary/failure thresholdを通じて新Assignment generationとして適用する | FI-HLC-010 |
 | INV-HLC-017 | 外部remediationの完了claimだけではCOMPLIANT、READY、authority armed、maintenance exitへ遷移しない | FI-HLC-012 |
 | INV-HLC-018 | External remediation integrationはCore DB、Agent credential、Command Lease、Host Operation Authorityを取得しない | AT-HLC-021 |
+| INV-HLC-019 | Credential Binding revision と authenticated certificate fingerprint が current Enrollment binding に一致しない Agent session を grant しない | AT-HLC-023 |
+| INV-HLC-020 | Session Authorization は Enrollment、Credential Binding、session、capability generation を全て保持し、transport liveness や証明書 validity だけで AUTHORIZED にしない | AT-HLC-024 |
+| INV-HLC-021 | Session Authorization が AUTHORIZED でも explicit Host Operation Authority arming 前に mutation を許可しない | AT-HLC-025 |
+| INV-HLC-022 | reconnect、credential renewal/rekey、Enrollment、capability、Baseline/preflight/Compliance の変更は既存 Host authority を fence できるが、同一または新 generation を暗黙 arm しない | FI-HLC-013 |
+| INV-HLC-023 | Host Operation Authority は全 current dependency generation と policy/actor を一 transaction で固定し、mutation authorization 時にも同じ binding を再検証する | AT-HLC-026 |
 
 ## 10. Host Grouping
 

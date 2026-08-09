@@ -34,15 +34,18 @@ func TestAgentReceiptReplayAndResyncPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostID := fmt.Sprintf("agent-receipt-%d", time.Now().UnixNano())
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities (host_id, enrollment_state) VALUES ($1, 'APPROVED')`, hostID); err != nil {
-		t.Fatal(err)
-	}
+	fingerprint := digestBytes([]byte("agent-receipt-certificate"))
+	prepareSessionIdentityFixture(t, ctx, pool, hostID, 1, fingerprint)
 	grantSession := func(attempt string, expected int64) {
 		t.Helper()
+		if expected > 1 {
+			prepareSessionIdentityFixture(t, ctx, pool, hostID, expected, fingerprint)
+		}
 		grant, err := AdmitAgentSession(ctx, pool, AgentSessionAdmission{
 			SessionAttemptID: attempt, HostID: hostID, ConnectionInstanceID: attempt + "-connection",
 			TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("agent")),
-			CredentialBindingRevision: expected, ExpectedSessionGeneration: expected,
+			CredentialBindingRevision: expected, PeerCertificateFingerprint: fingerprint,
+			ExpectedSessionGeneration: expected,
 		})
 		if err != nil || grant.SessionGeneration != expected {
 			t.Fatalf("grant %s = %#v, error = %v", attempt, grant, err)

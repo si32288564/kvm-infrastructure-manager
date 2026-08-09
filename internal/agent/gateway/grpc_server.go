@@ -47,8 +47,9 @@ func (authorizer PostgresSessionAuthorizer) Authorize(ctx context.Context, hello
 		SessionAttemptID: hello.GetSessionAttemptId(), HostID: hello.GetHostIdentity(),
 		ConnectionInstanceID: hello.GetConnectionInstanceId(), TransportProfile: "grpc-v1",
 		ProtocolVersion: hello.GetProtocolVersion(), AgentArtifactDigest: hello.GetAgentArtifactDigest(),
-		CredentialBindingRevision: hello.GetCredentialBindingRevision(),
-		ExpectedSessionGeneration: int64(hello.GetSessionGeneration()),
+		CredentialBindingRevision:  hello.GetCredentialBindingRevision(),
+		PeerCertificateFingerprint: peerEvidence.CredentialCertificateSHA256,
+		ExpectedSessionGeneration:  int64(hello.GetSessionGeneration()),
 		HandshakeEvidence: map[string]any{
 			"peer_identity": peerEvidence.Identity, "transport_peer_sha256": peerEvidence.TransportPeerCertificateSHA256,
 			"via_trusted_proxy": peerEvidence.ViaTrustedProxy, "capabilities": hello.GetCapabilities(),
@@ -64,6 +65,8 @@ func (authorizer PostgresSessionAuthorizer) Authorize(ctx context.Context, hello
 		return nil, rejection("DATABASE_AUTHORITY_NOT_ACTIVE", true, authorizer.RetryAfter)
 	case errors.Is(err, postgres.ErrHostNotApproved):
 		return nil, rejection("HOST_NOT_APPROVED", false, 0)
+	case errors.Is(err, postgres.ErrCredentialBindingNotCurrent):
+		return nil, rejection("CREDENTIAL_BINDING_NOT_CURRENT", false, 0)
 	case errors.Is(err, postgres.ErrSessionGenerationConflict):
 		return nil, rejection("SESSION_GENERATION_CONFLICT", false, 0)
 	case errors.Is(err, postgres.ErrSessionAttemptConflict):

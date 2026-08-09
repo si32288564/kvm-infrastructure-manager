@@ -66,6 +66,10 @@ AgentはDB absolute expiryをlocal wall clockだけで解釈せず、Gateway req
 
 Agent bootstrap、CSR proof-of-possession、Credential Binding、renewal/rekey/overlap、revocation、session trust generationは [PKI and Trust Lifecycle Architecture](pki-and-trust-lifecycle-architecture.md) に従います。certificateが有効でもEnrollment、armed Host authority、current Command Leaseの代替にはなりません。
 
+Gateway は verified mTLS peer または trusted proxy が提示した downstream certificate fingerprint を、Host の current Credential Binding revision と照合してから PostgreSQL session generation を grant します。Session Grant 後も capability evidence がない間は `PENDING_CAPABILITY` であり、current capability projection を含む再評価後だけ Session Authorization を `AUTHORIZED` にできます。
+
+`AUTHORIZED` は transport 上の typed message を Host identity/capability と結び付ける decision であり、mutation authority ではありません。Host mutation は Enrollment、Credential Binding、session、capability、Baseline Assignment、preflight、Compliance、policy を明示 arming transaction で固定した `host_authority_generation` と、P1-B の current Command Lease を別途必要とします。renewal、reconnect、inventory refresh、Compliance recovery、Enrollment reapproval は authority を暗黙 rearm しません。
+
 ### 3.1 Multiplexing Principle
 
 KIM Host Agent の capability/module 数と Agent Gateway connection/certificate 数を連動させません。通常状態では、1 Host Agent identity に一つの current long-lived outbound mTLS transport session を割り当てます。

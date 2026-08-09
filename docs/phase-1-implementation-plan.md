@@ -160,7 +160,7 @@ credential renewal/rekey または reconnect で一時的に old/new connection 
 | P1-A05 | Agent Session Manager、router、bounded spool/backpressure/resync | A03/A04 | reuse v1 publisher/spool/watch | FI-GATEWAY-004/005 |
 | P1-A06 | module descriptor/handler/evidence interface | A03/A05 | closed typed Inventory registry実装済み。compile-time v1 registryを段階適合 | AT-AGT-011/012、AT-HST-004、XCT-AGENT-001 |
 | P1-A07 | CPU/NUMA/HugePages/PCI/network/storage/libvirt inventory modules | A06 | CPU/NUMA/Memory/HugePages と PCI/IOMMU/SR-IOV evidence chain を実装。[Compute/Memory validation](validation/p1-a07-linux-compute-memory-20260809.md)、[PCI qualification validation](validation/p1-a07-pci-sriov-qualification-20260809.md) を保持。network/storage/libvirt と hardware qualification を継続 | AT-HST-002/005/006/007、AT-DPL-001/014/015/016/017、FI-AGENT-003/004、FI-PCI-001/002/003/004 |
-| P1-A08 | manual Enrollment、bootstrap/CSR、Credential Binding、Host session/authority view | A02/A04 | reuse v1 PKI primitive、new KIM Binding | AT-HLC-001/002/017、AT-PKI-006/009 |
+| P1-A08 | manual Enrollment、bootstrap/CSR、Credential Binding、Host session/authority view | A02/A04 | manual Enrollment Decision、certificate fingerprint/current Credential Binding、Session Authorization、explicit Host Authority gate を実装。[A08 validation](validation/p1-a08-host-trust-authority-20260809.md) を保持。bootstrap/CSR production flow は継続 | AT-HLC-001/002/017/023/024/025/026、AT-PKI-006/009 |
 
 P1-A exit では、全 module を有効化しても一つの current Host session/certificate で動作し、bulk stream saturation、stale session、connection loss test を通過する必要があります。
 
@@ -171,7 +171,7 @@ P1-A exit では、全 module を有効化しても一つの current Host sessio
 | P1-B01 | Resource API idempotency、Operation resource/state machine | A02 | reuse v1 validation/idempotency、new public API | AT-API-001〜003、AT-OPS-001 |
 | P1-B02 | Job/Command/Lease/Attempt/Result/Receipt schema and dispatcher | A02/A04 | adapt v1 execution tables/code | AT-EXEC-001〜007 |
 | P1-B03 | write-before-execute journal と typed read-back verification | A05/A06/B02 | reuse v1 journal/result fencing | FI-AGENT-001、FI-TRANSPORT-001/002 |
-| P1-B04 | Host Authority generation、manual arming、reconnect non-rearm | A08/B02 | reuse v1 arm/disarm generation | FI-GATEWAY-002、FI-HLC-008 |
+| P1-B04 | Host Authority generation、manual arming、reconnect non-rearm | A08/B02 | generation/explicit arming/non-rearm foundation 実装済み。Command Lease issuance/dispatch gateへ接続を継続 | FI-GATEWAY-002、FI-HLC-008/013 |
 | P1-B05 | Host Profile/Baseline Assignment、read-only Compliance/Evaluator result | A07/A08 | new domain、reuse CPU policy checks | AT-HLC-004〜007 |
 | P1-B06 | explicit HostGroup/Placement Pool membership generation | A02/B05 | new domain | AT-HGR-001〜007 |
 

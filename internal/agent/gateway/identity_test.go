@@ -28,7 +28,7 @@ func TestTrustedProxyPeerIdentityResolverRequiresPinnedProxyAndSanitizedXFCC(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.Identity != "xfcc-sha256:"+downstreamHash || evidence.TransportPeerCertificateSHA256 != proxyHash || !evidence.ViaTrustedProxy {
+	if evidence.Identity != "xfcc-sha256:"+downstreamHash || evidence.CredentialCertificateSHA256 != downstreamHash || evidence.TransportPeerCertificateSHA256 != proxyHash || !evidence.ViaTrustedProxy {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 }
@@ -92,7 +92,7 @@ func TestDirectPeerIdentityResolverIgnoresForwardedHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.Identity != "direct-agent" || evidence.ViaTrustedProxy {
+	if evidence.Identity != "direct-agent" || evidence.CredentialCertificateSHA256 != certificateSHA256(certificate) || evidence.ViaTrustedProxy {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 }

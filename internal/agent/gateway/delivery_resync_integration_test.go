@@ -44,7 +44,15 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 		t.Fatal(err)
 	}
 	hostID := fmt.Sprintf("delivery-resync-%d", time.Now().UnixNano())
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities (host_id, enrollment_state) VALUES ($1, 'APPROVED')`, hostID); err != nil {
+	if err := postgres.RegisterDiscoveredHost(ctx, pool, hostID); err != nil {
+		t.Fatal(err)
+	}
+	if err := postgres.RecordEnrollmentDecision(ctx, pool, postgres.EnrollmentDecision{
+		DecisionID: hostID + "-enrollment-1", HostID: hostID, Revision: 1,
+		PolicyID: "integration", PolicyGeneration: 1,
+		HardwareEvidenceDigest: deliveryDigest([]byte("hardware")),
+		State:                  "APPROVED", ActorID: "integration", ReasonCode: "fixture",
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,6 +74,8 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	credentialFingerprint := deliveryDigest(clientTLS.Certificates[0].Certificate[0])
+	recordDeliveryCredential(t, ctx, pool, hostID, 1, credentialFingerprint)
 	startGateway := func() (*grpc.Server, string) {
 		t.Helper()
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -119,6 +129,7 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	}
 	defer journal.Close()
 
+	recordDeliveryCredential(t, ctx, pool, hostID, 2, credentialFingerprint)
 	secondServer, secondTarget := startGateway()
 	defer secondServer.Stop()
 	secondConnection, err := (&grpcstream.Adapter{Target: secondTarget, TLSConfig: clientTLS, MaxMessageBytes: 64 << 10}).Open(ctx, handshake(2))
@@ -211,6 +222,21 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	}
 	if projectedGeneration != 1 || projectionState != "CURRENT" || len(capabilityDigest) != 64 || journal.Stats().QueuedEntries != 0 {
 		t.Fatalf("Inventory projection generation/state/digest/queue = %d/%s/%s/%d", projectedGeneration, projectionState, capabilityDigest, journal.Stats().QueuedEntries)
+	}
+}
+
+func recordDeliveryCredential(t *testing.T, ctx context.Context, pool *pgxpool.Pool, hostID string, revision int64, fingerprint string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := postgres.RecordAgentCredentialBinding(ctx, pool, postgres.AgentCredentialBindingEvidence{
+		HostID: hostID, Revision: revision, CertificateFingerprint: fingerprint,
+		PublicKeyDigest: deliveryDigest([]byte(fmt.Sprintf("key-%d", revision))),
+		IssuerID:        "integration-ca", ProfileRevision: "host-agent/v1", TrustGeneration: 1,
+		EnrollmentDecisionID: hostID + "-enrollment-1", EnrollmentRevision: 1,
+		EvidenceDigest: deliveryDigest([]byte(fmt.Sprintf("credential-%d", revision))),
+		State:          "ACTIVE", ValidNotBefore: now.Add(-time.Hour), ValidNotAfter: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

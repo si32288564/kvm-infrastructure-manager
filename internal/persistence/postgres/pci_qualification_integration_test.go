@@ -34,10 +34,9 @@ func TestPCIQualificationAndFinalAdmissionPostgreSQLIntegration(t *testing.T) {
 	}
 	hostID := fmt.Sprintf("host-pci-%d", time.Now().UnixNano())
 	qualificationID := hostID + "-qualification"
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities (host_id, enrollment_state) VALUES ($1, 'APPROVED')`, hostID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := AdmitAgentSession(ctx, pool, AgentSessionAdmission{SessionAttemptID: hostID + "-attempt", HostID: hostID, ConnectionInstanceID: "connection", TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("agent")), CredentialBindingRevision: 1, ExpectedSessionGeneration: 1}); err != nil {
+	certificateFingerprint := digestBytes([]byte("pci-certificate"))
+	prepareSessionIdentityFixture(t, ctx, pool, hostID, 1, certificateFingerprint)
+	if _, err := AdmitAgentSession(ctx, pool, AgentSessionAdmission{SessionAttemptID: hostID + "-attempt", HostID: hostID, ConnectionInstanceID: "connection", TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("agent")), CredentialBindingRevision: 1, PeerCertificateFingerprint: certificateFingerprint, ExpectedSessionGeneration: 1}); err != nil {
 		t.Fatal(err)
 	}
 

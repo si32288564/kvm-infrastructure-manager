@@ -58,6 +58,9 @@ func AcceptHostInventory(ctx context.Context, db TxBeginner, envelope session.En
 }
 
 func applyHostInventoryTx(ctx context.Context, tx pgx.Tx, envelope session.Envelope, snapshot agentinventory.Snapshot, capabilityPayload []byte, capabilityDigest string) error {
+	if err := lockHostAuthorityTx(ctx, tx, snapshot.HostIdentity); err != nil {
+		return fmt.Errorf("lock Host capability authority: %w", err)
+	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO kim.host_inventory_snapshots (
 			host_id, observation_generation, message_id, schema_version,
@@ -118,8 +121,13 @@ func applyHostInventoryTx(ctx context.Context, tx pgx.Tx, envelope session.Envel
 		if uint64(currentGeneration) == snapshot.ObservationGeneration && currentDigest != envelope.PayloadDigest {
 			return ErrHostInventoryEvidenceConflict
 		}
+	} else if err := fenceHostOperationAuthorityTx(ctx, tx, snapshot.HostIdentity, "capability_generation_changed"); err != nil {
+		return err
 	}
-	return applyPCIDeviceProjectionsTx(ctx, tx, envelope, snapshot)
+	if err := applyPCIDeviceProjectionsTx(ctx, tx, envelope, snapshot); err != nil {
+		return err
+	}
+	return refreshHostSessionAuthorizationTx(ctx, tx, snapshot.HostIdentity)
 }
 
 func applyPCIDeviceProjectionsTx(ctx context.Context, tx pgx.Tx, envelope session.Envelope, snapshot agentinventory.Snapshot) error {

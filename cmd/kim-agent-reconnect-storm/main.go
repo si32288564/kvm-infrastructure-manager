@@ -93,6 +93,9 @@ func main() {
 	if warm := runWave(ctx, pool, runID, *sessions, *admissionLimit, policy, 1); warm.returnedError != nil {
 		fatal(fmt.Errorf("warm current session authority: %w", warm.returnedError))
 	}
+	if err := activateCredentialRevision(ctx, pool, runID, 2); err != nil {
+		fatal(err)
+	}
 	storm := runWave(ctx, pool, runID, *sessions, *admissionLimit, policy, 2)
 	if storm.returnedError != nil {
 		fatal(storm.returnedError)
@@ -176,8 +179,9 @@ func runWave(ctx context.Context, pool *pgxpool.Pool, runID string, sessions, ad
 					HostID:               fmt.Sprintf("%s-host-%06d", runID, index),
 					ConnectionInstanceID: fmt.Sprintf("connection-%d", wave), TransportProfile: "q094-reconnect-storm",
 					ProtocolVersion: "v1", AgentArtifactDigest: fmt.Sprintf("%064x", wave), CredentialBindingRevision: int64(wave),
-					ExpectedSessionGeneration: int64(wave),
-					HandshakeEvidence:         map[string]any{"wave": wave},
+					PeerCertificateFingerprint: fixtureCredentialFingerprint(wave),
+					ExpectedSessionGeneration:  int64(wave),
+					HandshakeEvidence:          map[string]any{"wave": wave},
 				})
 				databaseLatencies[index] = time.Since(databaseStarted)
 				release()
@@ -220,8 +224,57 @@ func seedHosts(ctx context.Context, pool *pgxpool.Pool, runID string, count int)
 	for index := 0; index < count; index++ {
 		rows[index] = []any{fmt.Sprintf("%s-host-%06d", runID, index), "APPROVED"}
 	}
-	_, err := pool.CopyFrom(ctx, pgx.Identifier{"kim", "host_identities"}, []string{"host_id", "enrollment_state"}, pgx.CopyFromRows(rows))
+	if _, err := pool.CopyFrom(ctx, pgx.Identifier{"kim", "host_identities"}, []string{"host_id", "enrollment_state"}, pgx.CopyFromRows(rows)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.host_enrollment_decisions (
+			decision_id, host_id, decision_revision, policy_id, policy_generation,
+			hardware_evidence_digest, decision_state, actor_id, reason_code
+		)
+		SELECT host_id || '-enrollment-1', host_id, 1, 'q094-fixture', 1, $2,
+		       'APPROVED', 'q094-fixture', 'fixture'
+		FROM kim.host_identities WHERE host_id LIKE $1
+	`, runID+"-host-%", fmt.Sprintf("%064x", 1)); err != nil {
+		return err
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.host_enrollment_bindings_current (host_id, decision_id, decision_revision, binding_state)
+		SELECT host_id, host_id || '-enrollment-1', 1, 'ENROLLED'
+		FROM kim.host_identities WHERE host_id LIKE $1
+	`, runID+"-host-%"); err != nil {
+		return err
+	}
+	return activateCredentialRevision(ctx, pool, runID, 1)
+}
+
+func activateCredentialRevision(ctx context.Context, pool *pgxpool.Pool, runID string, revision int) error {
+	fingerprint := fixtureCredentialFingerprint(revision)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.agent_credential_binding_evidence (
+			host_id, binding_revision, certificate_fingerprint_sha256, public_key_digest,
+			issuer_id, certificate_profile_revision, trust_generation,
+			enrollment_decision_id, enrollment_decision_revision, evidence_digest,
+			binding_state, valid_not_before, valid_not_after
+		)
+		SELECT host_id, $2, $3, $4, 'q094-fixture-ca', 'host-agent/v1', 1,
+		       host_id || '-enrollment-1', 1, $5, 'ACTIVE',
+		       statement_timestamp() - interval '1 hour', statement_timestamp() + interval '1 hour'
+		FROM kim.host_identities WHERE host_id LIKE $1
+	`, runID+"-host-%", revision, fingerprint, fmt.Sprintf("%064x", revision+10), fmt.Sprintf("%064x", revision+20)); err != nil {
+		return err
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO kim.agent_credential_bindings_current (host_id, binding_revision, binding_state, trust_generation)
+		SELECT host_id, $2, 'CURRENT', 1 FROM kim.host_identities WHERE host_id LIKE $1
+		ON CONFLICT (host_id) DO UPDATE SET binding_revision=EXCLUDED.binding_revision,
+		binding_state='CURRENT', updated_at=statement_timestamp()
+	`, runID+"-host-%", revision)
 	return err
+}
+
+func fixtureCredentialFingerprint(revision int) string {
+	return fmt.Sprintf("%064x", revision+100)
 }
 
 func verifyEvidence(ctx context.Context, pool *pgxpool.Pool, runID string) (current, attempts, events int, returnedErr error) {

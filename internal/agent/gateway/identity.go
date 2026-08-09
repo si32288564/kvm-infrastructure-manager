@@ -21,6 +21,7 @@ const forwardedClientCertificateHeader = "x-forwarded-client-cert"
 // downstream certificate evidence forwarded by an explicitly trusted L7 proxy.
 type PeerIdentityEvidence struct {
 	Identity                       string
+	CredentialCertificateSHA256    string
 	TransportPeerCertificateSHA256 string
 	ViaTrustedProxy                bool
 }
@@ -44,7 +45,8 @@ func (DirectPeerIdentityResolver) Resolve(ctx context.Context) (PeerIdentityEvid
 		return PeerIdentityEvidence{}, errors.New("Agent certificate identity is empty")
 	}
 	return PeerIdentityEvidence{
-		Identity: certificate.Subject.CommonName, TransportPeerCertificateSHA256: certificateSHA256(certificate),
+		Identity: certificate.Subject.CommonName, CredentialCertificateSHA256: certificateSHA256(certificate),
+		TransportPeerCertificateSHA256: certificateSHA256(certificate),
 	}, nil
 }
 
@@ -83,7 +85,8 @@ func (resolver TrustedProxyPeerIdentityResolver) Resolve(ctx context.Context) (P
 		return PeerIdentityEvidence{}, errors.New("trusted proxy XFCC certificate hash is not SHA-256")
 	}
 	return PeerIdentityEvidence{
-		Identity: "xfcc-sha256:" + downstreamHash, TransportPeerCertificateSHA256: proxyHash, ViaTrustedProxy: true,
+		Identity: "xfcc-sha256:" + downstreamHash, CredentialCertificateSHA256: downstreamHash,
+		TransportPeerCertificateSHA256: proxyHash, ViaTrustedProxy: true,
 	}, nil
 }
 

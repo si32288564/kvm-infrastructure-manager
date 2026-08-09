@@ -69,6 +69,10 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HLC-020 | Evaluator更新をfixture CI、shadow comparison、canary、batchで進め、判定差とthreshold超過を可視化・停止する |
 | AT-HLC-021 | External Remediation Request/responseがservice identity、contract/generation、expiry、idempotency、integrity、correlationを検証する |
 | AT-HLC-022 | 外部COMPLETION_CLAIM後もfresh observationとassigned Evaluator再評価が一致するまでCompliance/READY/authorityを進めない |
+| AT-HLC-023 | current Enrollment Decision と certificate fingerprint を含む Credential Binding revision が一致する場合だけ Agent transport session を grant する |
+| AT-HLC-024 | session authorization が current Enrollment、Credential Binding、session generation、capability generation を保持し、capability 欠損時は PENDING_CAPABILITY になる |
+| AT-HLC-025 | authenticated/authorized session と READY gate が揃っても explicit arming 前は Host mutation authority row/generation が存在しない |
+| AT-HLC-026 | explicit arming transaction が Enrollment、Credential、session、capability、Baseline、preflight、Compliance、policy を固定し、current mutation authorization が全 binding を再検証する |
 
 ## 5. Host Grouping
 

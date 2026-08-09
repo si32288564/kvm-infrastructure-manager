@@ -70,6 +70,8 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HLC-019 | host-lifecycle-and-compliance-architecture, security | ADR-0013 | INV-HLC-013, INV-HLC-014 | AT-HLC-017, AT-HLC-018, FI-HLC-009 | Planned |
 | HLC-020, HLC-021 | host-lifecycle-and-compliance-architecture, extensibility-architecture | ADR-0011, ADR-0013 | INV-HLC-015, INV-HLC-016 | AT-HLC-019, AT-HLC-020, FI-HLC-010, XCT-HLC-005, XCT-HLC-006 | Planned |
 | HLC-022 | host-lifecycle-and-compliance-architecture, responsibility-boundaries, security | ADR-0011, ADR-0013 | INV-HLC-017, INV-HLC-018 | AT-HLC-021, AT-HLC-022, FI-HLC-011, FI-HLC-012, XCT-HLC-007 | Planned |
+| HLC-023, HLC-024, HLC-025 | host-lifecycle-and-compliance-architecture, pki-and-trust-lifecycle-architecture, agent-protocol | ADR-0013, ADR-0023, ADR-0024 | INV-HLC-019, INV-HLC-020 | AT-HLC-023, AT-HLC-024, FI-HLC-013 | Implemented |
+| HLC-026, HLC-027 | host-lifecycle-and-compliance-architecture, agent-protocol, execution-architecture | ADR-0007, ADR-0013, ADR-0023 | INV-HLC-021, INV-HLC-022, INV-HLC-023 | AT-HLC-025, AT-HLC-026, FI-HLC-013 | Implemented (Command Lease coupling remains P1-B) |
 
 ## 6. Host Grouping
 

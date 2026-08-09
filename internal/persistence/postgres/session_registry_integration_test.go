@@ -31,13 +31,13 @@ func TestAgentSessionAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostID := fmt.Sprintf("session-registry-%d", time.Now().UnixNano())
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities (host_id, enrollment_state) VALUES ($1, 'APPROVED')`, hostID); err != nil {
-		t.Fatal(err)
-	}
+	fingerprint := digestBytes([]byte("session-registry-certificate"))
+	prepareSessionIdentityFixture(t, ctx, pool, hostID, 1, fingerprint)
 	first := AgentSessionAdmission{
 		SessionAttemptID: hostID + "-attempt-1", HostID: hostID, ConnectionInstanceID: "connection-1",
 		TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("agent-1")),
 		CredentialBindingRevision: 1, HandshakeEvidence: map[string]any{"wave": 1},
+		PeerCertificateFingerprint: fingerprint,
 	}
 	firstGrant, err := AdmitAgentSession(ctx, pool, first)
 	if err != nil || firstGrant.SessionGeneration != 1 {
@@ -56,12 +56,13 @@ func TestAgentSessionAdmissionPostgreSQLIntegration(t *testing.T) {
 	second.SessionAttemptID = hostID + "-attempt-2"
 	second.ConnectionInstanceID = "connection-2"
 	second.CredentialBindingRevision = 2
+	prepareSessionIdentityFixture(t, ctx, pool, hostID, 2, fingerprint)
 	second.HandshakeEvidence = map[string]any{"wave": 2}
 	secondGrant, err := AdmitAgentSession(ctx, pool, second)
 	if err != nil || secondGrant.SessionGeneration != 2 {
 		t.Fatalf("second grant = %#v, error = %v", secondGrant, err)
 	}
-	if _, err := AdmitAgentSession(ctx, pool, first); !errors.Is(err, ErrSessionAttemptConflict) {
+	if _, err := AdmitAgentSession(ctx, pool, first); !errors.Is(err, ErrCredentialBindingNotCurrent) {
 		t.Fatalf("stale attempt replay error = %v", err)
 	}
 

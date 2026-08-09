@@ -32,13 +32,13 @@ func TestHostInventoryProjectionPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	hostID := fmt.Sprintf("host-inventory-%d", time.Now().UnixNano())
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities (host_id, enrollment_state) VALUES ($1, 'APPROVED')`, hostID); err != nil {
-		t.Fatal(err)
-	}
+	fingerprint := digestBytes([]byte("host-inventory-certificate"))
+	prepareSessionIdentityFixture(t, ctx, pool, hostID, 1, fingerprint)
 	if _, err := AdmitAgentSession(ctx, pool, AgentSessionAdmission{
 		SessionAttemptID: hostID + "-attempt", HostID: hostID, ConnectionInstanceID: "connection",
 		TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("agent")),
-		CredentialBindingRevision: 1, ExpectedSessionGeneration: 1,
+		CredentialBindingRevision: 1, PeerCertificateFingerprint: fingerprint,
+		ExpectedSessionGeneration: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}

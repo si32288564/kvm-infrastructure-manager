@@ -20,15 +20,16 @@ var (
 )
 
 type AgentSessionAdmission struct {
-	SessionAttemptID          string
-	HostID                    string
-	ConnectionInstanceID      string
-	TransportProfile          string
-	ProtocolVersion           string
-	AgentArtifactDigest       string
-	CredentialBindingRevision int64
-	HandshakeEvidence         map[string]any
-	ExpectedSessionGeneration int64
+	SessionAttemptID           string
+	HostID                     string
+	ConnectionInstanceID       string
+	TransportProfile           string
+	ProtocolVersion            string
+	AgentArtifactDigest        string
+	CredentialBindingRevision  int64
+	PeerCertificateFingerprint string
+	HandshakeEvidence          map[string]any
+	ExpectedSessionGeneration  int64
 }
 
 type AgentSessionGrant struct {
@@ -50,7 +51,7 @@ func AdmitAgentSession(ctx context.Context, db TxBeginner, request AgentSessionA
 }
 
 func AdmitAgentSessionTx(ctx context.Context, tx pgx.Tx, request AgentSessionAdmission) (AgentSessionGrant, error) {
-	if request.SessionAttemptID == "" || request.HostID == "" || request.ConnectionInstanceID == "" || request.TransportProfile == "" || request.ProtocolVersion == "" || request.CredentialBindingRevision < 1 {
+	if request.SessionAttemptID == "" || request.HostID == "" || request.ConnectionInstanceID == "" || request.TransportProfile == "" || request.ProtocolVersion == "" || request.CredentialBindingRevision < 1 || len(request.PeerCertificateFingerprint) != 64 {
 		return AgentSessionGrant{}, errors.New("complete Agent session admission identity is required")
 	}
 	if len(request.AgentArtifactDigest) != 64 {
@@ -69,17 +70,13 @@ func AdmitAgentSessionTx(ctx context.Context, tx pgx.Tx, request AgentSessionAdm
 	if authorityMode != "ACTIVE" {
 		return AgentSessionGrant{}, ErrDatabaseAuthorityNotActive
 	}
-	var enrollmentState string
-	if err := tx.QueryRow(ctx, `SELECT enrollment_state FROM kim.host_identities WHERE host_id = $1 FOR SHARE`, request.HostID).Scan(&enrollmentState); err != nil {
-		return AgentSessionGrant{}, fmt.Errorf("read Host enrollment: %w", err)
-	}
-	if enrollmentState != "APPROVED" {
-		return AgentSessionGrant{}, ErrHostNotApproved
-	}
 	// The lock also serializes the first session for a Host, where no current
 	// row exists yet. Different Hosts retain independent transaction progress.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, request.HostID); err != nil {
 		return AgentSessionGrant{}, fmt.Errorf("lock Host Agent session authority: %w", err)
+	}
+	if _, err := validateCurrentCredentialBindingTx(ctx, tx, request.HostID, request.CredentialBindingRevision, request.PeerCertificateFingerprint); err != nil {
+		return AgentSessionGrant{}, err
 	}
 
 	tag, err := tx.Exec(ctx, `
@@ -167,6 +164,12 @@ func AdmitAgentSessionTx(ctx context.Context, tx pgx.Tx, request AgentSessionAdm
 	grant.HostID = request.HostID
 	grant.SessionAttemptID = request.SessionAttemptID
 	grant.SessionGeneration = newGeneration
+	if err := fenceHostOperationAuthorityTx(ctx, tx, request.HostID, "session_generation_changed"); err != nil {
+		return AgentSessionGrant{}, err
+	}
+	if err := refreshHostSessionAuthorizationTx(ctx, tx, request.HostID); err != nil {
+		return AgentSessionGrant{}, err
+	}
 	return grant, nil
 }
 
