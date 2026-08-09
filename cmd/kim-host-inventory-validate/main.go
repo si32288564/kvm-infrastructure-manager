@@ -27,7 +27,7 @@ func main() {
 		fatal(err)
 	}
 	registry := inventory.NewRegistry()
-	for _, module := range []inventory.Module{linuxhost.ComputeModule{Adapter: adapter, ArtifactDigest: artifactDigest}, linuxhost.MemoryModule{Adapter: adapter, ArtifactDigest: artifactDigest}} {
+	for _, module := range []inventory.Module{linuxhost.ComputeModule{Adapter: adapter, ArtifactDigest: artifactDigest}, linuxhost.MemoryModule{Adapter: adapter, ArtifactDigest: artifactDigest}, linuxhost.PCIModule{Adapter: adapter, ArtifactDigest: artifactDigest}} {
 		if err := registry.Register(module); err != nil {
 			fatal(err)
 		}
@@ -52,6 +52,9 @@ func main() {
 		CPUThreads       int                    `json:"cpu_threads"`
 		NUMANodes        int                    `json:"numa_nodes"`
 		HugePagePools    int                    `json:"hugepage_pools"`
+		PCIDevices       int                    `json:"pci_devices"`
+		SRIOVPFs         int                    `json:"sriov_pfs"`
+		SRIOVVFs         int                    `json:"sriov_vfs"`
 		TotalMemoryBytes uint64                 `json:"total_memory_bytes"`
 	}{HostIdentity: snapshot.HostIdentity, CollectionStatus: snapshot.CollectionStatus, Capabilities: snapshot.Capabilities}
 	for _, fragment := range snapshot.Fragments {
@@ -62,6 +65,17 @@ func main() {
 			summary.NUMANodes = len(fragment.Memory.NUMANodes)
 			summary.HugePagePools = len(fragment.Memory.HugePagePools)
 			summary.TotalMemoryBytes = fragment.Memory.TotalBytes
+		}
+		if fragment.PCI != nil {
+			summary.PCIDevices = len(fragment.PCI.Devices)
+			for _, device := range fragment.PCI.Devices {
+				if device.SRIOVTotalVFs > 0 {
+					summary.SRIOVPFs++
+				}
+				if device.PFAddress != "" {
+					summary.SRIOVVFs++
+				}
+			}
 		}
 	}
 	encoder := json.NewEncoder(os.Stdout)

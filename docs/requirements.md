@@ -283,6 +283,11 @@
 | DPL-013 | PMD utilization、cycles、dropsをauthorityではなくtelemetryとして扱う | Must |
 | DPL-014 | OVS/DPDK非対応・degraded時にkernel datapath等へsilent fallbackしない | Must |
 | DPL-015 | OVS/DPDK version組合せとDataplane capabilityをsupport matrixで公開する | Should |
+| DPL-016 | PCI/IOMMU/SR-IOV の Observed Evidence、Normalized Device Projection、Qualification Evidence、Current Qualification Binding、Allocation State を別 authority として管理する | Must |
+| DPL-017 | sysfs で device/PF/VF を観測できても、current immutable Qualification Evidence がない device を allocation candidate に昇格しない | Must |
+| DPL-018 | Qualification Evidence を observation generation/digest、device/firmware/driver/kernel/IOMMU/libvirt/QEMU profile、evaluator/test artifact digest、validated operation set に binding する | Must |
+| DPL-019 | current binding を CURRENT、STALE、UNKNOWN、REVOKED で評価し、CURRENT 以外の allocation state を BLOCKED とする | Must |
+| DPL-020 | VF Final Admission は Host capability generation、device observation、PF/VF relationship、Qualification Binding、policy、NUMA/IOMMU constraint、既存 claim を同一 PostgreSQL transaction で再検証する | Must |
 
 ### 2.14 Storage
 

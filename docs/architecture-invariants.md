@@ -168,6 +168,10 @@
 | INV-DPL-008 | arbitrary OVSDB/EAL/PCI/shell操作をAPI/Command/Extensionで受理しない | AT-DPL-008 |
 | INV-DPL-009 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない | AT-DPL-012 |
 | INV-DPL-010 | PCI/PMD/OVS mutation結果不明時はresourceをquarantineしblind replay/rebindしない | FI-DPDK-005 |
+| INV-DPL-011 | Observed/Normalized PCI capability は Qualification または Allocation authority ではなく、fixture parser pass を hardware qualification として使用しない | AT-DPL-014 |
+| INV-DPL-012 | Qualification Evidence は immutable とし、binding 対象の observation/stack/evaluator/artifact/operation set が変化した場合は CURRENT を継承しない | FI-PCI-002 |
+| INV-DPL-013 | Qualification Binding が STALE、UNKNOWN、REVOKED、または欠損なら allocation state を BLOCKED とし、Observed AVAILABLE から自動昇格しない | FI-PCI-001 |
+| INV-DPL-014 | VF claim は current Host/device/qualification/policy/NUMA/IOMMU generation と active claim 不在を一 transaction で再検証し、device ごとに一つの active/release-pending claim だけを許可する | AT-DPL-017 |
 
 ## 9. Host Lifecycle and Compliance
 

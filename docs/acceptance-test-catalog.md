@@ -284,6 +284,10 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DPL-011 | PMD cycles/utilization/drop変動だけでdurable allocationを変更しない |
 | AT-DPL-012 | OVS-DPDK不適格時にkernel datapath等へsilent fallbackしない |
 | AT-DPL-013 | Validated OVS/DPDK/distribution/NIC driver組合せだけをsupport matrix対象として公開する |
+| AT-DPL-014 | PCI vendor/device、driver、NUMA node、IOMMU group、PF/VF reciprocal relationship を source evidence から canonical typed Fragment へ正規化する |
+| AT-DPL-015 | qualification revision/profile、artifact/evaluator digest、observation/stack binding、validated operation set を immutable evidence として保存する |
+| AT-DPL-016 | Observed AVAILABLE でも Qualification 欠損/STALE/UNKNOWN/REVOKED の device を allocation BLOCKED と判定する |
+| AT-DPL-017 | current qualification/policy/NUMA/IOMMU を満たす VF claim だけを commit し、同じ VF への concurrent/second claim を一意制約と transaction で拒否する |
 
 ## 14. Security / Audit / Documentation
 

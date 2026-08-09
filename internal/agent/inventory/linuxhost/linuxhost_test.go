@@ -96,7 +96,7 @@ func TestLinuxEvidenceChainMarksPermissionAndMissingTopologyUnknown(t *testing.T
 func TestCapabilityStateCannotCollapseToZeroValue(t *testing.T) {
 	fragment := normalizeMemory(rawMemory{MemoryState: inventory.AvailabilityUnknown, MemoryReason: "permission_denied", NUMAState: inventory.AvailabilityUnsupported, NUMAReason: "interface_not_present", HugePageState: inventory.AvailabilityUnavailable, HugePageReason: "no_pages_configured"})
 	fragment.Source = inventory.Source{ModuleName: "fixture", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	snapshot := inventory.Snapshot{SchemaVersion: inventory.SnapshotSchemaV2, HostIdentity: "host", ObservationGeneration: 1, CollectionStatus: "DEGRADED", Fragments: []inventory.Fragment{fragment}}
+	snapshot := inventory.Snapshot{SchemaVersion: inventory.SnapshotSchemaV3, HostIdentity: "host", ObservationGeneration: 1, CollectionStatus: "DEGRADED", Fragments: []inventory.Fragment{fragment}}
 	if err := snapshot.NormalizeAndValidate(); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +118,13 @@ func (fault faultFS) Open(name string) (fs.File, error) {
 		return nil, fault.err
 	}
 	return fault.FS.Open(name)
+}
+
+func (fault faultFS) ReadLink(name string) (string, error) {
+	if name == fault.path {
+		return "", fault.err
+	}
+	return fs.ReadLink(fault.FS, name)
 }
 
 func collectFixture(t *testing.T, adapter Adapter) inventory.Snapshot {

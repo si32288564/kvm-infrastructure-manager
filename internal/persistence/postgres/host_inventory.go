@@ -22,7 +22,7 @@ func AcceptHostInventory(ctx context.Context, db TxBeginner, envelope session.En
 	if err := envelope.Validate(maxMessageBytes); err != nil {
 		return session.Receipt{}, err
 	}
-	if envelope.Stream != session.StreamInventory || envelope.SchemaVersion != agentinventory.SnapshotSchemaV2 {
+	if envelope.Stream != session.StreamInventory || envelope.SchemaVersion != agentinventory.SnapshotSchemaV3 {
 		return session.Receipt{}, errors.New("normalized Host inventory envelope is required")
 	}
 	snapshot, err := agentinventory.DecodeSnapshot(envelope.Payload)
@@ -119,5 +119,77 @@ func applyHostInventoryTx(ctx context.Context, tx pgx.Tx, envelope session.Envel
 			return ErrHostInventoryEvidenceConflict
 		}
 	}
+	return applyPCIDeviceProjectionsTx(ctx, tx, envelope, snapshot)
+}
+
+func applyPCIDeviceProjectionsTx(ctx context.Context, tx pgx.Tx, envelope session.Envelope, snapshot agentinventory.Snapshot) error {
+	for _, fragment := range snapshot.Fragments {
+		if fragment.PCI == nil {
+			continue
+		}
+		observationState := capabilityState(fragment.Capabilities, "kim.host.pci-observation.v1")
+		for _, device := range fragment.PCI.Devices {
+			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, snapshot.HostIdentity+"/"+device.Address); err != nil {
+				return fmt.Errorf("lock PCI device projection %s: %w", device.Address, err)
+			}
+			payload, err := json.Marshal(device)
+			if err != nil {
+				return err
+			}
+			digestBytes := sha256.Sum256(payload)
+			observationDigest := hex.EncodeToString(digestBytes[:])
+			var vfIndex any
+			if device.VFIndex != nil {
+				vfIndex = *device.VFIndex
+			}
+			_, err = tx.Exec(ctx, `
+				INSERT INTO kim.host_pci_device_projections (
+					host_id, device_address, observation_generation, source_message_id,
+					observation_digest, observation_state, vendor_id, device_id,
+					subsystem_vendor_id, subsystem_device_id, driver, device_revision,
+					firmware_revision, numa_node_id, iommu_group, sriov_total_vfs,
+					sriov_enabled_vfs, pf_address, vf_index, relationship_state,
+					relationship_reason
+				) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),NULLIF($10,''),
+				          NULLIF($11,''),NULLIF($12,''),NULLIF($13,''),$14,NULLIF($15,''),
+				          $16,$17,NULLIF($18,''),$19,$20,NULLIF($21,''))
+				ON CONFLICT (host_id, device_address) DO UPDATE SET
+					observation_generation=EXCLUDED.observation_generation,
+					source_message_id=EXCLUDED.source_message_id,
+					observation_digest=EXCLUDED.observation_digest,
+					observation_state=EXCLUDED.observation_state,
+					vendor_id=EXCLUDED.vendor_id, device_id=EXCLUDED.device_id,
+					subsystem_vendor_id=EXCLUDED.subsystem_vendor_id,
+					subsystem_device_id=EXCLUDED.subsystem_device_id,
+					driver=EXCLUDED.driver, device_revision=EXCLUDED.device_revision,
+					firmware_revision=EXCLUDED.firmware_revision,
+					numa_node_id=EXCLUDED.numa_node_id, iommu_group=EXCLUDED.iommu_group,
+					sriov_total_vfs=EXCLUDED.sriov_total_vfs,
+					sriov_enabled_vfs=EXCLUDED.sriov_enabled_vfs,
+					pf_address=EXCLUDED.pf_address, vf_index=EXCLUDED.vf_index,
+					relationship_state=EXCLUDED.relationship_state,
+					relationship_reason=EXCLUDED.relationship_reason,
+					updated_at=statement_timestamp()
+				WHERE host_pci_device_projections.observation_generation < EXCLUDED.observation_generation
+			`, snapshot.HostIdentity, device.Address, snapshot.ObservationGeneration, envelope.MessageID,
+				observationDigest, observationState, device.VendorID, device.DeviceID,
+				device.SubsystemVendorID, device.SubsystemDeviceID, device.Driver,
+				device.DeviceRevision, device.FirmwareRevision, device.NUMANodeID,
+				device.IOMMUGroup, device.SRIOVTotalVFs, device.SRIOVEnabledVFs,
+				device.PFAddress, vfIndex, device.RelationshipState, device.RelationshipReason)
+			if err != nil {
+				return fmt.Errorf("update PCI device projection %s: %w", device.Address, err)
+			}
+		}
+	}
 	return nil
+}
+
+func capabilityState(capabilities []agentinventory.Capability, name string) agentinventory.Availability {
+	for _, capability := range capabilities {
+		if capability.Name == name {
+			return capability.State
+		}
+	}
+	return agentinventory.AvailabilityUnknown
 }

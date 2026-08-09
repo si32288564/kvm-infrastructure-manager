@@ -20,7 +20,7 @@
 | Compute | VM、Image、Flavor、Console、Migration |
 | Placement | Resource Provider、Inventory、Eligibility、Admission、Score、Reservation |
 | Network | Network、Subnet/IP Pool、IP/MAC Claim、Segment Pool/Claim、Port/Binding/Handoff、Router/Gateway、Floating IP/NAT、DHCP、Security Policy |
-| NFV Dataplane | Dataplane Runtime、PMD Core、DPDK Memory、Dataplane Port、Rx Queue、VM Dataplane Binding |
+| NFV Dataplane | PCI Device Projection、Qualification Evidence/Binding、VF Allocation Claim、Dataplane Runtime、PMD Core、DPDK Memory、Dataplane Port、Rx Queue、VM Dataplane Binding |
 | Storage | Storage Backend/Class、Volume、Backend Binding、Snapshot/Clone、Attachment Intent/Claim/Observation、Fencing Proof、Handoff |
 | Operations | Operation、Step、Event、Notification |
 | Execution | Job、Command、Lease、Attempt、Result |
@@ -90,6 +90,10 @@ erDiagram
     ROUTER ||--o{ GATEWAY_BINDING : exits
     FLOATING_IP ||--o| NAT_BINDING : translates
     HOST ||--o{ DATAPLANE_RUNTIME : runs
+    HOST ||--o{ PCI_DEVICE_PROJECTION : observes
+    PCI_DEVICE_PROJECTION ||--o{ PCI_QUALIFICATION_EVIDENCE : qualifies
+    PCI_DEVICE_PROJECTION ||--o| PCI_QUALIFICATION_BINDING : binds_current
+    PCI_DEVICE_PROJECTION ||--o| PCI_VF_ALLOCATION_CLAIM : claims
     DATAPLANE_RUNTIME ||--o{ PMD_CORE_ALLOCATION : owns
     DATAPLANE_RUNTIME ||--o{ DPDK_SOCKET_MEMORY : reserves
     PORT ||--o| VM_DATAPLANE_BINDING : provides

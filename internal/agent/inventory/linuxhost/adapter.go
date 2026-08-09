@@ -83,6 +83,23 @@ func (adapter Adapter) read(pathName string, missing inventory.Availability) obs
 	return observation[string]{State: inventory.AvailabilityUnknown, ReasonCode: "read_failed", Path: "/" + pathName}
 }
 
+func (adapter Adapter) readLink(pathName string, missing inventory.Availability) observation[string] {
+	if adapter.FS == nil {
+		return observation[string]{State: inventory.AvailabilityUnknown, ReasonCode: "filesystem_not_configured", Path: "/" + pathName}
+	}
+	target, err := fs.ReadLink(adapter.FS, pathName)
+	if err == nil {
+		return observation[string]{Value: target, State: inventory.AvailabilityAvailable, Path: "/" + pathName}
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return observation[string]{State: missing, ReasonCode: "interface_not_present", Path: "/" + pathName}
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return observation[string]{State: inventory.AvailabilityUnknown, ReasonCode: "permission_denied", Path: "/" + pathName}
+	}
+	return observation[string]{State: inventory.AvailabilityUnknown, ReasonCode: "read_failed", Path: "/" + pathName}
+}
+
 func evidence(field string, source observation[string]) inventory.EvidenceRef {
 	return inventory.EvidenceRef{Field: field, SourcePath: source.Path, State: source.State, ReasonCode: source.ReasonCode}
 }

@@ -173,7 +173,7 @@ func TestDurableDeliveryConvergesAfterReceiptLossAndGatewayRestart(t *testing.T)
 	// The same transport/receipt path now carries a normalized typed Inventory
 	// snapshot into immutable evidence and a rebuildable capability projection.
 	inventorySnapshot := agentinventory.Snapshot{
-		SchemaVersion: agentinventory.SnapshotSchemaV2, HostIdentity: hostID,
+		SchemaVersion: agentinventory.SnapshotSchemaV3, HostIdentity: hostID,
 		ObservationGeneration: 1, CollectionStatus: "COMPLETE",
 		Fragments: []agentinventory.Fragment{{
 			Domain:         agentinventory.DomainVirtualization,

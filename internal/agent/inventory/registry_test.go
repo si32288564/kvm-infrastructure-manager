@@ -50,7 +50,7 @@ func TestRegistryCollectsNormalizedTypedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if envelope.ResourceGeneration != 42 || envelope.SessionGeneration != 7 || envelope.SchemaVersion != SnapshotSchemaV2 {
+	if envelope.ResourceGeneration != 42 || envelope.SessionGeneration != 7 || envelope.SchemaVersion != SnapshotSchemaV3 {
 		t.Fatalf("inventory envelope = %#v", envelope)
 	}
 }

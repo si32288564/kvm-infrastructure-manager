@@ -119,6 +119,25 @@ Host AgentのDataplane Collector/Adapterは最低限以下を正規化します�
 
 capabilityはraw `other_config`やcommand outputではなく、versioned schemaとbounded evidenceで公開します。
 
+### PCI/SR-IOV Observation, Qualification, and Allocation
+
+PCI/SR-IOV は次の authority chain を分離します。
+
+```text
+Raw PCI / SR-IOV Evidence
+  → Normalized Device Projection
+  → Immutable Qualification Evidence
+  → Current Qualification Binding
+  → Allocation State
+  → Transactional Final Admission Claim
+```
+
+Normalized Device Projection は BDF、vendor/device/subsystem、driver、device/firmware revision、NUMA node、IOMMU group、PF/VF capacity、`virtfn`/`physfn` reciprocal relationship を保持します。sysfs fixture の成功は parser/relationship contract の証拠であり、VF assignment capability の認証ではありません。
+
+Qualification Evidence は qualification/profile revision、test artifact/evaluator digest、observation generation/digest、device/firmware/driver/kernel/IOMMU/libvirt/QEMU fingerprint、validated operation set を immutable に保持します。operation set は `VF_DISCOVER`、`VF_ENABLE`、`VF_DISABLE`、`VF_ASSIGN`、`VF_DETACH`、`VF_REASSIGN`、`VF_READ_BACK` 等を個別に認証し、未認証 operation を許可しません。
+
+Current Qualification Binding は `CURRENT / STALE / UNKNOWN / REVOKED`、Allocation State は `AVAILABLE / BLOCKED / CLAIMED / UNKNOWN` を使用します。Observed が `AVAILABLE` でも binding が `CURRENT` でなければ allocation は `BLOCKED` です。firmware、driver、kernel、IOMMU topology、libvirt/QEMU profile、artifact/evaluator、observation generation/digest の変化は過去 qualification を `STALE` にします。
+
 ## 5. Eligibility and Admission
 
 Dataplane要求を含むVM placementは、既存resource shapeに以下を追加します。
@@ -140,6 +159,7 @@ Eligibility rule:
 - PMD CPU、Port、DPDK memory、VM memoryが許可されたNUMA policyを満たす。
 - requested RxQ/queue pairがPort/PMD/runtime limit内である。
 - PF/VF/representor/IOMMU ownershipが競合しない。
+- VF の Qualification Binding が current observation/profile に対して `CURRENT` で、要求 operation が validated operation set に含まれる。
 - DPDK HugePage/socket memoryとworkload HugePagesを合計して物理capacity内である。
 - restart-required未適用configurationをreadyとして扱わない。
 
@@ -154,10 +174,13 @@ PolicyはNUMA localityを`required`、`preferred`、`allow-cross-numa`として�
 - workload HugePages
 - DPDK socket memory share/reservation
 - PF/VF/representorとIOMMU ownership
+- immutable Qualification Evidence が裏付ける current VF Allocation Claim
 - Dataplane PortとRx Queue/queue pair
 - network/volume/quota/desired state
 
 一つでも失敗した場合は全claim、Desired、Job、Command intentをrollbackします。このtransaction中にOVSDB、Agent、libvirt、DPDK、PCI driverへ接続しません。
+
+VF claim の直前に、Host capability generation、device observation、PF/VF relationship、Qualification Binding、allocation policy、NUMA/IOMMU constraint、active/release-pending claim 不在を同じ PostgreSQL transaction で再読込します。
 
 ## 7. Execution
 
@@ -226,4 +249,3 @@ Developer Previewではdiscovery、eligibility、transactional claim、observati
 - [Open vSwitch DPDK Support](https://docs.openvswitch.org/en/latest/topics/dpdk/)
 - [DPDK Linux EAL Parameters](https://doc.dpdk.org/guides-25.07/linux_gsg/linux_eal_parameters.html)
 - [ETSI GS NFV-IFA 001: Acceleration Technologies](https://www.etsi.org/deliver/etsi_gs/nfv-ifa/001_099/001/01.01.01_60/gs_nfv-ifa001v010101p.pdf)
-

@@ -225,6 +225,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | DPL-007, DPL-008, DPL-009 | nfv-dataplane-resource-architecture, placement-architecture | ADR-0006, ADR-0012 | INV-DPL-003, INV-DPL-004 | AT-DPL-005, AT-DPL-006, AT-DPL-007 | Planned |
 | DPL-010, DPL-011 | nfv-dataplane-resource-architecture, execution-architecture | ADR-0007, ADR-0012 | INV-DPL-007, INV-DPL-008, INV-DPL-010 | AT-DPL-008, AT-DPL-009, FI-DPDK-003, FI-DPDK-005, XCT-DPDK-002, XCT-DPDK-003, XCT-DPDK-004 | Planned |
 | DPL-013, DPL-014, DPL-015 | nfv-dataplane-resource-architecture, failure-model | ADR-0010, ADR-0012 | INV-DPL-005, INV-DPL-009 | AT-DPL-011, AT-DPL-012, AT-DPL-013, FI-DPDK-001 | Planned |
+| DPL-016, DPL-017, DPL-018, DPL-019, DPL-020 | nfv-dataplane-resource-architecture, placement-architecture, data-persistence-architecture | ADR-0006, ADR-0010, ADR-0012, ADR-0018 | INV-DPL-011, INV-DPL-012, INV-DPL-013, INV-DPL-014 | AT-DPL-014, AT-DPL-015, AT-DPL-016, AT-DPL-017, FI-PCI-001, FI-PCI-002, FI-PCI-003, FI-PCI-004 | Implemented (Phase 1 skeleton; hardware qualification pending) |
 
 ## 14. Operations / Observability / Audit
 

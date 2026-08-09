@@ -12,7 +12,7 @@ import (
 	"sort"
 )
 
-const SnapshotSchemaV2 = "kim.inventory.snapshot/v2"
+const SnapshotSchemaV3 = "kim.inventory.snapshot/v3"
 
 type Domain string
 
@@ -116,13 +116,22 @@ type Memory struct {
 }
 
 type PCIDevice struct {
-	Address         string `json:"address"`
-	VendorID        string `json:"vendor_id"`
-	DeviceID        string `json:"device_id"`
-	IOMMUGroup      string `json:"iommu_group,omitempty"`
-	NUMANodeID      int    `json:"numa_node_id"`
-	SRIOVTotalVFs   uint32 `json:"sriov_total_vfs"`
-	SRIOVEnabledVFs uint32 `json:"sriov_enabled_vfs"`
+	Address            string       `json:"address"`
+	VendorID           string       `json:"vendor_id"`
+	DeviceID           string       `json:"device_id"`
+	SubsystemVendorID  string       `json:"subsystem_vendor_id,omitempty"`
+	SubsystemDeviceID  string       `json:"subsystem_device_id,omitempty"`
+	Driver             string       `json:"driver,omitempty"`
+	DeviceRevision     string       `json:"device_revision,omitempty"`
+	FirmwareRevision   string       `json:"firmware_revision,omitempty"`
+	IOMMUGroup         string       `json:"iommu_group,omitempty"`
+	NUMANodeID         int          `json:"numa_node_id"`
+	SRIOVTotalVFs      uint32       `json:"sriov_total_vfs"`
+	SRIOVEnabledVFs    uint32       `json:"sriov_enabled_vfs"`
+	PFAddress          string       `json:"pf_address,omitempty"`
+	VFIndex            *uint32      `json:"vf_index,omitempty"`
+	RelationshipState  Availability `json:"relationship_state"`
+	RelationshipReason string       `json:"relationship_reason,omitempty"`
 }
 
 type PCI struct {
@@ -184,7 +193,7 @@ type Snapshot struct {
 }
 
 func (snapshot *Snapshot) NormalizeAndValidate() error {
-	if snapshot.SchemaVersion != SnapshotSchemaV2 || snapshot.HostIdentity == "" || snapshot.ObservationGeneration == 0 {
+	if snapshot.SchemaVersion != SnapshotSchemaV3 || snapshot.HostIdentity == "" || snapshot.ObservationGeneration == 0 {
 		return errors.New("complete Host inventory snapshot identity is required")
 	}
 	if snapshot.CollectionStatus != "COMPLETE" && snapshot.CollectionStatus != "DEGRADED" {
@@ -340,7 +349,7 @@ func normalizeFragment(fragment *Fragment) error {
 	case DomainPCI:
 		sort.Slice(fragment.PCI.Devices, func(i, j int) bool { return fragment.PCI.Devices[i].Address < fragment.PCI.Devices[j].Address })
 		for index, device := range fragment.PCI.Devices {
-			if device.Address == "" || device.VendorID == "" || device.DeviceID == "" || device.NUMANodeID < -1 || device.SRIOVEnabledVFs > device.SRIOVTotalVFs || (index > 0 && fragment.PCI.Devices[index-1].Address == device.Address) {
+			if !validPCIAddress(device.Address) || !validPCIID(device.VendorID) || !validPCIID(device.DeviceID) || (device.SubsystemVendorID != "" && !validPCIID(device.SubsystemVendorID)) || (device.SubsystemDeviceID != "" && !validPCIID(device.SubsystemDeviceID)) || (device.DeviceRevision != "" && !validPCIRevision(device.DeviceRevision)) || device.NUMANodeID < -1 || device.SRIOVEnabledVFs > device.SRIOVTotalVFs || !device.RelationshipState.Valid() || (device.RelationshipState == AvailabilityAvailable && device.RelationshipReason != "") || (device.RelationshipState != AvailabilityAvailable && device.RelationshipReason == "") || (device.PFAddress != "" && (!validPCIAddress(device.PFAddress) || device.VFIndex == nil)) || (device.PFAddress == "" && device.VFIndex != nil) || (index > 0 && fragment.PCI.Devices[index-1].Address == device.Address) {
 				return errors.New("PCI inventory contains invalid or duplicate devices")
 			}
 		}
@@ -367,6 +376,24 @@ func normalizeFragment(fragment *Fragment) error {
 		}
 	}
 	return nil
+}
+
+func validPCIID(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 2 && hex.EncodeToString(decoded) == value
+}
+
+func validPCIRevision(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 1 && hex.EncodeToString(decoded) == value
+}
+
+func validPCIAddress(value string) bool {
+	var domain, bus, slot, function uint64
+	if _, err := fmt.Sscanf(value, "%04x:%02x:%02x.%1x", &domain, &bus, &slot, &function); err != nil {
+		return false
+	}
+	return slot <= 0x1f && function <= 7 && fmt.Sprintf("%04x:%02x:%02x.%x", domain, bus, slot, function) == value
 }
 
 func capabilityIsAvailable(capabilities []Capability, name string) bool {

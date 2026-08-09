@@ -81,7 +81,7 @@ func TestHostInventoryProjectionPostgreSQLIntegration(t *testing.T) {
 func inventoryFixture(t *testing.T, hostID string, generation uint64, status, capability string) agentinventory.Snapshot {
 	t.Helper()
 	return agentinventory.Snapshot{
-		SchemaVersion: agentinventory.SnapshotSchemaV2, HostIdentity: hostID,
+		SchemaVersion: agentinventory.SnapshotSchemaV3, HostIdentity: hostID,
 		ObservationGeneration: generation, CollectionStatus: status,
 		Fragments: []agentinventory.Fragment{{
 			Domain:         agentinventory.DomainVirtualization,

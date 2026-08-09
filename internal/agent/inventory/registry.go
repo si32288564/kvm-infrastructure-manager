@@ -102,7 +102,7 @@ func (registry *Registry) Collect(ctx context.Context, hostID string, generation
 			}
 		}
 	}
-	snapshot := Snapshot{SchemaVersion: SnapshotSchemaV2, HostIdentity: hostID, ObservationGeneration: generation, CollectionStatus: status, Fragments: fragments}
+	snapshot := Snapshot{SchemaVersion: SnapshotSchemaV3, HostIdentity: hostID, ObservationGeneration: generation, CollectionStatus: status, Fragments: fragments}
 	if err := snapshot.NormalizeAndValidate(); err != nil {
 		return Snapshot{}, err
 	}
