@@ -58,6 +58,9 @@ type result struct {
 	ProxyActiveConnections    int           `json:"proxy_active_connections"`
 	ExternalTransitionEnabled bool          `json:"external_proxy_transition_enabled"`
 	ExternalDisconnects       int           `json:"external_proxy_disconnects_observed"`
+	WarmHoldDuration          time.Duration `json:"warm_hold_duration_ns"`
+	WarmHoldProbes            int           `json:"warm_hold_live_stream_probes"`
+	PassiveDisconnects        int           `json:"passive_timeout_disconnects_observed"`
 	CurrentGenerationTwo      int           `json:"current_generation_two"`
 	PoolEmptyAcquireCount     int64         `json:"pool_empty_acquire_count"`
 	PoolAcquireDuration       time.Duration `json:"pool_acquire_duration_ns"`
@@ -91,9 +94,14 @@ func main() {
 	trustedProxyHash := flag.String("trusted-proxy-certificate-sha256", "", "pinned L7 proxy upstream leaf certificate SHA-256")
 	maximumAgentAttempts := flag.Int("maximum-agent-attempts", 0, "optional per-wave retry bound; zero is bounded only by fixture context")
 	waveTransitionDirectory := flag.String("wave-transition-directory", "", "optional external proxy transition barrier directory")
+	warmHoldDuration := flag.Duration("warm-hold-duration", 0, "hold generation one idle, then probe every stream before wave two")
+	passiveDisconnectTimeout := flag.Duration("passive-disconnect-timeout", 0, "wait for every generation one stream to be passively reset")
 	flag.Parse()
 	if *databaseURL == "" || *sessions < 1 || *admissionLimit < 1 || *tlsHandshakeLimit < 1 || *databaseConnections < 1 {
 		fatal(errors.New("database URL and positive limits are required"))
+	}
+	if *warmHoldDuration < 0 || *passiveDisconnectTimeout < 0 || (*warmHoldDuration > 0 && *passiveDisconnectTimeout > 0) {
+		fatal(errors.New("warm hold and passive disconnect durations must be non-negative and mutually exclusive"))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -170,6 +178,23 @@ func main() {
 	if warm.err != nil {
 		fatal(fmt.Errorf("warm gRPC session authority: %w", warm.err))
 	}
+	if *warmHoldDuration > 0 {
+		timer := time.NewTimer(*warmHoldDuration)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			fatal(context.Cause(ctx))
+		case <-timer.C:
+		}
+		if err := probeLiveStreams(warm.connections, runID, 1, 5*time.Second); err != nil {
+			fatal(err)
+		}
+	}
+	if *passiveDisconnectTimeout > 0 {
+		if err := observeDisconnects(warm.connections, *passiveDisconnectTimeout); err != nil {
+			fatal(err)
+		}
+	}
 	if transportProxy != nil {
 		drained := transportProxy.Drain()
 		if drained < *sessions {
@@ -235,6 +260,13 @@ func main() {
 	if *waveTransitionDirectory != "" {
 		output.ExternalTransitionEnabled = true
 		output.ExternalDisconnects = *sessions
+	}
+	if *warmHoldDuration > 0 {
+		output.WarmHoldDuration = *warmHoldDuration
+		output.WarmHoldProbes = *sessions
+	}
+	if *passiveDisconnectTimeout > 0 {
+		output.PassiveDisconnects = *sessions
 	}
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
@@ -405,6 +437,33 @@ func observeDisconnects(connections []session.TransportConnection, timeout time.
 				storeError(&firstError, fmt.Errorf("warm connection %d did not observe proxy drain", index))
 			} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 				storeError(&firstError, fmt.Errorf("warm connection %d drain observation: %w", index, err))
+			}
+		}(index, connection)
+	}
+	wait.Wait()
+	if stored := firstError.Load(); stored != nil {
+		return *stored
+	}
+	return nil
+}
+
+func probeLiveStreams(connections []session.TransportConnection, runID string, generation int, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var wait sync.WaitGroup
+	var firstError atomic.Pointer[error]
+	for index, connection := range connections {
+		wait.Add(1)
+		go func(index int, connection session.TransportConnection) {
+			defer wait.Done()
+			if connection == nil {
+				storeError(&firstError, fmt.Errorf("warm connection %d is nil", index))
+				return
+			}
+			host := fmt.Sprintf("%s-host-%06d", runID, index)
+			envelope := session.NewEnvelope(host, uint64(generation), session.StreamHeartbeat, fmt.Sprintf("idle-probe-%d", index), "v1", host+"-heartbeat", 1, []byte("idle-probe"))
+			if err := connection.Send(ctx, envelope); err != nil {
+				storeError(&firstError, fmt.Errorf("warm connection %d idle probe: %w", index, err))
 			}
 		}(index, connection)
 	}

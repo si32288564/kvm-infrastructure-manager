@@ -121,6 +121,10 @@ TLS passthrough proxy は Agent/Gateway 間の end-to-end mTLS を維持しま�
 
 HTTP/2 GOAWAY、graceful drain、idle timeout、proxy rolling restart は transport lifecycle signal です。upstream connection pool が生存していても Host session authority の生存を意味せず、GOAWAY 後に library が新しい stream/connection を作成できても同一 generation を暗黙 rearmしません。old stream の終了を transport loss として記録し、new Attempt / generation / PostgreSQL Session Grant を通過してから current session を公開します。
 
+connection idle timeout と stream idle timeout は別 policy です。HTTP/2 connection idle timeout は active stream がない connection の lifecycle を制御し、active Agent stream の expiry/authority timer として使用しません。stream idle timeout は active stream 上に request/response event がない期間を制御し、connection-level PING だけを application liveness の代替にしません。
+
+Developer Preview の Agent route は proxy stream idle timeout を無効化し、typed application Heartbeat、session health、PostgreSQL generation で liveness/authority を管理します。別 profile で stream idle timeout を有効化する場合は、maximum Heartbeat interval + jitter + proxy uncertainty より十分大きくし、timeout reset を transport loss として処理します。reset だけで resource authority を解放したり Attempt を FAILED にしたりせず、journal/read-back と new Session Grant へ進みます。
+
 ### 3.3 Ordering, Idempotency, and Backpressure
 
 transport arrival 順を resource の global ordering にしません。ordering は logical stream、resource、Command/Attempt、snapshot 等の明示 scope 内で sequence/generation により評価します。異なる stream 間の順序依存は PostgreSQL decision、correlation、verification evidence で表現します。

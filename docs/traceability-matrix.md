@@ -45,6 +45,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | AGT-009, AGT-010 | agent-protocol, phase-1-implementation-plan | ADR-0008 | INV-AGT-015, INV-AGT-016 | AT-AGT-012, AT-AGT-013, FI-GATEWAY-005 | Planned |
 | AGT-012 | agent-protocol, pki-and-trust-lifecycle-architecture, security | ADR-0008, ADR-0023 | INV-AGT-018 | AT-AGT-015 | In Progress |
 | AGT-013 | agent-protocol, execution-architecture, time-and-clock-semantics | ADR-0007, ADR-0008, ADR-0022 | INV-AGT-019 | FI-GATEWAY-006 | In Progress |
+| AGT-014 | agent-protocol, time-and-clock-semantics, phase-1-implementation-plan | ADR-0008, ADR-0022 | INV-AGT-020 | FI-GATEWAY-007 | In Progress |
 
 ## 5. Host Lifecycle / Baseline / Compliance
 

@@ -458,6 +458,7 @@
 | AGT-011 | reconnect または credential rotation 中の bounded old/new session overlap でも current session generation を一つに保ち、old session を drain/fence する | Must |
 | AGT-012 | L7 proxy が Agent mTLS を終端する profile では、Gateway は pinned proxy workload certificate と proxy が sanitize/rebuild した downstream certificate evidence の両方を検証し、untrusted peer の forwarded identity header を拒否する | Must |
 | AGT-013 | HTTP/2 GOAWAY、proxy drain、rolling restart を transport signal として扱い、同一 generation の暗黙 rearm または PostgreSQL Session Grant を迂回した stream 再開を許可しない | Must |
+| AGT-014 | L7 proxy の connection idle timeout と stream idle timeout を別 policy として扱い、connection idle を active Agent stream expiry に使用せず、stream idle reset を resource/session authority loss の証明にしない | Must |
 
 ## 3. 非機能要件
 

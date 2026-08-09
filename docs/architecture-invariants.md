@@ -102,6 +102,7 @@
 | INV-AGT-017 | 別 endpoint/connection は明示的な別要件と contract/approval なしに追加しない | AT-AGT-014 |
 | INV-AGT-018 | L7 forwarded Agent identity は pinned proxy workload identity と sanitized downstream certificate evidence が同時に成立する場合だけ受理し、header 単独を identity authority にしない | AT-AGT-015 |
 | INV-AGT-019 | GOAWAY、proxy drain、rolling restart、upstream connection pool の生存を Host session authority transition にせず、new current session は PostgreSQL Grant commit を必須とする | FI-GATEWAY-006 |
+| INV-AGT-020 | connection idle と stream idle を混同せず、active Agent stream の liveness/authority を proxy timer だけで確定しない | FI-GATEWAY-007 |
 
 ## 8. Network and Storage
 

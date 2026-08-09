@@ -27,6 +27,8 @@ type manifest struct {
 	EnvoyImageDigest                 string `json:"envoy_image_digest"`
 	EnvoyUpstreamCertificateSHA256   string `json:"envoy_upstream_certificate_sha256"`
 	AgentDownstreamCertificateSHA256 string `json:"agent_downstream_certificate_sha256"`
+	ConnectionIdleTimeout            string `json:"connection_idle_timeout"`
+	StreamIdleTimeout                string `json:"stream_idle_timeout"`
 }
 
 func main() {
@@ -35,8 +37,10 @@ func main() {
 	gatewayPort := flag.Int("gateway-port", 55451, "Gateway port visible from Envoy")
 	listenerPort := flag.Int("listener-port", 18443, "Envoy downstream Agent listener port")
 	adminPort := flag.Int("admin-port", 19000, "Envoy admin port")
+	connectionIdleTimeout := flag.Duration("connection-idle-timeout", 0, "HTTP connection idle timeout; zero disables")
+	streamIdleTimeout := flag.Duration("stream-idle-timeout", 0, "HTTP stream idle timeout; zero disables")
 	flag.Parse()
-	if *output == "" || *gatewayAddress == "" || *gatewayPort < 1 || *listenerPort < 1 || *adminPort < 1 {
+	if *output == "" || *gatewayAddress == "" || *gatewayPort < 1 || *listenerPort < 1 || *adminPort < 1 || *connectionIdleTimeout < 0 || *streamIdleTimeout < 0 {
 		fatal(errors.New("output directory, Gateway address, and positive ports are required"))
 	}
 	if err := os.MkdirAll(*output, 0o700); err != nil {
@@ -73,13 +77,14 @@ func main() {
 			fatal(err)
 		}
 	}
-	configuration := envoyConfiguration(*gatewayAddress, *gatewayPort, *listenerPort, *adminPort)
+	configuration := envoyConfiguration(*gatewayAddress, *gatewayPort, *listenerPort, *adminPort, *connectionIdleTimeout, *streamIdleTimeout)
 	if err := os.WriteFile(filepath.Join(*output, "envoy.yaml"), []byte(configuration), 0o644); err != nil {
 		fatal(err)
 	}
 	record := manifest{
 		EnvoyImage: "envoyproxy/envoy:v1.38.0", EnvoyImageDigest: "sha256:8146b97ee61a42cd216514709e4e3198af75f014974e3d9f310aef9c901fcbdf",
 		EnvoyUpstreamCertificateSHA256: envoy.sha256, AgentDownstreamCertificateSHA256: agent.sha256,
+		ConnectionIdleTimeout: connectionIdleTimeout.String(), StreamIdleTimeout: streamIdleTimeout.String(),
 	}
 	encoded, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
@@ -130,7 +135,7 @@ func issue(ca *x509.Certificate, caKey *ecdsa.PrivateKey, serial int64, commonNa
 	return issuedCertificate{certificatePEM: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), keyPEM: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), sha256: hex.EncodeToString(digest[:])}, nil
 }
 
-func envoyConfiguration(gatewayAddress string, gatewayPort, listenerPort, adminPort int) string {
+func envoyConfiguration(gatewayAddress string, gatewayPort, listenerPort, adminPort int, connectionIdleTimeout, streamIdleTimeout time.Duration) string {
 	return fmt.Sprintf(`admin:
   address:
     socket_address: { address: 0.0.0.0, port_value: %d }
@@ -162,7 +167,9 @@ static_resources:
           stat_prefix: kim_agent_l7
           codec_type: HTTP2
           drain_timeout: 1s
-          stream_idle_timeout: 0s
+          common_http_protocol_options:
+            idle_timeout: %s
+          stream_idle_timeout: %s
           forward_client_cert_details: SANITIZE_SET
           set_current_client_cert_details:
             subject: true
@@ -214,7 +221,7 @@ static_resources:
             match_typed_subject_alt_names:
             - san_type: DNS
               matcher: { exact: host.docker.internal }
-`, adminPort, listenerPort, gatewayAddress, gatewayPort)
+`, adminPort, listenerPort, connectionIdleTimeout.String(), streamIdleTimeout.String(), gatewayAddress, gatewayPort)
 }
 
 func fatal(err error) {
