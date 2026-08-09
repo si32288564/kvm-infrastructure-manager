@@ -340,6 +340,8 @@
 | OPS-008 | Agent は Command を実行する前に durable journal へ記録する | Must |
 | OPS-009 | Execution Outcome の UNKNOWN を FAILED と区別し、stale result を fencing できる | Must |
 | OPS-010 | 成功 Result だけで Operation を成功にせず、後続 observation で desired state を検証する | Must |
+| OPS-011 | Command Lease は発行時の Host authority generation と current Agent session generation の両方へ bind し、いずれかの失効後に旧 Lease を再利用できない | Must |
+| OPS-012 | 同一 Result の再送は durable receipt で冪等化し、異なる digest または stale Attempt の Result は current authority を変更しない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

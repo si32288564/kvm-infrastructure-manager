@@ -169,9 +169,9 @@ P1-A exit では、全 module を有効化しても一つの current Host sessio
 | ID | Deliverable | Dependency | Reuse / build decision | Exit evidence |
 |---|---|---|---|---|
 | P1-B01 | Resource API idempotency、Operation resource/state machine | A02 | reuse v1 validation/idempotency、new public API | AT-API-001〜003、AT-OPS-001 |
-| P1-B02 | Job/Command/Lease/Attempt/Result/Receipt schema and dispatcher | A02/A04 | adapt v1 execution tables/code | AT-EXEC-001〜007 |
-| P1-B03 | write-before-execute journal と typed read-back verification | A05/A06/B02 | reuse v1 journal/result fencing | FI-AGENT-001、FI-TRANSPORT-001/002 |
-| P1-B04 | Host Authority generation、manual arming、reconnect non-rearm | A08/B02 | generation/explicit arming/non-rearm foundation 実装済み。Command Lease issuance/dispatch gateへ接続を継続 | FI-GATEWAY-002、FI-HLC-008/013 |
+| P1-B02 | Job/Command/Lease/Attempt/Result/Receipt schema and dispatcher | A02/A04 | immutable grant/result evidence、current Lease authority、Host/session generation binding、concurrent Lease exclusion を実装。[P1-B execution validation](validation/p1-b02-execution-authority-20260809.md) を保持 | AT-EXEC-001〜009 |
+| P1-B03 | write-before-execute journal と typed read-back verification | A05/A06/B02 | fsync/atomic rename の Agent journal、durable Result receipt、typed verification foundation を実装。backend adapter read-back 接続を継続 | FI-AGENT-001、FI-TRANSPORT-001〜003 |
+| P1-B04 | Host Authority generation、manual arming、reconnect non-rearm | A08/B02 | active Command Lease を Host authority/session generation へ bind し、reconnect/fence 時に UNKNOWN 化する経路まで実装。production dispatch loop を継続 | FI-GATEWAY-002、FI-HLC-008/013、FI-TRANSPORT-003 |
 | P1-B05 | Host Profile/Baseline Assignment、read-only Compliance/Evaluator result | A07/A08 | new domain、reuse CPU policy checks | AT-HLC-004〜007 |
 | P1-B06 | explicit HostGroup/Placement Pool membership generation | A02/B05 | new domain | AT-HGR-001〜007 |
 

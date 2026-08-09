@@ -78,6 +78,8 @@
 | INV-EXEC-006 | Agent Resultの成功だけではJobを成功にせず、後続observationを必要とする | AT-EXEC-006 |
 | INV-EXEC-007 | Attemptはappend-onlyで、stale Resultは新Attemptを進めない | FI-TRANSPORT-001 |
 | INV-EXEC-008 | UNKNOWN状態で反対mutationを推測実行しない | FI-STORAGE-001 |
+| INV-EXEC-009 | active Command Lease は発行時の Host authority generation と Agent session generation の両方が current の間だけ使用できる | AT-EXEC-008、FI-TRANSPORT-003 |
+| INV-EXEC-010 | Lease expiry、Host authority fence、session generation 変更後に旧 Lease/Attempt が再び current authority へ戻らない | AT-EXEC-009、FI-TRANSPORT-003 |
 
 ## 7. Agent and Host
 

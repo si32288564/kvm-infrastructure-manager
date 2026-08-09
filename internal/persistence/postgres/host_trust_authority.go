@@ -530,12 +530,15 @@ func fenceHostOperationAuthorityTx(ctx context.Context, tx pgx.Tx, hostID, reaso
 		RETURNING authority_generation
 	`, hostID, reason).Scan(&generation)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return fenceHostCommandLeasesTx(ctx, tx, hostID, reason)
 	}
 	if err != nil {
 		return err
 	}
-	return appendHostAuthorityEventTx(ctx, tx, hostID, generation, "FENCED", reason, map[string]any{"reason": reason})
+	if err := appendHostAuthorityEventTx(ctx, tx, hostID, generation, "FENCED", reason, map[string]any{"reason": reason}); err != nil {
+		return err
+	}
+	return fenceHostCommandLeasesTx(ctx, tx, hostID, reason)
 }
 
 func appendHostAuthorityEventTx(ctx context.Context, tx pgx.Tx, hostID string, generation int64, eventType, reason string, payload map[string]any) error {

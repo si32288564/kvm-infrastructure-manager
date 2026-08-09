@@ -198,6 +198,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-005 | UNKNOWN Attemptを改変せず、verification evidenceと後続eventを追記する |
 | AT-EXEC-006 | successful Result後もJobはverifyingで、matching observation後だけsucceededになる |
 | AT-EXEC-007 | terminal Job/Attempt/Event履歴がimmutableである |
+| AT-EXEC-008 | Lease grant が current Host authority generation と Agent session generation を保持し、並行要求でも active Lease が一つだけになる |
+| AT-EXEC-009 | Lease expiry または session/Host authority fence 後の Result は stale として拒否され、明示的な再 arming 後も旧 Lease は復活しない |
 
 ## 11. Placement / Migration
 
