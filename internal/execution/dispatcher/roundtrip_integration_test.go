@@ -32,6 +32,11 @@ type resultPublisher struct {
 	envelope session.Envelope
 }
 
+type droppingPublisher struct{}
+
+func (droppingPublisher) Publish(session.Envelope) error {
+	return errors.New("simulated Agent crash before Result delivery")
+}
 func (publisher *resultPublisher) Publish(envelope session.Envelope) error {
 	receipt, err := publisher.receiver.Receive(context.Background(), envelope)
 	if err == nil {
@@ -167,6 +172,83 @@ func TestTypedHostStateMarkerRoundTripPostgreSQLIntegration(t *testing.T) {
 	}
 	if conflictState != "LEASED" {
 		t.Fatalf("partial domain decision escaped receipt conflict: %s", conflictState)
+	}
+
+	crashCommand := commandID + "-crash-resync"
+	release()
+	if err := postgres.CreateExecutionCommand(ctx, pool, postgres.ExecutionCommandRequest{JobID: crashCommand + "-job", CommandID: crashCommand, HostID: hostID, ResourceType: "HOST_AGENT_STATE", ResourceID: crashCommand + "-state", DesiredRevision: 1, CommandType: statemarker.CommandType, SchemaVersion: statemarker.SchemaVersion, TargetResourceID: crashCommand + "-marker", Payload: map[string]any{"value": "recovered"}}); err != nil {
+		t.Fatal(err)
+	}
+	crashJournalDirectory := t.TempDir()
+	crashJournal, err := executionjournal.Open(crashJournalDirectory, hostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crashModule, err := agentexecution.NewModule(hostID, crashJournal, droppingPublisher{}, digest("state-marker-verifier"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := crashModule.RegisterBackend(statemarker.Backend{Directory: markerDirectory}); err != nil {
+		t.Fatal(err)
+	}
+	crashRelease, err := registry.Register(hostID, 1, "connection-crash", moduleSink{module: crashModule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	crashDispatch := dispatcher.Dispatcher{DB: pool, Sender: registry, LeaseDuration: 50 * time.Millisecond, ExecutionTimeout: 10 * time.Millisecond}
+	if _, err := crashDispatch.Dispatch(ctx, crashCommand); err == nil {
+		t.Fatal("simulated Result delivery loss was not surfaced")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if err := postgres.ExpireCommandLease(ctx, pool, crashCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := crashJournal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var unknownCommand string
+	if err := pool.QueryRow(ctx, `SELECT command_state FROM kim.execution_commands_current WHERE command_id=$1`, crashCommand).Scan(&unknownCommand); err != nil {
+		t.Fatal(err)
+	}
+	if unknownCommand != "UNKNOWN" {
+		t.Fatalf("crashed Command state = %s", unknownCommand)
+	}
+	secondGrant, err := postgres.AdmitAgentSession(ctx, pool, postgres.AgentSessionAdmission{SessionAttemptID: hostID + "-session-2", HostID: hostID, ConnectionInstanceID: "connection-2", TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digest("agent"), CredentialBindingRevision: 1, PeerCertificateFingerprint: fingerprint, ExpectedSessionGeneration: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedJournal, err := executionjournal.Open(crashJournalDirectory, hostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restartedJournal.Close()
+	resyncPublisher := &resultPublisher{receiver: gateway.PostgresMessageReceiver{DB: pool, MaxMessageBytes: 1 << 20}}
+	restartedModule, err := agentexecution.NewModule(hostID, restartedJournal, resyncPublisher, digest("state-marker-verifier"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restartedModule.RegisterBackend(statemarker.Backend{Directory: markerDirectory}); err != nil {
+		t.Fatal(err)
+	}
+	resyncRelease, err := registry.Register(hostID, uint64(secondGrant.SessionGeneration), "connection-2", moduleSink{module: restartedModule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resyncRelease()
+	crashRelease()
+	resyncDispatch := dispatcher.Dispatcher{DB: pool, Sender: registry, LeaseDuration: time.Minute, ExecutionTimeout: 10 * time.Second}
+	if err := resyncDispatch.DispatchVerification(ctx, crashCommand); err != nil {
+		t.Fatal(err)
+	}
+	var recoveredCommand, recoveredJob, authorityState string
+	if err := pool.QueryRow(ctx, `SELECT current.command_state,job.job_state,authority.authority_state FROM kim.execution_commands_current current JOIN kim.execution_commands command USING(command_id) JOIN kim.execution_jobs job USING(job_id) JOIN kim.host_operation_authorities_current authority ON authority.host_id=command.host_id WHERE current.command_id=$1`, crashCommand).Scan(&recoveredCommand, &recoveredJob, &authorityState); err != nil {
+		t.Fatal(err)
+	}
+	if recoveredCommand != "SUCCEEDED" || recoveredJob != "SUCCEEDED" {
+		t.Fatalf("crash resync state = %s/%s", recoveredCommand, recoveredJob)
+	}
+	if authorityState != "FENCED" {
+		t.Fatalf("read-only resync implicitly rearmed Host authority: %s", authorityState)
 	}
 }
 

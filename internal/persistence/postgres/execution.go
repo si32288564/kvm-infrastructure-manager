@@ -157,6 +157,56 @@ func AcceptAgentCommandResult(ctx context.Context, db TxBeginner, envelope sessi
 	return receipt, err
 }
 
+type AgentVerificationObservationDecision struct {
+	TargetResourceID     string
+	CommandPayloadDigest string
+	Verification         CommandVerification
+}
+
+func AcceptAgentVerificationObservation(ctx context.Context, db TxBeginner, envelope session.Envelope, maxMessageBytes int, decision AgentVerificationObservationDecision) (receipt session.Receipt, returnedErr error) {
+	if err := envelope.Validate(maxMessageBytes); err != nil {
+		return session.Receipt{}, err
+	}
+	if decision.Verification.CommandID == "" || envelope.CorrelationKey != decision.Verification.CommandID || envelope.Sequence != uint64(decision.Verification.AttemptIndex) {
+		return session.Receipt{}, ErrVerificationConflict
+	}
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		existing, found, err := readAgentReceiptTx(ctx, tx, envelope.HostIdentity, envelope.MessageID)
+		if err != nil {
+			return err
+		}
+		if found {
+			if existing.ValidateFor(envelope) != nil {
+				return ErrAgentMessageEvidenceConflict
+			}
+			receipt = existing
+			return nil
+		}
+		var hostID, targetID, payloadDigest, state, sessionState, authorizationState string
+		var attempt int
+		var sessionGeneration int64
+		if err := tx.QueryRow(ctx, `
+			SELECT command.host_id,command.target_resource_id,command.payload_digest,current.command_state,current.current_attempt_index,
+			       session.session_generation,session.state,session_auth.authorization_state
+			FROM kim.execution_commands command JOIN kim.execution_commands_current current USING(command_id)
+			JOIN kim.agent_transport_sessions_current session ON session.host_id=command.host_id
+			JOIN kim.host_session_authorizations_current session_auth ON session_auth.host_id=command.host_id AND session_auth.session_generation=session.session_generation
+			WHERE command.command_id=$1
+		`, decision.Verification.CommandID).Scan(&hostID, &targetID, &payloadDigest, &state, &attempt, &sessionGeneration, &sessionState, &authorizationState); err != nil {
+			return ErrVerificationConflict
+		}
+		if hostID != envelope.HostIdentity || sessionGeneration != int64(envelope.SessionGeneration) || sessionState != "CURRENT" || authorizationState != "AUTHORIZED" || state != "UNKNOWN" || attempt != decision.Verification.AttemptIndex || targetID != decision.TargetResourceID || payloadDigest != decision.CommandPayloadDigest {
+			return ErrVerificationConflict
+		}
+		if err := RecordCommandVerification(ctx, nestedTxBeginner{tx: tx}, decision.Verification); err != nil {
+			return err
+		}
+		receipt, err = acceptAgentMessageTx(ctx, tx, envelope)
+		return err
+	})
+	return receipt, err
+}
+
 type CommandDispatchCandidate struct {
 	CommandID               string
 	HostID                  string
@@ -167,6 +217,41 @@ type CommandDispatchCandidate struct {
 	TargetResourceID        string
 	Payload                 json.RawMessage
 	PayloadDigest           string
+}
+
+type CommandVerificationCandidate struct {
+	CommandID         string
+	HostID            string
+	SessionGeneration int64
+	AttemptIndex      int
+	CommandType       string
+	SchemaVersion     string
+	TargetResourceID  string
+	Payload           json.RawMessage
+	PayloadDigest     string
+}
+
+func LoadCommandVerificationCandidate(ctx context.Context, db TxBeginner, commandID string) (CommandVerificationCandidate, error) {
+	var candidate CommandVerificationCandidate
+	var state string
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+		SELECT command.command_id,command.host_id,session.session_generation,current.current_attempt_index,
+		       command.command_type,command.schema_version,command.target_resource_id,command.payload,command.payload_digest,current.command_state
+		FROM kim.execution_commands command
+		JOIN kim.execution_commands_current current USING(command_id)
+		JOIN kim.agent_transport_sessions_current session ON session.host_id=command.host_id AND session.state='CURRENT'
+		JOIN kim.host_session_authorizations_current session_auth ON session_auth.host_id=command.host_id AND session_auth.session_generation=session.session_generation AND session_auth.authorization_state='AUTHORIZED'
+		WHERE command.command_id=$1
+	`, commandID).Scan(&candidate.CommandID, &candidate.HostID, &candidate.SessionGeneration, &candidate.AttemptIndex, &candidate.CommandType, &candidate.SchemaVersion, &candidate.TargetResourceID, &candidate.Payload, &candidate.PayloadDigest, &state)
+	})
+	if err != nil {
+		return CommandVerificationCandidate{}, fmt.Errorf("load Command verification candidate: %w", err)
+	}
+	if state != "UNKNOWN" || candidate.AttemptIndex < 1 {
+		return CommandVerificationCandidate{}, ErrCommandNotDispatchable
+	}
+	return candidate, nil
 }
 
 func LoadCommandDispatchCandidate(ctx context.Context, db TxBeginner, commandID string) (CommandDispatchCandidate, error) {

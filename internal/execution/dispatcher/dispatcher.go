@@ -60,3 +60,21 @@ func (dispatcher Dispatcher) Dispatch(ctx context.Context, commandID string) (po
 	}
 	return grant, nil
 }
+
+func (dispatcher Dispatcher) DispatchVerification(ctx context.Context, commandID string) error {
+	if dispatcher.DB == nil || dispatcher.Sender == nil || commandID == "" {
+		return errors.New("verification dispatcher dependencies are required")
+	}
+	candidate, err := postgres.LoadCommandVerificationCandidate(ctx, dispatcher.DB, commandID)
+	if err != nil {
+		return err
+	}
+	request := contract.VerificationRequest{SchemaVersion: contract.VerificationRequestSchema, CommandID: commandID, AttemptIndex: candidate.AttemptIndex, HostID: candidate.HostID, SessionGeneration: candidate.SessionGeneration, CommandType: candidate.CommandType, CommandSchemaVersion: candidate.SchemaVersion, TargetResourceID: candidate.TargetResourceID, CommandPayload: candidate.Payload, CommandPayloadDigest: candidate.PayloadDigest}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	envelope := session.NewEnvelope(candidate.HostID, uint64(candidate.SessionGeneration), session.StreamCommand, fmt.Sprintf("verification-request/%s/%d", commandID, candidate.AttemptIndex), contract.VerificationRequestSchema, "command/"+commandID, uint64(candidate.AttemptIndex), payload)
+	envelope.CorrelationKey = commandID
+	return dispatcher.Sender.Send(ctx, candidate.HostID, uint64(candidate.SessionGeneration), envelope)
+}

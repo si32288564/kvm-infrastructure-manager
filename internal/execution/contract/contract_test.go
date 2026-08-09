@@ -24,3 +24,30 @@ func TestCommandResultRoundTrip(t *testing.T) {
 		t.Fatalf("decoded Result = %#v, error = %v", decoded, err)
 	}
 }
+
+func TestVerificationContractsRoundTripAndRejectUnknownFields(t *testing.T) {
+	request := VerificationRequest{SchemaVersion: VerificationRequestSchema, CommandID: "c", AttemptIndex: 1, HostID: "h", SessionGeneration: 2, CommandType: "TYPE", CommandSchemaVersion: "schema/v1", TargetResourceID: "target", CommandPayload: json.RawMessage(`{"value":"x"}`), CommandPayloadDigest: strings.Repeat("a", 64)}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedRequest, err := DecodeVerificationRequest(payload)
+	if err != nil || decodedRequest.SessionGeneration != 2 {
+		t.Fatalf("decoded Verification Request = %#v, error = %v", decodedRequest, err)
+	}
+
+	observation := VerificationObservation{SchemaVersion: VerificationObservationSchema, CommandID: "c", AttemptIndex: 1, TargetResourceID: "target", CommandPayloadDigest: strings.Repeat("a", 64), Observation: Observation{State: "MATCHED", Generation: 1, Digest: strings.Repeat("b", 64)}, VerifierDigest: strings.Repeat("c", 64), JournalDigest: strings.Repeat("d", 64)}
+	payload, err = json.Marshal(observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedObservation, err := DecodeVerificationObservation(payload)
+	if err != nil || decodedObservation.Observation.State != "MATCHED" {
+		t.Fatalf("decoded Verification Observation = %#v, error = %v", decodedObservation, err)
+	}
+
+	withUnknown := append(payload[:len(payload)-1], []byte(`,"unexpected":true}`)...)
+	if _, err := DecodeVerificationObservation(withUnknown); err == nil {
+		t.Fatal("unknown Verification Observation field accepted")
+	}
+}

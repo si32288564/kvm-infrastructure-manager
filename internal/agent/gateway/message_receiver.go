@@ -64,6 +64,25 @@ func (receiver PostgresMessageReceiver) Receive(ctx context.Context, envelope se
 		}
 		return postgres.AcceptAgentCommandResult(ctx, receiver.DB, envelope, receiver.MaxMessageBytes, postgres.AgentCommandResultDecision{Start: start, Result: resultDecision, Verification: verification})
 	}
+	if envelope.Stream == session.StreamResync && envelope.SchemaVersion == contract.VerificationObservationSchema {
+		observation, err := contract.DecodeVerificationObservation(envelope.Payload)
+		if err != nil {
+			return session.Receipt{}, err
+		}
+		if envelope.CorrelationKey != observation.CommandID || envelope.Sequence != uint64(observation.AttemptIndex) {
+			return session.Receipt{}, errors.New("Verification Observation envelope identity mismatch")
+		}
+		state := "UNKNOWN"
+		switch observation.Observation.State {
+		case "MATCHED":
+			state = "MATCHED"
+		case "NOT_APPLIED":
+			state = "NOT_APPLIED"
+		case "CONFLICTING":
+			state = "CONFLICTING"
+		}
+		return postgres.AcceptAgentVerificationObservation(ctx, receiver.DB, envelope, receiver.MaxMessageBytes, postgres.AgentVerificationObservationDecision{TargetResourceID: observation.TargetResourceID, CommandPayloadDigest: observation.CommandPayloadDigest, Verification: postgres.CommandVerification{VerificationID: fmt.Sprintf("%s-resync-verification-%d", observation.CommandID, observation.AttemptIndex), CommandID: observation.CommandID, AttemptIndex: observation.AttemptIndex, ObservationGeneration: observation.Observation.Generation, ObservationDigest: observation.Observation.Digest, State: state, VerifierArtifactDigest: observation.VerifierDigest, Evidence: map[string]any{"journal_digest": observation.JournalDigest, "read_back": observation.Observation.Evidence}}})
+	}
 	return postgres.AcceptAgentMessage(ctx, receiver.DB, envelope, receiver.MaxMessageBytes)
 }
 

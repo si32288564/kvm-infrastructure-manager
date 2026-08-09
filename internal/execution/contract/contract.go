@@ -9,9 +9,35 @@ import (
 )
 
 const (
-	CommandLeaseSchema  = "kim.execution.command-lease/v1"
-	CommandResultSchema = "kim.execution.command-result/v1"
+	CommandLeaseSchema            = "kim.execution.command-lease/v1"
+	CommandResultSchema           = "kim.execution.command-result/v1"
+	VerificationRequestSchema     = "kim.execution.verification-request/v1"
+	VerificationObservationSchema = "kim.execution.verification-observation/v1"
 )
+
+type VerificationRequest struct {
+	SchemaVersion        string          `json:"schema_version"`
+	CommandID            string          `json:"command_id"`
+	AttemptIndex         int             `json:"attempt_index"`
+	HostID               string          `json:"host_id"`
+	SessionGeneration    int64           `json:"session_generation"`
+	CommandType          string          `json:"command_type"`
+	CommandSchemaVersion string          `json:"command_schema_version"`
+	TargetResourceID     string          `json:"target_resource_id"`
+	CommandPayload       json.RawMessage `json:"command_payload"`
+	CommandPayloadDigest string          `json:"command_payload_digest"`
+}
+
+type VerificationObservation struct {
+	SchemaVersion        string      `json:"schema_version"`
+	CommandID            string      `json:"command_id"`
+	AttemptIndex         int         `json:"attempt_index"`
+	TargetResourceID     string      `json:"target_resource_id"`
+	CommandPayloadDigest string      `json:"command_payload_digest"`
+	Observation          Observation `json:"observation"`
+	VerifierDigest       string      `json:"verifier_digest"`
+	JournalDigest        string      `json:"journal_digest"`
+}
 
 type CommandLease struct {
 	SchemaVersion           string          `json:"schema_version"`
@@ -73,6 +99,28 @@ func DecodeCommandResult(payload []byte) (CommandResult, error) {
 		return CommandResult{}, fmt.Errorf("unsupported Command outcome %q", result.Outcome)
 	}
 	return result, nil
+}
+
+func DecodeVerificationRequest(payload []byte) (VerificationRequest, error) {
+	var request VerificationRequest
+	if err := decodeStrict(payload, &request); err != nil {
+		return VerificationRequest{}, err
+	}
+	if request.SchemaVersion != VerificationRequestSchema || request.CommandID == "" || request.AttemptIndex < 1 || request.HostID == "" || request.SessionGeneration < 1 || request.CommandType == "" || request.CommandSchemaVersion == "" || request.TargetResourceID == "" || len(request.CommandPayload) == 0 || len(request.CommandPayloadDigest) != 64 {
+		return VerificationRequest{}, errors.New("incomplete typed Verification Request")
+	}
+	return request, nil
+}
+
+func DecodeVerificationObservation(payload []byte) (VerificationObservation, error) {
+	var observation VerificationObservation
+	if err := decodeStrict(payload, &observation); err != nil {
+		return VerificationObservation{}, err
+	}
+	if observation.SchemaVersion != VerificationObservationSchema || observation.CommandID == "" || observation.AttemptIndex < 1 || observation.TargetResourceID == "" || len(observation.CommandPayloadDigest) != 64 || observation.Observation.Generation < 1 || len(observation.Observation.Digest) != 64 || len(observation.VerifierDigest) != 64 || len(observation.JournalDigest) != 64 {
+		return VerificationObservation{}, errors.New("incomplete typed Verification Observation")
+	}
+	return observation, nil
 }
 
 func decodeStrict(payload []byte, target any) error {

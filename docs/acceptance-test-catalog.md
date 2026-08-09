@@ -202,6 +202,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-EXEC-009 | Lease expiry または session/Host authority fence 後の Result は stale として拒否され、明示的な再 arming 後も旧 Lease は復活しない |
 | AT-EXEC-010 | PostgreSQL Lease Grant から current Gateway session、Agent typed backend、Result receipt、matching read-back verification までの round-trip が同じ authority/session/Attempt identity で収束する |
 | AT-EXEC-011 | Gateway send failure で Lease/Attempt を未実行扱いせず、stable envelope を再送待ちまたは UNKNOWN/read-back path に保持する |
+| AT-EXEC-012 | mutation 完了後・Result 発行前に Agent が crash しても、Lease expiry で Attempt を UNKNOWN とし、restart 後の既存 journal evidence と typed read-back が MATCHED の場合だけ同じ Attempt の Verification を追記して Job を SUCCEEDED へ収束させる |
+| AT-EXEC-013 | long-running Session Runner が一つの current transport 上で inbound Command routing、priority outbound flush、durable Receipt handling を並行実行し、cancel または connection loss で bounded に停止する |
 
 ## 11. Placement / Migration
 

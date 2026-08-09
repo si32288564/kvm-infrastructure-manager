@@ -124,6 +124,24 @@ func (journal *Journal) Complete(commandID string, attemptIndex int, resultDiges
 	return recordDigest(record), nil
 }
 
+// Evidence returns existing write-before-execute evidence without creating a
+// new STARTED record. Resync cannot manufacture proof that execution began.
+func (journal *Journal) Evidence(commandID string, attemptIndex int, commandDigest, targetID string) (CommandRecord, string, error) {
+	journal.mu.Lock()
+	defer journal.mu.Unlock()
+	if journal.closed {
+		return CommandRecord{}, "", errors.New("execution journal is closed")
+	}
+	record, found := journal.records[recordKey(commandID, attemptIndex)]
+	if !found {
+		return CommandRecord{}, "", ErrNotFound
+	}
+	if record.CommandDigest != commandDigest || record.TargetID != targetID {
+		return CommandRecord{}, "", ErrConflict
+	}
+	return record, recordDigest(record), nil
+}
+
 func (journal *Journal) Records() ([]CommandRecord, error) {
 	journal.mu.Lock()
 	defer journal.mu.Unlock()

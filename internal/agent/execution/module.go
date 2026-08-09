@@ -27,6 +27,10 @@ type Backend interface {
 	Execute(context.Context, contract.CommandLease) (BackendResult, error)
 }
 
+type Observer interface {
+	Observe(context.Context, contract.VerificationRequest) (contract.Observation, error)
+}
+
 type Publisher interface {
 	Publish(session.Envelope) error
 }
@@ -68,12 +72,18 @@ func (module *Module) RegisterBackend(backend Backend) error {
 }
 
 func (module *Module) Descriptor() session.ModuleDescriptor {
-	return session.ModuleDescriptor{Name: "execution", Capabilities: []string{"kim.agent.execution/v1"}, MinSchemaVersion: contract.CommandLeaseSchema, MaxSchemaVersion: contract.CommandLeaseSchema, MessageSchemas: []string{contract.CommandLeaseSchema}}
+	return session.ModuleDescriptor{Name: "execution", Capabilities: []string{"kim.agent.execution/v1"}, MinSchemaVersion: contract.CommandLeaseSchema, MaxSchemaVersion: contract.VerificationRequestSchema, MessageSchemas: []string{contract.CommandLeaseSchema, contract.VerificationRequestSchema}}
 }
 
 func (module *Module) Handle(ctx context.Context, envelope session.Envelope) error {
-	if envelope.Stream != session.StreamCommand || envelope.SchemaVersion != contract.CommandLeaseSchema {
+	if envelope.Stream != session.StreamCommand {
 		return errors.New("execution module received unsupported logical message")
+	}
+	if envelope.SchemaVersion == contract.VerificationRequestSchema {
+		return module.handleVerification(ctx, envelope)
+	}
+	if envelope.SchemaVersion != contract.CommandLeaseSchema {
+		return errors.New("execution module received unsupported schema")
 	}
 	lease, err := contract.DecodeCommandLease(envelope.Payload)
 	if err != nil {
@@ -125,6 +135,44 @@ func (module *Module) Handle(ctx context.Context, envelope session.Envelope) err
 		fmt.Sprintf("command-result/%s/%d", lease.CommandID, lease.AttemptIndex), contract.CommandResultSchema,
 		"command/"+lease.CommandID, uint64(lease.AttemptIndex), payload)
 	message.CorrelationKey = lease.CommandID
+	return module.publisher.Publish(message)
+}
+
+func (module *Module) handleVerification(ctx context.Context, envelope session.Envelope) error {
+	request, err := contract.DecodeVerificationRequest(envelope.Payload)
+	if err != nil {
+		return err
+	}
+	if request.HostID != module.hostID || envelope.HostIdentity != module.hostID || uint64(request.SessionGeneration) != envelope.SessionGeneration || request.CommandID != envelope.CorrelationKey || uint64(request.AttemptIndex) != envelope.Sequence {
+		return errors.New("Verification Request identity mismatch")
+	}
+	digest := sha256.Sum256(request.CommandPayload)
+	if hex.EncodeToString(digest[:]) != request.CommandPayloadDigest {
+		return errors.New("Verification Request payload digest mismatch")
+	}
+	module.mu.Lock()
+	module.sealed = true
+	backend := module.backends[request.CommandType+"\x00"+request.CommandSchemaVersion]
+	module.mu.Unlock()
+	observer, ok := backend.(Observer)
+	if !ok {
+		return errors.New("typed backend does not support read-back verification")
+	}
+	_, journalDigest, err := module.journal.Evidence(request.CommandID, request.AttemptIndex, request.CommandPayloadDigest, request.TargetResourceID)
+	if err != nil {
+		return err
+	}
+	observation, err := observer.Observe(ctx, request)
+	if err != nil {
+		observation = contract.Observation{State: "UNKNOWN", Generation: int64(request.AttemptIndex), Digest: digestValue("verification_unknown"), Evidence: map[string]any{"error_class": "read_back"}}
+	}
+	response := contract.VerificationObservation{SchemaVersion: contract.VerificationObservationSchema, CommandID: request.CommandID, AttemptIndex: request.AttemptIndex, TargetResourceID: request.TargetResourceID, CommandPayloadDigest: request.CommandPayloadDigest, Observation: observation, VerifierDigest: module.verifierDigest, JournalDigest: journalDigest}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	message := session.NewEnvelope(module.hostID, envelope.SessionGeneration, session.StreamResync, fmt.Sprintf("verification-observation/%s/%d", request.CommandID, request.AttemptIndex), contract.VerificationObservationSchema, "command/"+request.CommandID, uint64(request.AttemptIndex), payload)
+	message.CorrelationKey = request.CommandID
 	return module.publisher.Publish(message)
 }
 

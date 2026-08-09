@@ -344,6 +344,8 @@
 | OPS-012 | 同一 Result の再送は durable receipt で冪等化し、異なる digest または stale Attempt の Result は current authority を変更しない | Must |
 | OPS-013 | Dispatcher は PostgreSQL で grant された current Host/session generation の Lease だけを current Agent stream へ配送し、transport send failure を未配送または未実行の証明にしない | Must |
 | OPS-014 | Agent execution module は closed typed backend registry、write-before-execute journal、typed read-back を使用し、arbitrary command/path/backend method を受理しない | Must |
+| OPS-015 | mutation 後に Result が不明となった Command は、current authorized Agent session へ immutable Command/Attempt identity を持つ read-only Verification Request を配送し、既存 journal evidence と backend read-back によって収束できる | Must |
+| OPS-016 | long-running Agent session runtime は inbound Command、outbound Result/Observation、durable Receipt を同一 current transport 上で並行処理し、一つの loop 障害を resource authority loss または未実行の証明として扱わない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

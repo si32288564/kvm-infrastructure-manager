@@ -62,10 +62,12 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-TRANSPORT-001 | ResultをLease expiry後まで遅延し、その間に新AttemptをLease | lease expiry、stale attempt | 旧Attempt UNKNOWN、新token | 2 Attempts、distinct token、stale conflict | 旧ResultによるJob進行 | current Attempt/evidenceだけで収束 |
 | FI-TRANSPORT-002 | Resultをcommit後responseだけdrop | client retry | accepted digest完全一致のみ冪等receipt | 単一Result/Attempt completion | 新Attempt/異なるResult受理 | 同じreceipt返却 |
 | FI-TRANSPORT-003 | active Command Lease 中に Agent reconnect、credential renewal、Enrollment/Compliance fence のいずれかで Host/session authority generation を失効させる | Host/session generation mismatch、Lease fence event | Lease と Attempt を UNKNOWN/fenced evidenceへ進め、旧tokenの Result/ACK を拒否 | bound/current Host authority generation、session generation、Lease/Attempt event、stale Result digest | reconnectだけでLease復活、旧Attempt ResultでJob進行、implicit rearm | current trust/readinessを再検証して明示armし、read-back後に必要ならnew Attemptを発行 |
+| FI-TRANSPORT-004 | mutation 後・Result/Receipt 前に Agent transport/process を停止し、Lease expiry 後に new session generation で再接続する | transport loss、Lease expiry、UNKNOWN Attempt | Host mutation authority を FENCED のまま維持し、current authorized session へ read-only Verification Request だけを配送 | old/new session generation、immutable Attempt、journal/observation/receipt digest、authority event | 未実行推測、same-generation rearm、blind redispatch、journal evidence の捏造 | matching typed read-back を append し、同じ Attempt の Job decision を収束 |
 | FI-AGENT-001 | journal write直後、backend実行前にAgent kill | started journal record | 新Command実行停止、read-back | journal+UNKNOWN/未適用evidence | 無条件再実行 | 未適用証明後のnew Attempt |
 | FI-AGENT-002 | backend実行後、journal完了前にAgent kill | started journal+backend state | capability unavailable | UNKNOWN、read-back evidence | rollback推測 | typed resolverで適用/未適用確定 |
 | FI-AGENT-003 | Inventory module の一つを失敗させるか、未宣言 domain/capability、top-level capability mismatch、同一 observation generation の異なる digest を送る | module/schema/provenance/evidence conflict | snapshot/projection commitを全体拒否し、last current projectionを維持 | module descriptor/artifact digest、Host/session/observation generation、payload digest、error | partial snapshotをCOMPLETE化、identityだけでcapability承認、current projection上書き | 全 module のvalid typed snapshotをnew generationで再収集しReceipt/projectionをcommit |
 | FI-AGENT-004 | CPU/NUMA/Memory/HugePages の sysfs/procfs source を欠損、permission denied、malformed、未実装、または既知の未設定にする | Adapter の read/parse outcome と capability state | permission/parse/partial は UNKNOWN + DEGRADED、未実装は UNSUPPORTED、既知の未設定は UNAVAILABLE として evidence を保持 | source path、field、state、reason code、module/schema/artifact、observation generation | 0/false への縮退、UNKNOWN の AVAILABLE 化、未設定と非対応の混同、partial topology の COMPLETE 化 | source 復旧後に new generation を再収集し immutable evidence/current projection を更新 |
+| FI-AGENT-005 | write-before-execute journal 完了後に backend mutation を実行し、Result publish 前に Agent を停止して同じ journal directory から再起動する | completed/started journal evidence、backend observed state、UNKNOWN Attempt | Verification Request の Command/Attempt/digest/target を既存 journal と照合し、typed backend read-back だけを実行 | immutable journal record/digest、backend observation、Verifier digest、Message Receipt | missing journal から STARTED を生成、反対 mutation、blind retry、過去 Attempt 改変 | MATCHED/NOT_APPLIED/CONFLICTING/UNKNOWN evidence に応じた current decision へ収束 |
 | FI-HOST-001 | active VM Hostのpower/network loss | heartbeat/BMC/Agent loss | Host ineligible、source fencing要求 | Host failure、affected resources | shared diskの別Host二重attach | source fenced+resource eligibility再評価 |
 | FI-HOST-002 | Host clockを閾値外へskew | clock health/lease anomaly | 新Lease停止 | clock alarm、Host state | wall clockのみでauthority判定 | clock正常化+capability/preflight |
 | FI-HLC-001 | bootstrap responseをdropし、同一Hostがidentity bootstrapを再送 | bootstrap retry/identity correlation | 単一pending Host identityへ収束 | credential request digest、fingerprint、audit | credential/Host row二重発行、auto enrollment | 同一identityを回収しapproval待ちを維持 |
@@ -237,8 +239,8 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | API / Control Plane | FI-CP-001..002 |
 | Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..015 |
 | Internal Message | FI-BUS-001..002 |
-| Agent Gateway / Transport | FI-GATEWAY-001..005, FI-TRANSPORT-001..002 |
-| Agent | FI-AGENT-001..002 |
+| Agent Gateway / Transport | FI-GATEWAY-001..008, FI-TRANSPORT-001..004 |
+| Agent | FI-AGENT-001..005 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..012 |
 | Host Grouping / Failure Domain | FI-HGR-001..008 |
 | Availability Responsibility / Managed Recovery | FI-AVR-001..010 |

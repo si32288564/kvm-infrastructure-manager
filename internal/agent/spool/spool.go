@@ -2,6 +2,7 @@
 package spool
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,15 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"golang.org/x/sys/unix"
 )
+
+// HandleReceipt allows Spool to serve as the Session Runner's durable receipt
+// handler. Context cancellation does not remove an unacknowledged entry.
+func (spool *Spool) HandleReceipt(ctx context.Context, receipt session.Receipt) error {
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	return spool.Acknowledge(receipt)
+}
 
 const recordVersion = "kim.agent.spool/v1"
 

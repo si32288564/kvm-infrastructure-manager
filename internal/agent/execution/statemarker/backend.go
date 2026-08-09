@@ -94,3 +94,43 @@ func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease)
 	digest := sha256.Sum256(observed)
 	return agentexecution.BackendResult{Outcome: "SUCCEEDED", Result: map[string]any{"state": "APPLIED"}, Observation: contract.Observation{State: "MATCHED", Generation: int64(lease.AttemptIndex), Digest: hex.EncodeToString(digest[:]), Evidence: map[string]any{"target_resource_id": lease.TargetResourceID, "value": desired.Value}}}, nil
 }
+
+func (backend Backend) Observe(ctx context.Context, verification contract.VerificationRequest) (contract.Observation, error) {
+	if backend.Directory == "" {
+		return contract.Observation{}, errors.New("state marker directory is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(verification.CommandPayload))
+	decoder.DisallowUnknownFields()
+	var desired request
+	if err := decoder.Decode(&desired); err != nil || desired.Value == "" || len(desired.Value) > 256 {
+		return contract.Observation{}, errors.New("invalid state marker request")
+	}
+	select {
+	case <-ctx.Done():
+		return contract.Observation{}, ctx.Err()
+	default:
+	}
+	targetDigest := sha256.Sum256([]byte(verification.TargetResourceID))
+	path := filepath.Join(backend.Directory, hex.EncodeToString(targetDigest[:])+".json")
+	observed, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return contract.Observation{State: "NOT_APPLIED", Generation: int64(verification.AttemptIndex), Digest: digestBytes([]byte("absent")), Evidence: map[string]any{"target_resource_id": verification.TargetResourceID, "state": "ABSENT"}}, nil
+	}
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	var current map[string]string
+	if err := json.Unmarshal(observed, &current); err != nil {
+		return contract.Observation{}, err
+	}
+	state := "MATCHED"
+	if current["target_resource_id"] != verification.TargetResourceID || current["value"] != desired.Value {
+		state = "CONFLICTING"
+	}
+	return contract.Observation{State: state, Generation: int64(verification.AttemptIndex), Digest: digestBytes(observed), Evidence: map[string]any{"target_resource_id": verification.TargetResourceID, "value": current["value"]}}, nil
+}
+
+func digestBytes(payload []byte) string {
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}

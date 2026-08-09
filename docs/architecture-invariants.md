@@ -82,6 +82,9 @@
 | INV-EXEC-010 | Lease expiry、Host authority fence、session generation 変更後に旧 Lease/Attempt が再び current authority へ戻らない | AT-EXEC-009、FI-TRANSPORT-003 |
 | INV-EXEC-011 | Gateway の live outbound registry は routing projection に限定し、PostgreSQL Session Grant と一致しない Host/session generation へ Command を配送しない | AT-EXEC-010、FI-GATEWAY-003 |
 | INV-EXEC-012 | Agent は compile-time registered typed backend だけを実行し、journal 完了前の Result または read-back 未確認の success を authority へ進めない | AT-EXEC-010、FI-AGENT-001/002 |
+| INV-EXEC-013 | UNKNOWN Command の resync は既存 write-before-execute journal evidence を新規生成または改変せず、current authorized session と immutable Command/Attempt/digest/target identity が一致する場合だけ read-back observation を受理する | AT-EXEC-012、FI-AGENT-005 |
+| INV-EXEC-014 | read-only verification は fenced Host mutation authority を暗黙 rearm せず、matching observation を append して current Command/Job decision だけを収束させる | AT-EXEC-012、FI-TRANSPORT-004 |
+| INV-EXEC-015 | Agent session runtime は inbound routing、outbound multiplexing、durable Receipt 処理を一つの current transport session で駆動し、transport loop termination を backend side effect の absence と解釈しない | AT-EXEC-013、FI-TRANSPORT-004 |
 
 ## 7. Agent and Host
 
