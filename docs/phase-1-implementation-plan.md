@@ -1,7 +1,7 @@
 # Phase 1 Implementation Plan
 
 - 状態: Active
-- 更新日: 2026-08-09
+- 更新日: 2026-08-10
 - Target: Developer Preview
 - Planning baseline: `3375ac2` (`docs: complete phase 0 decision gates`)
 
@@ -22,6 +22,8 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 | Q-094 | Closed | ADR-0024 で Developer Preview transport に gRPC bidirectional stream を採用。[durable delivery/resync](spikes/results/q094-durable-delivery-resync-20260809.md) を含む blocking assertion を完了。typed HTTP/2 は density-oriented future profile 候補として adapter 境界と測定結果を保持 |
 | P1-A06 | In Progress | closed typed Inventory module descriptor/registry、artifact/schema/capability allow-list、parallel fail-closed collection、canonical normalized snapshotを実装。Command handler/evidence interfaceとの統合は継続 |
 | P1-A07 | In Progress | CPU/NUMA/Memory/HugePages に加え、PCI/IOMMU/SR-IOV の raw evidence、PF/VF relationship、normalized projection、Qualification/Allocation authority skeleton を実装。Network/Storage/Virtualization と SR-IOV hardware qualification は継続 |
+| P1-B02〜B04 | Core Gate Complete / Hardening | PostgreSQL authority、durable delivery、distributed restart、UNKNOWN/read-back、remote KVM/libvirt convergence を実 process fault campaign で検証。disk-full、fsync latency、corrupt journal quarantine、STALE spool workflow、Secret Provider rotation は hardening として継続 |
+| P1-C01 | In Progress | immutable Image/Flavor revision、current lifecycle authority、checksum/signature fail-closed、canonical Flavor Placement shape を実装。[P1-C01 validation](validation/p1-c01-image-flavor-catalog-20260810.md) を保持。Image binary cache/signature provider と public API は継続 |
 
 ## 2. Implementation Principles
 
@@ -179,7 +181,7 @@ P1-A exit では、全 module を有効化しても一つの current Host sessio
 
 | ID | Deliverable | Dependency | Reuse / build decision | Exit evidence |
 |---|---|---|---|---|
-| P1-C01 | Image metadata/checksum と Flavor resource | B01 | new | AT-IMG-001/002、AT-FLV-001 |
+| P1-C01 | Image metadata/checksum と Flavor resource | B01 | immutable revision/current authority、integrity gate、lossless Placement shape を実装。Image binary cache/signature provider と public API を継続 | AT-IMG-001/002、AT-FLV-001 |
 | P1-C02 | dry eligibility/scoring/selection/transactional Final Admission | B01/B05/B06 | reuse v1 claim SQL、new fleet scheduler | AT-PLC-001〜009 |
 | P1-C03 | VLAN/IPAM/MAC/Port Claim と basic Port Binding | A07/C02 | reuse v1 NIC adapter、new authority | AT-NET-002〜007 |
 | P1-C04 | Local LVM Volume/Attachment Claim/generation/single-writer | A07/C02 | reuse v1 disk/LVM adapter、new authority | AT-STO-001〜008 |

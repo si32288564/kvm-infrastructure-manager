@@ -66,6 +66,14 @@
 | INV-PLC-006 | final admission transaction中にbackend side effectを実行しない | AT-PLC-006 |
 | INV-PLC-007 | migration capabilityはVM/resource bindingとsource/destinationの組合せで評価する | AT-PLC-007 |
 
+### Image / Flavor
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-IMG-001 | Image revision の metadata、checksum、signature evidence は immutable とし、checksum または signature verification 不一致の revision を current boot authority へ昇格しない | AT-IMG-001、AT-IMG-002 |
+| INV-FLV-001 | Flavor revision は immutable canonical shape とし、vCPU、memory、root disk、NUMA、HugePages、CPU allocation/pinning、extra specs を欠落なく Placement Request へ伝播する | AT-FLV-001 |
+| INV-FLV-002 | Image/Flavor catalog mutation は `ACTIVE` database authority でのみ行い、`RECOVERY_READ_ONLY` では fail closed とする | FI-DATA-015 |
+
 ## 6. Execution
 
 | ID | Invariant | 主な検証 |

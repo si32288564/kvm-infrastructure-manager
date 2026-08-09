@@ -167,8 +167,8 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
-| IMG-001, IMG-002, IMG-003 | architecture, security | ADR-0011 | INV-SEC-002 | AT-IMG-001, AT-IMG-002 | Planned |
-| FLV-001, FLV-002 | domain-model, placement-architecture | ADR-0006 | INV-PLC-003, INV-PLC-004 | AT-FLV-001 | Planned |
+| IMG-001, IMG-002, IMG-003 | architecture, security | ADR-0011 | INV-SEC-002, INV-IMG-001 | AT-IMG-001, AT-IMG-002 | Partial (immutable metadata/integrity authority implemented; binary cache/provider pending) |
+| FLV-001, FLV-002 | domain-model, placement-architecture | ADR-0006 | INV-PLC-003, INV-PLC-004, INV-FLV-001, INV-FLV-002 | AT-FLV-001, FI-DATA-015 | Implemented (catalog persistence and lossless Placement shape) |
 | CMP-001, CMP-002, CMP-003 | architecture, execution-architecture | ADR-0002, ADR-0007 | INV-API-001, INV-API-002, INV-API-003, INV-DATA-002, INV-EXEC-006 | AT-CMP-001, AT-API-002 | Planned |
 | CMP-010 | execution-architecture, agent-protocol | ADR-0001, ADR-0007 | INV-EXEC-002, INV-EXEC-005, INV-EXEC-012, INV-EXEC-013, INV-EXEC-026, INV-EXEC-028, INV-AGT-001, INV-AGT-008, INV-AGT-009 | AT-EXEC-012, AT-EXEC-024, AT-EXEC-026, AT-AGT-001, AT-AGT-008, AT-AGT-009, FI-LIBVIRT-001, FI-LIBVIRT-003, FI-LIBVIRT-004 | Implemented (Phase 1 typed power-state backend and remote KVM full-process qualification) |
 | CMP-004, CMP-007 | placement-architecture | ADR-0006 | INV-PLC-001, INV-PLC-004 | AT-PLC-008 | Planned |
