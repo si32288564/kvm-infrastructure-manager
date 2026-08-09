@@ -2,9 +2,12 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 	agentinventory "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/inventory"
@@ -29,6 +32,7 @@ type HostPlacementMembership struct {
 
 type PlacementAdmissionRequest struct {
 	RequestID, ProjectID, WorkloadID, ImageID, FlavorID, PoolID string
+	PCI                                                         []placement.PCIRequirement
 }
 
 type PlacementAdmission struct {
@@ -108,6 +112,7 @@ func DryEvaluatePlacement(ctx context.Context, db TxBeginner, request PlacementA
 	if err := validatePlacementAdmissionRequest(request, hostID); err != nil {
 		return placement.Evaluation{}, err
 	}
+	request.PCI = normalizePlacementPCIRequirements(request.PCI)
 	var evaluation placement.Evaluation
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
 		var err error
@@ -123,8 +128,13 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 	if err := validatePlacementAdmissionRequest(request, dry.HostID); err != nil {
 		return PlacementAdmission{}, err
 	}
+	request.PCI = normalizePlacementPCIRequirements(request.PCI)
+	pciRequirementsPayload, pciRequirementsDigest, err := placementPCIRequirementsPayload(request.PCI)
+	if err != nil {
+		return PlacementAdmission{}, err
+	}
 	var admission PlacementAdmission
-	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
@@ -132,20 +142,20 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return err
 		}
 		var existing PlacementAdmission
-		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID string
+		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest string
 		err := tx.QueryRow(ctx, `
 			SELECT decision.admission_id, claim.allocation_id, decision.request_id,
 			       decision.request_digest, decision.host_id, decision.pool_id,
 			       decision.evaluation_digest, decision.project_id, decision.workload_id,
-			       decision.image_id, decision.flavor_id
+			       decision.image_id, decision.flavor_id, decision.pci_requirements_digest
 			FROM kim.placement_admission_decisions decision
 			JOIN kim.compute_allocation_claims claim ON claim.admission_id=decision.admission_id
 			WHERE decision.request_id=$1
 		`, request.RequestID).Scan(&existing.AdmissionID, &existing.AllocationID, &existing.RequestID,
 			&existing.RequestDigest, &existing.HostID, &existing.PoolID, &existing.EvaluationDigest,
-			&existingProjectID, &existingWorkloadID, &existingImageID, &existingFlavorID)
+			&existingProjectID, &existingWorkloadID, &existingImageID, &existingFlavorID, &existingPCIDigest)
 		if err == nil {
-			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID {
+			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest {
 				return ErrPlacementConflict
 			}
 			admission = existing
@@ -192,17 +202,34 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				image_id, image_revision, flavor_id,
 				flavor_revision, flavor_shape_digest, capability_generation,
 				baseline_assignment_generation, preflight_generation,
-				compliance_generation, decision_state, explanation
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'ACCEPTED',$22)
+				compliance_generation, pci_requirements, pci_requirements_digest,
+				decision_state, explanation
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'ACCEPTED',$24)
 		`, admission.AdmissionID, request.RequestID, current.RequestDigest, current.EvaluationDigest,
 			request.ProjectID, request.WorkloadID, current.HostID, current.PoolID,
 			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration,
 			current.MembershipGeneration, current.ImageID, current.ImageRevision,
 			current.FlavorID, current.FlavorRevision, current.FlavorShapeDigest,
 			current.CapabilityGeneration, current.BaselineAssignmentGeneration,
-			current.PreflightGeneration, current.ComplianceGeneration, explanation)
+			current.PreflightGeneration, current.ComplianceGeneration,
+			pciRequirementsPayload, pciRequirementsDigest, explanation)
 		if err != nil {
 			return fmt.Errorf("record Placement admission decision: %w", err)
+		}
+		for _, required := range request.PCI {
+			claimRequest := PCIVFClaimRequest{
+				ClaimID:              "pci:" + request.RequestID + ":" + required.DeviceAddress,
+				PlacementAdmissionID: admission.AdmissionID,
+				HostID:               current.HostID, DeviceAddress: required.DeviceAddress,
+				ProjectID: request.ProjectID, WorkloadID: request.WorkloadID,
+				PolicyID: required.PolicyID, PolicyGeneration: required.PolicyGeneration,
+				HostCapabilityGeneration: current.CapabilityGeneration,
+				QualificationID:          required.QualificationID, QualificationRevision: required.QualificationRevision,
+				RequiredNUMANodeID: required.RequiredNUMANodeID, RequiredIOMMUGroup: required.RequiredIOMMUGroup,
+			}
+			if err := claimQualifiedVFTx(ctx, tx, claimRequest); err != nil {
+				return err
+			}
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO kim.compute_allocation_claims (
@@ -252,6 +279,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		NUMAPolicy: shape.NUMAPolicy, NUMANodes: shape.NUMANodes, HugePageSizeKiB: shape.HugePageSizeKiB,
 		CPUAllocation: shape.CPUAllocation, CPUPinning: shape.CPUPinning, ExtraSpecs: shape.ExtraSpecs,
 		CatalogAccessAllowed: catalogAccessAllowed,
+		PCI:                  request.PCI,
 	}
 	var authority placement.AuthoritySnapshot
 	var snapshotPayload []byte
@@ -295,6 +323,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		return placement.Evaluation{}, err
 	}
 	authority.ClaimedHugePages = map[uint64]uint64{}
+	authority.PCIDevices = map[string]placement.PCIDeviceAuthority{}
 	rows, err := queryHugePageClaims(ctx, row, hostID)
 	if err != nil {
 		return placement.Evaluation{}, err
@@ -302,11 +331,63 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 	for size, pages := range rows {
 		authority.ClaimedHugePages[size] = pages
 	}
+	for _, required := range request.PCI {
+		device, found, err := loadPCIDeviceAuthority(ctx, row, hostID, required)
+		if err != nil {
+			return placement.Evaluation{}, err
+		}
+		if found {
+			authority.PCIDevices[required.DeviceAddress] = device
+		}
+	}
 	authority.Inventory, err = agentinventory.DecodeSnapshot(snapshotPayload)
 	if err != nil {
 		return placement.Evaluation{}, err
 	}
 	return placement.Evaluate(evaluationRequest, authority)
+}
+
+func loadPCIDeviceAuthority(ctx context.Context, row QueryRower, hostID string, required placement.PCIRequirement) (placement.PCIDeviceAuthority, bool, error) {
+	var device placement.PCIDeviceAuthority
+	err := row.QueryRow(ctx, `
+		SELECT p.device_address, p.observation_generation, p.observation_state,
+		       p.relationship_state, COALESCE(p.pf_address,''), COALESCE(p.vf_index,-1),
+		       p.numa_node_id, COALESCE(p.iommu_group,''),
+		       COALESCE(b.qualification_id,''), COALESCE(b.qualification_revision,0),
+		       COALESCE(b.binding_state,''), COALESCE(b.observed_generation,0),
+		       COALESCE(b.qualification_profile_revision,''),
+		       COALESCE(a.policy_id,''), COALESCE(a.policy_generation,0),
+		       COALESCE(a.policy_state,''), COALESCE(a.qualification_profile_revision,''),
+		       COALESCE('VF_ASSIGN' = ANY(e.validated_operations),false),
+		       EXISTS (
+		           SELECT 1 FROM kim.pci_vf_allocation_claims claim
+		           WHERE claim.host_id=p.host_id AND claim.device_address=p.device_address
+		             AND claim.claim_state IN ('ACTIVE','RELEASE_PENDING')
+		       )
+		FROM kim.host_pci_device_projections p
+		LEFT JOIN kim.pci_qualification_bindings_current b
+		  ON b.host_id=p.host_id AND b.device_address=p.device_address
+		LEFT JOIN kim.pci_qualification_evidence e
+		  ON e.qualification_id=b.qualification_id AND e.qualification_revision=b.qualification_revision
+		LEFT JOIN kim.pci_allocation_policy_bindings a
+		  ON a.host_id=p.host_id AND a.policy_id=$3
+		WHERE p.host_id=$1 AND p.device_address=$2
+	`, hostID, required.DeviceAddress, required.PolicyID).Scan(
+		&device.DeviceAddress, &device.ObservationGeneration, &device.ObservationState,
+		&device.RelationshipState, &device.PFAddress, &device.VFIndex,
+		&device.NUMANodeID, &device.IOMMUGroup,
+		&device.QualificationID, &device.QualificationRevision,
+		&device.BindingState, &device.BindingGeneration, &device.BindingProfile,
+		&device.PolicyID, &device.PolicyGeneration, &device.PolicyState, &device.PolicyProfile,
+		&device.AssignmentQualified, &device.ActiveClaim,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return placement.PCIDeviceAuthority{}, false, nil
+	}
+	if err != nil {
+		return placement.PCIDeviceAuthority{}, false, err
+	}
+	return device, true, nil
 }
 
 func queryHugePageClaims(ctx context.Context, row QueryRower, hostID string) (map[uint64]uint64, error) {
@@ -346,6 +427,21 @@ func validatePlacementAdmissionRequest(request PlacementAdmissionRequest, hostID
 		return errors.New("complete Placement admission request and candidate Host are required")
 	}
 	return nil
+}
+
+func normalizePlacementPCIRequirements(requirements []placement.PCIRequirement) []placement.PCIRequirement {
+	normalized := append([]placement.PCIRequirement(nil), requirements...)
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].DeviceAddress < normalized[j].DeviceAddress })
+	return normalized
+}
+
+func placementPCIRequirementsPayload(requirements []placement.PCIRequirement) ([]byte, string, error) {
+	payload, err := json.Marshal(requirements)
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(payload)
+	return payload, hex.EncodeToString(digest[:]), nil
 }
 
 func lockPlacementCatalogRows(ctx context.Context, tx pgx.Tx, request PlacementAdmissionRequest) error {

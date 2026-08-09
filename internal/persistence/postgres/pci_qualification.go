@@ -44,6 +44,7 @@ type PCIQualificationBindingRequest struct {
 
 type PCIVFClaimRequest struct {
 	ClaimID, HostID, DeviceAddress, ProjectID, WorkloadID string
+	PlacementAdmissionID                                  string
 	PolicyID, QualificationID                             string
 	PolicyGeneration, HostCapabilityGeneration            uint64
 	QualificationRevision                                 uint64
@@ -251,19 +252,24 @@ func RefreshPCIQualificationBinding(ctx context.Context, db TxBeginner, request 
 
 func ClaimQualifiedVF(ctx context.Context, db TxBeginner, request PCIVFClaimRequest) error {
 	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, request.HostID+"/"+request.DeviceAddress); err != nil {
-			return err
-		}
-		var databaseMode string
-		if err := tx.QueryRow(ctx, `SELECT mode FROM kim.database_authority WHERE singleton`).Scan(&databaseMode); err != nil || databaseMode != "ACTIVE" {
-			return ErrPCIQualificationBlocked
-		}
-		var generation uint64
-		var projectionState, observationState, relationshipState, iommuGroup string
-		var numaNodeID int
-		var pfAddress string
-		var vfIndex int
-		if err := tx.QueryRow(ctx, `
+		return claimQualifiedVFTx(ctx, tx, request)
+	})
+}
+
+func claimQualifiedVFTx(ctx context.Context, tx pgx.Tx, request PCIVFClaimRequest) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, request.HostID+"/"+request.DeviceAddress); err != nil {
+		return err
+	}
+	var databaseMode string
+	if err := tx.QueryRow(ctx, `SELECT mode FROM kim.database_authority WHERE singleton`).Scan(&databaseMode); err != nil || databaseMode != "ACTIVE" {
+		return ErrPCIQualificationBlocked
+	}
+	var generation uint64
+	var projectionState, observationState, relationshipState, iommuGroup string
+	var numaNodeID int
+	var pfAddress string
+	var vfIndex int
+	if err := tx.QueryRow(ctx, `
 			SELECT c.observation_generation, c.projection_state,
 			       p.observation_state, p.relationship_state, p.numa_node_id,
 			       COALESCE(p.iommu_group,''), COALESCE(p.pf_address,''), COALESCE(p.vf_index,-1)
@@ -271,68 +277,67 @@ func ClaimQualifiedVF(ctx context.Context, db TxBeginner, request PCIVFClaimRequ
 			JOIN kim.host_pci_device_projections p ON p.host_id=c.host_id
 			WHERE c.host_id=$1 AND p.device_address=$2
 		`, request.HostID, request.DeviceAddress).Scan(&generation, &projectionState, &observationState, &relationshipState, &numaNodeID, &iommuGroup, &pfAddress, &vfIndex); err != nil {
-			return ErrPCIQualificationBlocked
-		}
-		if generation != request.HostCapabilityGeneration || projectionState != "CURRENT" || observationState != "AVAILABLE" || relationshipState != "AVAILABLE" || pfAddress == "" || vfIndex < 0 {
-			return ErrPCIQualificationBlocked
-		}
-		var bindingState, bindingProfile string
-		var bindingGeneration uint64
-		if err := tx.QueryRow(ctx, `
+		return ErrPCIQualificationBlocked
+	}
+	if generation != request.HostCapabilityGeneration || projectionState != "CURRENT" || observationState != "AVAILABLE" || relationshipState != "AVAILABLE" || pfAddress == "" || vfIndex < 0 {
+		return ErrPCIQualificationBlocked
+	}
+	var bindingState, bindingProfile string
+	var bindingGeneration uint64
+	if err := tx.QueryRow(ctx, `
 			SELECT binding_state, observed_generation, qualification_profile_revision
 			FROM kim.pci_qualification_bindings_current
 			WHERE host_id=$1 AND device_address=$2
 			  AND qualification_id=$3 AND qualification_revision=$4
 		`, request.HostID, request.DeviceAddress, request.QualificationID, request.QualificationRevision).Scan(&bindingState, &bindingGeneration, &bindingProfile); err != nil || bindingState != "CURRENT" || bindingGeneration != generation {
-			return ErrPCIQualificationBlocked
-		}
-		var policyState, policyProfile string
-		var policyGeneration uint64
-		if err := tx.QueryRow(ctx, `
+		return ErrPCIQualificationBlocked
+	}
+	var policyState, policyProfile string
+	var policyGeneration uint64
+	if err := tx.QueryRow(ctx, `
 			SELECT policy_state, policy_generation, qualification_profile_revision
 			FROM kim.pci_allocation_policy_bindings
 			WHERE host_id=$1 AND policy_id=$2
 		`, request.HostID, request.PolicyID).Scan(&policyState, &policyGeneration, &policyProfile); err != nil || policyState != "ALLOWED" || policyGeneration != request.PolicyGeneration || policyProfile != bindingProfile {
-			return ErrPCIQualificationBlocked
-		}
-		var assignmentQualified bool
-		if err := tx.QueryRow(ctx, `
+		return ErrPCIQualificationBlocked
+	}
+	var assignmentQualified bool
+	if err := tx.QueryRow(ctx, `
 			SELECT 'VF_ASSIGN' = ANY(validated_operations)
 			FROM kim.pci_qualification_evidence
 			WHERE qualification_id=$1 AND qualification_revision=$2 AND evidence_state='QUALIFIED'
 		`, request.QualificationID, request.QualificationRevision).Scan(&assignmentQualified); err != nil || !assignmentQualified {
-			return ErrPCIQualificationBlocked
-		}
-		if request.RequiredNUMANodeID != nil && numaNodeID != *request.RequiredNUMANodeID {
-			return ErrPCIQualificationBlocked
-		}
-		if request.RequiredIOMMUGroup != "" && iommuGroup != request.RequiredIOMMUGroup {
-			return ErrPCIQualificationBlocked
-		}
-		var active int
-		if err := tx.QueryRow(ctx, `
+		return ErrPCIQualificationBlocked
+	}
+	if request.RequiredNUMANodeID != nil && numaNodeID != *request.RequiredNUMANodeID {
+		return ErrPCIQualificationBlocked
+	}
+	if request.RequiredIOMMUGroup != "" && iommuGroup != request.RequiredIOMMUGroup {
+		return ErrPCIQualificationBlocked
+	}
+	var active int
+	if err := tx.QueryRow(ctx, `
 			SELECT count(*) FROM kim.pci_vf_allocation_claims
 			WHERE host_id=$1 AND device_address=$2 AND claim_state IN ('ACTIVE','RELEASE_PENDING')
 		`, request.HostID, request.DeviceAddress).Scan(&active); err != nil {
-			return err
-		}
-		if active != 0 {
-			return ErrPCIAllocationConflict
-		}
-		_, err := tx.Exec(ctx, `
+		return err
+	}
+	if active != 0 {
+		return ErrPCIAllocationConflict
+	}
+	_, err := tx.Exec(ctx, `
 			INSERT INTO kim.pci_vf_allocation_claims (
 				claim_id, host_id, device_address, project_id, workload_id,
 				policy_id, policy_generation, host_capability_generation,
-				qualification_id, qualification_revision, claim_state
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE')
+				qualification_id, qualification_revision, placement_admission_id, claim_state
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),'ACTIVE')
 		`, request.ClaimID, request.HostID, request.DeviceAddress, request.ProjectID, request.WorkloadID,
-			request.PolicyID, request.PolicyGeneration, request.HostCapabilityGeneration,
-			request.QualificationID, request.QualificationRevision)
-		if err != nil {
-			return fmt.Errorf("commit qualified VF claim: %w", err)
-		}
-		return nil
-	})
+		request.PolicyID, request.PolicyGeneration, request.HostCapabilityGeneration,
+		request.QualificationID, request.QualificationRevision, request.PlacementAdmissionID)
+	if err != nil {
+		return fmt.Errorf("commit qualified VF claim: %w", err)
+	}
+	return nil
 }
 
 func normalizeQualificationEvidence(evidence PCIQualificationEvidence) ([]byte, string, []string, error) {

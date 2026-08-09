@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	agentinventory "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/inventory"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
 )
@@ -42,6 +43,8 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	acceptPlacementInventory(t, ctx, pool, hostID)
+	qualificationID := hostID + "-vf-qualification"
+	qualifyPlacementVF(t, ctx, pool, hostID, qualificationID)
 	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: hostID, CapabilityGeneration: 1, BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED", ComplianceGeneration: 1, ComplianceState: "COMPLIANT"}); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +63,16 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := PlacementAdmissionRequest{RequestID: "request-" + suffix, ProjectID: "project", WorkloadID: "vm-" + suffix, ImageID: imageID, FlavorID: flavorID, PoolID: poolID}
+	numaNode := 1
+	request := PlacementAdmissionRequest{
+		RequestID: "request-" + suffix, ProjectID: "project", WorkloadID: "vm-" + suffix,
+		ImageID: imageID, FlavorID: flavorID, PoolID: poolID,
+		PCI: []placement.PCIRequirement{{
+			DeviceAddress: "0000:03:00.1", PolicyID: "vf-policy", PolicyGeneration: 1,
+			QualificationID: qualificationID, QualificationRevision: 1,
+			RequiredNUMANodeID: &numaNode, RequiredIOMMUGroup: "13",
+		}},
+	}
 	before := placementMutationCounts(t, ctx, pool)
 	dry, err := DryEvaluatePlacement(ctx, pool, request, hostID)
 	if err != nil || !dry.Eligible {
@@ -140,6 +152,12 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err != nil || replayed.AdmissionID != winner.admission.AdmissionID || replayed.AllocationID != winner.admission.AllocationID {
 		t.Fatalf("idempotent Final Admission replay = %#v/%v", replayed, err)
 	}
+	changedPCI := winner.request
+	changedPCI.PCI = append([]placement.PCIRequirement(nil), winner.request.PCI...)
+	changedPCI.PCI[0].PolicyGeneration++
+	if _, err := FinalAdmitPlacement(ctx, pool, changedPCI, winner.evaluation); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("request identity reused with different PCI requirements: %v", err)
+	}
 	var decisions, claims int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.placement_admission_decisions WHERE host_id=$1`, hostID).Scan(&decisions); err != nil {
 		t.Fatal(err)
@@ -150,17 +168,33 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if decisions != 1 || claims != 1 {
 		t.Fatalf("decision/claim count = %d/%d", decisions, claims)
 	}
+	var vfClaims int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.pci_vf_allocation_claims WHERE placement_admission_id=$1 AND claim_state='ACTIVE'`, winner.admission.AdmissionID).Scan(&vfClaims); err != nil {
+		t.Fatal(err)
+	}
+	if vfClaims != 1 {
+		t.Fatalf("atomic Placement VF claims = %d", vfClaims)
+	}
 }
 
 func acceptPlacementInventory(t *testing.T, ctx context.Context, db TxBeginner, hostID string) {
 	t.Helper()
-	threads := make([]agentinventory.CPUThread, 4)
+	threads := make([]agentinventory.CPUThread, 8)
 	for index := range threads {
 		threads[index] = agentinventory.CPUThread{LinuxID: index, CoreID: index / 2, SocketID: 0, NUMANodeID: index % 2, Online: true, Isolated: true}
 	}
 	snapshot := agentinventory.Snapshot{SchemaVersion: agentinventory.SnapshotSchemaV3, HostIdentity: hostID, ObservationGeneration: 1, CollectionStatus: "COMPLETE", Fragments: []agentinventory.Fragment{
 		{Domain: agentinventory.DomainCompute, Source: agentinventory.Source{ModuleName: "linux-compute", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("compute-module"))}, Capabilities: []agentinventory.Capability{{Name: "kim.host.cpu-topology.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}}, Compute: &agentinventory.Compute{Architecture: "x86_64", CPUModel: "fixture", Threads: threads}},
-		{Domain: agentinventory.DomainMemory, Source: agentinventory.Source{ModuleName: "linux-memory", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("memory-module"))}, Capabilities: []agentinventory.Capability{{Name: "kim.host.memory.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}}, Memory: &agentinventory.Memory{TotalBytes: 8 * 1024 * 1024 * 1024, AvailableBytes: 8 * 1024 * 1024 * 1024, NUMANodes: []agentinventory.NUMANode{{LinuxID: 0, CPUThreadIDs: []int{0, 2}, MemoryTotalBytes: 4 * 1024 * 1024 * 1024}, {LinuxID: 1, CPUThreadIDs: []int{1, 3}, MemoryTotalBytes: 4 * 1024 * 1024 * 1024}}, HugePagePools: []agentinventory.HugePagePool{{PageSizeBytes: 1024 * 1024 * 1024, TotalPages: 4, FreePages: 4}}}},
+		{Domain: agentinventory.DomainMemory, Source: agentinventory.Source{ModuleName: "linux-memory", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("memory-module"))}, Capabilities: []agentinventory.Capability{{Name: "kim.host.memory.v1", Version: "v1", State: agentinventory.AvailabilityAvailable}}, Memory: &agentinventory.Memory{TotalBytes: 16 * 1024 * 1024 * 1024, AvailableBytes: 16 * 1024 * 1024 * 1024, NUMANodes: []agentinventory.NUMANode{{LinuxID: 0, CPUThreadIDs: []int{0, 2, 4, 6}, MemoryTotalBytes: 8 * 1024 * 1024 * 1024}, {LinuxID: 1, CPUThreadIDs: []int{1, 3, 5, 7}, MemoryTotalBytes: 8 * 1024 * 1024 * 1024}}, HugePagePools: []agentinventory.HugePagePool{{PageSizeBytes: 1024 * 1024 * 1024, TotalPages: 8, FreePages: 8}}}},
+		{Domain: agentinventory.DomainPCI, Source: agentinventory.Source{ModuleName: "linux-pci", ModuleVersion: "v1", SchemaVersion: "v1", ArtifactDigest: digestBytes([]byte("pci-module"))}, Capabilities: []agentinventory.Capability{
+			{Name: "kim.host.iommu-observation.v1", Version: "v1", State: agentinventory.AvailabilityAvailable},
+			{Name: "kim.host.pci-numa-locality.v1", Version: "v1", State: agentinventory.AvailabilityAvailable},
+			{Name: "kim.host.pci-observation.v1", Version: "v1", State: agentinventory.AvailabilityAvailable},
+			{Name: "kim.host.sriov-observation.v1", Version: "v1", State: agentinventory.AvailabilityAvailable},
+		}, PCI: &agentinventory.PCI{IOMMUEnabled: true, Devices: []agentinventory.PCIDevice{
+			{Address: "0000:03:00.0", VendorID: "8086", DeviceID: "10fb", Driver: "ixgbe", NUMANodeID: 1, IOMMUGroup: "12", SRIOVTotalVFs: 2, SRIOVEnabledVFs: 1, RelationshipState: agentinventory.AvailabilityAvailable},
+			{Address: "0000:03:00.1", VendorID: "8086", DeviceID: "10ed", Driver: "ixgbevf", NUMANodeID: 1, IOMMUGroup: "13", PFAddress: "0000:03:00.0", VFIndex: func() *uint32 { value := uint32(0); return &value }(), RelationshipState: agentinventory.AvailabilityAvailable},
+		}}},
 	}}
 	envelope, err := agentinventory.NewEnvelope(snapshot, 1, hostID+"-inventory-1")
 	if err != nil {
@@ -171,11 +205,40 @@ func acceptPlacementInventory(t *testing.T, ctx context.Context, db TxBeginner, 
 	}
 }
 
-func placementMutationCounts(t *testing.T, ctx context.Context, db QueryRower) string {
+func qualifyPlacementVF(t *testing.T, ctx context.Context, db *pgxpool.Pool, hostID, qualificationID string) {
 	t.Helper()
-	var decisions, claims int
-	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.placement_admission_decisions), (SELECT count(*) FROM kim.compute_allocation_claims)`).Scan(&decisions, &claims); err != nil {
+	var observationDigest string
+	if err := db.QueryRow(ctx, `SELECT observation_digest FROM kim.host_pci_device_projections WHERE host_id=$1 AND device_address='0000:03:00.1'`, hostID).Scan(&observationDigest); err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf("%d/%d", decisions, claims)
+	fingerprint := map[string]string{"device": "8086:10ed", "driver": "ixgbevf/6", "firmware": "A", "kernel": "K1", "iommu": "strict", "libvirt_qemu": "L1/Q1"}
+	if err := RecordPCIQualificationEvidence(ctx, db, PCIQualificationEvidence{
+		QualificationID: qualificationID, Revision: 1, HostID: hostID, DeviceAddress: "0000:03:00.1",
+		ProfileRevision: "sriov-profile/v1", TestArtifactDigest: digestBytes([]byte("test-artifact")),
+		EvaluatorDigest: digestBytes([]byte("evaluator")), ObservedGeneration: 1,
+		ObservationDigest: observationDigest, BindingFingerprint: fingerprint,
+		ValidatedOperations: []string{"VF_DISCOVER", "VF_ASSIGN", "VF_READ_BACK"}, EvidenceState: "QUALIFIED",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := RefreshPCIQualificationBinding(ctx, db, PCIQualificationBindingRequest{
+		HostID: hostID, DeviceAddress: "0000:03:00.1", QualificationID: qualificationID,
+		Revision: 1, CurrentGeneration: 1, CurrentObservationDigest: observationDigest,
+		CurrentBindingFingerprint: fingerprint,
+	})
+	if err != nil || state != "CURRENT" {
+		t.Fatalf("PCI qualification binding = %s/%v", state, err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO kim.pci_allocation_policy_bindings (host_id, policy_id, policy_generation, policy_state, qualification_profile_revision) VALUES ($1,'vf-policy',1,'ALLOWED','sriov-profile/v1')`, hostID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func placementMutationCounts(t *testing.T, ctx context.Context, db QueryRower) string {
+	t.Helper()
+	var decisions, claims, vfClaims int
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.placement_admission_decisions), (SELECT count(*) FROM kim.compute_allocation_claims), (SELECT count(*) FROM kim.pci_vf_allocation_claims)`).Scan(&decisions, &claims, &vfClaims); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%d/%d/%d", decisions, claims, vfClaims)
 }

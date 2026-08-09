@@ -23,6 +23,25 @@ type Request struct {
 	CPUPinning                                                  bool
 	CatalogAccessAllowed                                        bool
 	ExtraSpecs                                                  map[string]string
+	PCI                                                         []PCIRequirement
+}
+
+type PCIRequirement struct {
+	DeviceAddress, PolicyID, QualificationID, RequiredIOMMUGroup string
+	PolicyGeneration, QualificationRevision                      uint64
+	RequiredNUMANodeID                                           *int
+}
+
+type PCIDeviceAuthority struct {
+	DeviceAddress, ObservationState, RelationshipState, PFAddress, IOMMUGroup string
+	NUMANodeID, VFIndex                                                       int
+	ObservationGeneration                                                     uint64
+	QualificationID, BindingState, BindingProfile                             string
+	QualificationRevision, BindingGeneration                                  uint64
+	PolicyID, PolicyState, PolicyProfile                                      string
+	PolicyGeneration                                                          uint64
+	AssignmentQualified                                                       bool
+	ActiveClaim                                                               bool
 }
 
 type AuthoritySnapshot struct {
@@ -39,6 +58,7 @@ type AuthoritySnapshot struct {
 	Inventory                                                               agentinventory.Snapshot
 	ClaimedVCPUs, ClaimedMemoryMiB                                          uint64
 	ClaimedHugePages                                                        map[uint64]uint64
+	PCIDevices                                                              map[string]PCIDeviceAuthority
 }
 
 type RequiredClaim struct {
@@ -67,6 +87,13 @@ type Evaluation struct {
 }
 
 func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) {
+	request.PCI = append([]PCIRequirement(nil), request.PCI...)
+	sort.Slice(request.PCI, func(i, j int) bool { return request.PCI[i].DeviceAddress < request.PCI[j].DeviceAddress })
+	for index, required := range request.PCI {
+		if required.DeviceAddress == "" || required.PolicyID == "" || required.PolicyGeneration == 0 || required.QualificationID == "" || required.QualificationRevision == 0 || (index > 0 && request.PCI[index-1].DeviceAddress == required.DeviceAddress) {
+			return Evaluation{}, fmt.Errorf("invalid or duplicate PCI requirement for device %q", required.DeviceAddress)
+		}
+	}
 	requestDigest, err := digest(request)
 	if err != nil {
 		return Evaluation{}, err
@@ -97,6 +124,20 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 	addReason(authority.ReadinessCapabilityGeneration != authority.CapabilityGeneration, "readiness_capability_generation_stale")
 	addReason(authority.ReadinessState != "READY" || authority.PreflightState != "PASSED" || authority.ComplianceState != "COMPLIANT", "host_readiness_not_eligible")
 	addReason(!request.CatalogAccessAllowed, "catalog_access_denied")
+	for _, required := range request.PCI {
+		device, present := authority.PCIDevices[required.DeviceAddress]
+		prefix := "pci:" + required.DeviceAddress + ":"
+		addReason(!present, prefix+"observation_missing")
+		if !present {
+			continue
+		}
+		addReason(device.ObservationGeneration != authority.CapabilityGeneration || device.ObservationState != "AVAILABLE" || device.RelationshipState != "AVAILABLE" || device.PFAddress == "" || device.VFIndex < 0, prefix+"observation_not_eligible")
+		addReason(device.BindingState != "CURRENT" || device.BindingGeneration != authority.CapabilityGeneration || device.QualificationID != required.QualificationID || device.QualificationRevision != required.QualificationRevision || !device.AssignmentQualified, prefix+"qualification_not_current")
+		addReason(device.PolicyID != required.PolicyID || device.PolicyState != "ALLOWED" || device.PolicyGeneration != required.PolicyGeneration || device.PolicyProfile != device.BindingProfile, prefix+"policy_not_allowed")
+		addReason(required.RequiredNUMANodeID != nil && device.NUMANodeID != *required.RequiredNUMANodeID, prefix+"numa_mismatch")
+		addReason(required.RequiredIOMMUGroup != "" && device.IOMMUGroup != required.RequiredIOMMUGroup, prefix+"iommu_group_mismatch")
+		addReason(device.ActiveClaim, prefix+"already_claimed")
+	}
 
 	capacity, capacityReasons := extractCapacity(authority.Inventory, request)
 	evaluation.ReasonCodes = append(evaluation.ReasonCodes, capacityReasons...)

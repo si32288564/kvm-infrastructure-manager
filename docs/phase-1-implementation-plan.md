@@ -24,7 +24,7 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 | P1-A07 | In Progress | CPU/NUMA/Memory/HugePages に加え、PCI/IOMMU/SR-IOV の raw evidence、PF/VF relationship、normalized projection、Qualification/Allocation authority skeleton を実装。Network/Storage/Virtualization と SR-IOV hardware qualification は継続 |
 | P1-B02〜B04 | Core Gate Complete / Hardening | PostgreSQL authority、durable delivery、distributed restart、UNKNOWN/read-back、remote KVM/libvirt convergence を実 process fault campaign で検証。disk-full、fsync latency、corrupt journal quarantine、STALE spool workflow、Secret Provider rotation は hardening として継続 |
 | P1-C01 | In Progress | immutable Image/Flavor revision、current lifecycle authority、checksum/signature fail-closed、canonical Flavor Placement shape を実装。[P1-C01 validation](validation/p1-c01-image-flavor-catalog-20260810.md) を保持。Image binary cache/signature provider と public API は継続 |
-| P1-C02 | In Progress | side-effect-free evaluator、eligible-only scoring/selection、current Pool membership、Compute/Memory/HugePages ledger、transactional Final Admission foundation を実装。[P1-C02 validation](validation/p1-c02-placement-admission-foundation-20260810.md) を保持。PCI/Network/Storage/Quota claim と Job/Operation atomic commit は継続 |
+| P1-C02 | In Progress | side-effect-free evaluator、eligible-only scoring/selection、current Pool membership、Compute/Memory/HugePages/qualified PCI VF ledger、transactional Final Admission foundation を実装。[P1-C02 validation](validation/p1-c02-placement-admission-foundation-20260810.md) を保持。Network/Storage/Quota claim と Job/Operation atomic commit は継続 |
 
 ## 2. Implementation Principles
 
@@ -183,7 +183,7 @@ P1-A exit では、全 module を有効化しても一つの current Host sessio
 | ID | Deliverable | Dependency | Reuse / build decision | Exit evidence |
 |---|---|---|---|---|
 | P1-C01 | Image metadata/checksum と Flavor resource | B01 | immutable revision/current authority、integrity gate、lossless Placement shape を実装。Image binary cache/signature provider と public API を継続 | AT-IMG-001/002、AT-FLV-001 |
-| P1-C02 | dry eligibility/scoring/selection/transactional Final Admission | B01/B05/B06 | pure evaluator、eligible-only rank、current Pool membership、Compute/Memory/HugePages reservation の同一 transaction commit を実装。PCI/Network/Storage/Quota と Job/Operation 統合を継続 | AT-PLC-001〜009 |
+| P1-C02 | dry eligibility/scoring/selection/transactional Final Admission | B01/B05/B06 | pure evaluator、eligible-only rank、current Pool membership、Compute/Memory/HugePages/qualified PCI VF reservation の同一 transaction commit を実装。Network/Storage/Quota と Job/Operation 統合を継続 | AT-PLC-001〜009 |
 | P1-C03 | VLAN/IPAM/MAC/Port Claim と basic Port Binding | A07/C02 | reuse v1 NIC adapter、new authority | AT-NET-002〜007 |
 | P1-C04 | Local LVM Volume/Attachment Claim/generation/single-writer | A07/C02 | reuse v1 disk/LVM adapter、new authority | AT-STO-001〜008 |
 | P1-C05 | VM create/delete with typed libvirt module | C01〜C04/B02 | reuse v1 libvirt adapter、new lifecycle | AT-CMP-001〜003 |
