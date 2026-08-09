@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-transport test-postgres-integration vet
+.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-reconnect-storm test-agent-transport test-postgres-integration vet
 
 PROTOC_GEN_GO_VERSION := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
@@ -35,6 +35,10 @@ scale-agent-transport:
 	$(GO) run ./cmd/kim-agent-transport-scale -candidate http2 -sessions 1000
 	$(GO) run ./cmd/kim-agent-transport-scale -mode hol -candidate grpc
 	$(GO) run ./cmd/kim-agent-transport-scale -mode hol -candidate http2
+
+test-agent-reconnect-storm:
+	test -n "$(KIM_POSTGRES_TEST_URL)"
+	$(GO) run ./cmd/kim-agent-reconnect-storm -database-url "$(KIM_POSTGRES_TEST_URL)"
 
 test-postgres-integration:
 	test -n "$(KIM_POSTGRES_TEST_URL)"
