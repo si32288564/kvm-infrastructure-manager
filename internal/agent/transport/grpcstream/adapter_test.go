@@ -65,6 +65,12 @@ func TestGRPCAdapterReceiveCancellation(t *testing.T) {
 	contracttest.ExerciseReceiveCancellation(t, adapter)
 }
 
+func TestGRPCAdapterPersistentReceiveLoop(t *testing.T) {
+	server, _, adapter := newGRPCFixture(t)
+	defer server.Stop()
+	contracttest.ExercisePersistentReceiveLoop(t, adapter)
+}
+
 func TestGRPCAdapterDetectsDisconnect(t *testing.T) {
 	server, _, adapter := newGRPCFixture(t)
 	contracttest.ExerciseDisconnect(t, adapter, server.Stop)

@@ -101,6 +101,8 @@ Q-094 は blocking assertions、operational profile、dependency/security review
 - module 登録数と connection open 回数を分離する `Session Manager` / `TransportAdapter` 境界
 - stale session message を module routing 前に拒否する fixture
 
-gRPC/typed HTTP/2 candidate adapter、real mTLS、basic disconnect detection まで実装済みです。proxy/LB、reconnect/handoff storm、durable spool/resync、HOL/scale measurement は未完了です。fixture foundation の pass は Q-094 close または candidate 採用を意味しません。
+gRPC/typed HTTP/2 candidate adapter、real mTLS、basic disconnect detection、per-session persistent receive loop、1,000-session open/idle/echo/reconnect fixture まで実装済みです。caller 単位の `Receive` timeout は transport session を破棄せず、同一 session を継続利用できます。proxy/LB、credential handoff、durable spool/resync、bulk saturation 下の HOL measurement、Gateway admission/backoff は未完了です。fixture foundation の pass は Q-094 close または candidate 採用を意味しません。
 
 初回の real mTLS adapter、functional contract、loopback benchmark は [Q-094 Loopback Smoke Result](results/q094-loopback-20260809.md) に記録しました。両候補が基本 contract を通過し、この限定条件では gRPC が低い round-trip latency を示しましたが、proxy/HOL/reconnect storm/spool 未評価のため Decision は `HOLD` です。
+
+per-message receive goroutine を除去した後の 1,000-session 測定は [Q-094 1,000-session Scale Result](results/q094-scale-20260809.md) に記録しました。typed HTTP/2 は現 fixture で少ない goroutine/heap と低い concurrent echo latency を示し、gRPC は protocol/運用面の provisional leader に留まります。性能上の一方的優位は確認できないため Decision は引き続き `HOLD` です。

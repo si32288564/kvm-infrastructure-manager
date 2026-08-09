@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol test test-agent-transport test-postgres-integration vet
+.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-transport test-postgres-integration vet
 
 PROTOC_GEN_GO_VERSION := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
@@ -29,6 +29,10 @@ test-agent-transport:
 
 bench-agent-transport:
 	$(GO) test -run '^$$' -bench 'Benchmark(GRPC|HTTP2)RoundTrip' -benchmem -benchtime=500ms -count=3 ./internal/agent/transport/grpcstream ./internal/agent/transport/http2stream
+
+scale-agent-transport:
+	$(GO) run ./cmd/kim-agent-transport-scale -candidate grpc -sessions 1000
+	$(GO) run ./cmd/kim-agent-transport-scale -candidate http2 -sessions 1000
 
 test-postgres-integration:
 	test -n "$(KIM_POSTGRES_TEST_URL)"

@@ -51,13 +51,28 @@ func (adapter *Adapter) Open(ctx context.Context, handshake session.Handshake) (
 		_ = clientConnection.Close()
 		return nil, fmt.Errorf("send gRPC Agent hello: %w", err)
 	}
-	return &connection{clientConnection: clientConnection, stream: stream, cancel: cancel}, nil
+	connection := &connection{
+		clientConnection: clientConnection,
+		stream:           stream,
+		cancel:           cancel,
+		done:             streamContext.Done(),
+		receiveResults:   make(chan receiveResult, 1),
+	}
+	go connection.receiveLoop()
+	return connection, nil
+}
+
+type receiveResult struct {
+	envelope session.Envelope
+	err      error
 }
 
 type connection struct {
 	clientConnection *grpc.ClientConn
 	stream           grpc.BidiStreamingClient[agentprotocolv1.Frame, agentprotocolv1.Frame]
 	cancel           context.CancelFunc
+	done             <-chan struct{}
+	receiveResults   chan receiveResult
 	sendMu           sync.Mutex
 	receiveMu        sync.Mutex
 	closeOnce        sync.Once
@@ -77,30 +92,38 @@ func (connection *connection) Send(_ context.Context, envelope session.Envelope)
 func (connection *connection) Receive(ctx context.Context) (session.Envelope, error) {
 	connection.receiveMu.Lock()
 	defer connection.receiveMu.Unlock()
-	type receiveResult struct {
-		frame *agentprotocolv1.Frame
-		err   error
-	}
-	resultChannel := make(chan receiveResult, 1)
-	go func() {
-		frame, err := connection.stream.Recv()
-		resultChannel <- receiveResult{frame: frame, err: err}
-	}()
-	var result receiveResult
 	select {
 	case <-ctx.Done():
-		connection.cancel()
-		<-resultChannel
 		return session.Envelope{}, context.Cause(ctx)
-	case result = <-resultChannel:
+	case result, ok := <-connection.receiveResults:
+		if !ok {
+			return session.Envelope{}, io.EOF
+		}
+		return result.envelope, result.err
 	}
-	if result.err != nil {
-		return session.Envelope{}, fmt.Errorf("receive gRPC Agent envelope: %w", result.err)
+}
+
+func (connection *connection) receiveLoop() {
+	defer close(connection.receiveResults)
+	for {
+		frame, err := connection.stream.Recv()
+		result := receiveResult{}
+		if err != nil {
+			result.err = fmt.Errorf("receive gRPC Agent envelope: %w", err)
+		} else if frame.GetEnvelope() == nil {
+			result.err = errors.New("gRPC Agent stream received non-envelope frame")
+		} else {
+			result.envelope, result.err = wire.EnvelopeFromProto(frame.GetEnvelope())
+		}
+		select {
+		case connection.receiveResults <- result:
+		case <-connection.done:
+			return
+		}
+		if result.err != nil {
+			return
+		}
 	}
-	if result.frame.GetEnvelope() == nil {
-		return session.Envelope{}, errors.New("gRPC Agent stream received non-envelope frame")
-	}
-	return wire.EnvelopeFromProto(result.frame.GetEnvelope())
 }
 
 func (connection *connection) Close() error {

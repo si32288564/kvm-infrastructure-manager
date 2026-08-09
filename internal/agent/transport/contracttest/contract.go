@@ -3,6 +3,7 @@ package contracttest
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -41,8 +42,38 @@ func ExerciseEcho(t testing.TB, adapter session.TransportAdapter) {
 	}
 }
 
-// ExerciseReceiveCancellation verifies that a bounded receive cancels and tears
-// down the candidate stream rather than leaking a blocked receive goroutine.
+// ExercisePersistentReceiveLoop verifies that repeated caller timeouts do not
+// create one blocked transport goroutine per Receive call.
+func ExercisePersistentReceiveLoop(t testing.TB, adapter session.TransportAdapter) {
+	t.Helper()
+	connection, err := adapter.Open(context.Background(), session.Handshake{
+		HostIdentity:      "host-receive-loop",
+		SessionGeneration: 1,
+		ProtocolVersion:   "v1",
+	})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = connection.Close() }()
+
+	runtime.GC()
+	baseline := runtime.NumGoroutine()
+	for index := 0; index < 100; index++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		_, receiveErr := connection.Receive(ctx)
+		cancel()
+		if !errors.Is(receiveErr, context.DeadlineExceeded) {
+			t.Fatalf("Receive %d error = %v, want deadline exceeded", index, receiveErr)
+		}
+	}
+	runtime.GC()
+	if growth := runtime.NumGoroutine() - baseline; growth > 4 {
+		t.Fatalf("goroutine growth = %d after repeated Receive timeouts, want <= 4", growth)
+	}
+}
+
+// ExerciseReceiveCancellation verifies that a bounded Receive cancels only the
+// caller wait. The persistent session receive loop remains usable afterwards.
 func ExerciseReceiveCancellation(t testing.TB, adapter session.TransportAdapter) {
 	t.Helper()
 	openContext, cancelOpen := context.WithTimeout(context.Background(), 5*time.Second)
@@ -59,6 +90,19 @@ func ExerciseReceiveCancellation(t testing.TB, adapter session.TransportAdapter)
 	defer cancelReceive()
 	if _, err := connection.Receive(receiveContext); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Receive error = %v, want deadline exceeded", err)
+	}
+	envelope := session.NewEnvelope("host-cancel", 1, session.StreamResult, "result-after-timeout", "v1", "attempt-1", 1, []byte("result"))
+	reuseContext, cancelReuse := context.WithTimeout(context.Background(), time.Second)
+	defer cancelReuse()
+	if err := connection.Send(reuseContext, envelope); err != nil {
+		t.Fatalf("Send after Receive timeout: %v", err)
+	}
+	received, err := connection.Receive(reuseContext)
+	if err != nil {
+		t.Fatalf("Receive after timeout: %v", err)
+	}
+	if received.MessageID != envelope.MessageID {
+		t.Fatalf("MessageID after timeout = %q, want %q", received.MessageID, envelope.MessageID)
 	}
 	if err := connection.Close(); err != nil {
 		t.Errorf("Close: %v", err)

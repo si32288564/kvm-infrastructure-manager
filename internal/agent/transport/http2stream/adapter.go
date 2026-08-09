@@ -54,6 +54,10 @@ func (adapter *Adapter) Open(ctx context.Context, handshake session.Handshake) (
 		TLSClientConfig:   adapter.TLSConfig.Clone(),
 		ForceAttemptHTTP2: true,
 		MaxConnsPerHost:   1,
+		// One transport owns exactly one long-lived Agent session. Reusing the
+		// underlying connection across session generations would blur handoff
+		// evidence and can retain the fenced generation during reconnect storms.
+		DisableKeepAlives: true,
 	}
 	client := &http.Client{Transport: transport}
 	type responseResult struct {
@@ -90,26 +94,39 @@ func (adapter *Adapter) Open(ctx context.Context, handshake session.Handshake) (
 			_ = result.response.Body.Close()
 			return nil, fmt.Errorf("HTTP/2 Agent stream response is %s over %s", result.response.Status, result.response.Proto)
 		}
-		return &connection{
-			requestWriter: requestWriter,
-			responseBody:  result.response.Body,
-			transport:     transport,
-			cancel:        cancel,
-			maxBytes:      adapter.MaxMessageBytes,
-		}, nil
+		connection := &connection{
+			requestWriter:  requestWriter,
+			responseBody:   result.response.Body,
+			transport:      transport,
+			cancel:         cancel,
+			done:           requestContext.Done(),
+			maxBytes:       adapter.MaxMessageBytes,
+			receiveResults: make(chan receiveResult, 1),
+			receiveDone:    make(chan struct{}),
+		}
+		go connection.receiveLoop()
+		return connection, nil
 	}
 }
 
+type receiveResult struct {
+	envelope session.Envelope
+	err      error
+}
+
 type connection struct {
-	requestWriter *io.PipeWriter
-	responseBody  io.ReadCloser
-	transport     *http.Transport
-	cancel        context.CancelFunc
-	maxBytes      int
-	sendMu        sync.Mutex
-	receiveMu     sync.Mutex
-	closeOnce     sync.Once
-	closeErr      error
+	requestWriter  *io.PipeWriter
+	responseBody   io.ReadCloser
+	transport      *http.Transport
+	cancel         context.CancelFunc
+	done           <-chan struct{}
+	maxBytes       int
+	receiveResults chan receiveResult
+	receiveDone    chan struct{}
+	sendMu         sync.Mutex
+	receiveMu      sync.Mutex
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 func (connection *connection) Send(_ context.Context, envelope session.Envelope) error {
@@ -125,31 +142,39 @@ func (connection *connection) Send(_ context.Context, envelope session.Envelope)
 func (connection *connection) Receive(ctx context.Context) (session.Envelope, error) {
 	connection.receiveMu.Lock()
 	defer connection.receiveMu.Unlock()
-	type receiveResult struct {
-		frame *agentprotocolv1.Frame
-		err   error
-	}
-	resultChannel := make(chan receiveResult, 1)
-	go func() {
-		frame, err := wire.ReadFrame(connection.responseBody, connection.maxBytes)
-		resultChannel <- receiveResult{frame: frame, err: err}
-	}()
-	var result receiveResult
 	select {
 	case <-ctx.Done():
-		connection.cancel()
-		_ = connection.responseBody.Close()
-		<-resultChannel
 		return session.Envelope{}, context.Cause(ctx)
-	case result = <-resultChannel:
+	case result, ok := <-connection.receiveResults:
+		if !ok {
+			return session.Envelope{}, io.EOF
+		}
+		return result.envelope, result.err
 	}
-	if result.err != nil {
-		return session.Envelope{}, fmt.Errorf("receive HTTP/2 Agent envelope: %w", result.err)
+}
+
+func (connection *connection) receiveLoop() {
+	defer close(connection.receiveDone)
+	defer close(connection.receiveResults)
+	for {
+		frame, err := wire.ReadFrame(connection.responseBody, connection.maxBytes)
+		result := receiveResult{}
+		if err != nil {
+			result.err = fmt.Errorf("receive HTTP/2 Agent envelope: %w", err)
+		} else if frame.GetEnvelope() == nil {
+			result.err = errors.New("HTTP/2 Agent stream received non-envelope frame")
+		} else {
+			result.envelope, result.err = wire.EnvelopeFromProto(frame.GetEnvelope())
+		}
+		select {
+		case connection.receiveResults <- result:
+		case <-connection.done:
+			return
+		}
+		if result.err != nil {
+			return
+		}
 	}
-	if result.frame.GetEnvelope() == nil {
-		return session.Envelope{}, errors.New("HTTP/2 Agent stream received non-envelope frame")
-	}
-	return wire.EnvelopeFromProto(result.frame.GetEnvelope())
 }
 
 func (connection *connection) Close() error {
@@ -161,6 +186,7 @@ func (connection *connection) Close() error {
 		if err := connection.responseBody.Close(); err != nil && connection.closeErr == nil {
 			connection.closeErr = err
 		}
+		<-connection.receiveDone
 		connection.transport.CloseIdleConnections()
 	})
 	return connection.closeErr
