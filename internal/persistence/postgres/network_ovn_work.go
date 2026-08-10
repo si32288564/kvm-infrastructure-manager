@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/network/ovnadapter"
 )
 
 var ErrStaleOVNRuntimeClaim = errors.New("stale OVN runtime work claim")
@@ -85,6 +86,11 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 		}
 		rows.Close()
 		for _, item := range candidates {
+			canonical, _, err := ovnadapter.RestoreStoredPortPlan(item.work.CanonicalObjectSet, item.work.ObjectSetDigest)
+			if err != nil {
+				return fmt.Errorf("restore canonical OVN runtime plan: %w", err)
+			}
+			item.work.CanonicalObjectSet = canonical
 			mode := "APPLY_ALLOWED"
 			if item.state != "PENDING" {
 				mode = "READ_BACK_FIRST"

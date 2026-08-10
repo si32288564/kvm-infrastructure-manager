@@ -84,6 +84,30 @@ func DecodePortPlan(raw []byte, expectedDigest string) (PortPlan, error) {
 	if len(expectedDigest) != 64 || hex.EncodeToString(actual[:]) != expectedDigest {
 		return PortPlan{}, errors.New("OVN Port plan digest mismatch")
 	}
+	return decodePortPlan(raw)
+}
+
+// RestoreStoredPortPlan reconstructs canonical wire bytes from PostgreSQL
+// jsonb. PostgreSQL may change insignificant whitespace and object-key order,
+// so authority is accepted only when strict typed decode followed by canonical
+// marshal reproduces the immutable pre-storage digest.
+func RestoreStoredPortPlan(raw []byte, expectedDigest string) ([]byte, PortPlan, error) {
+	plan, err := decodePortPlan(raw)
+	if err != nil {
+		return nil, PortPlan{}, err
+	}
+	canonical, err := json.Marshal(plan)
+	if err != nil {
+		return nil, PortPlan{}, err
+	}
+	actual := sha256.Sum256(canonical)
+	if len(expectedDigest) != 64 || hex.EncodeToString(actual[:]) != expectedDigest {
+		return nil, PortPlan{}, errors.New("stored OVN Port plan digest mismatch")
+	}
+	return canonical, plan, nil
+}
+
+func decodePortPlan(raw []byte) (PortPlan, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	var plan PortPlan

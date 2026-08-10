@@ -2,6 +2,7 @@ package ovnadapter
 
 import (
 	"bytes"
+	"encoding/json"
 	"maps"
 	"testing"
 )
@@ -23,11 +24,22 @@ func TestClosedTypedPortPlanAndLayerStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var jsonbStyle bytes.Buffer
+	if err := json.Indent(&jsonbStyle, first, "", "    "); err != nil {
+		t.Fatal(err)
+	}
+	restored, restoredPlan, err := RestoreStoredPortPlan(jsonbStyle.Bytes(), firstDigest)
+	if err != nil || !bytes.Equal(restored, first) || restoredPlan.LogicalPort.PortID != input.PortID {
+		t.Fatalf("stored plan restore=%s plan=%#v err=%v", restored, restoredPlan, err)
+	}
 	secondPort := input
 	secondPort.IntentID, secondPort.PortID, secondPort.MACAddress, secondPort.IPAddress = "intent-2", "port-2", "02:00:00:00:00:11", "192.0.2.11"
 	secondPortRaw, secondPortDigest, err := PlanPort(secondPort)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := RestoreStoredPortPlan(jsonbStyle.Bytes(), secondPortDigest); err == nil {
+		t.Fatal("stored plan accepted a different immutable digest")
 	}
 	secondPortPlan, err := DecodePortPlan(secondPortRaw, secondPortDigest)
 	if err != nil {
