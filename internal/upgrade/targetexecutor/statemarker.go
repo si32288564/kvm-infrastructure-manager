@@ -1,6 +1,7 @@
 package targetexecutor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,11 @@ type Target struct {
 
 type Observation struct {
 	State, Digest string
+}
+
+type Backend interface {
+	Observe(context.Context, Target) (Observation, error)
+	Apply(context.Context, Target) error
 }
 
 type StateMarkerBackend struct {
@@ -46,7 +52,7 @@ func MarkerPath(directory, targetID string) string {
 	return filepath.Join(directory, hex.EncodeToString(sum[:])+".json")
 }
 
-func (backend *StateMarkerBackend) Observe(target Target) (Observation, error) {
+func (backend *StateMarkerBackend) Observe(_ context.Context, target Target) (Observation, error) {
 	expected, err := markerBytes(target)
 	if err != nil {
 		return Observation{}, err
@@ -65,7 +71,10 @@ func (backend *StateMarkerBackend) Observe(target Target) (Observation, error) {
 	return Observation{State: "MATCHED", Digest: digest(observed)}, nil
 }
 
-func (backend *StateMarkerBackend) Apply(target Target) error {
+func (backend *StateMarkerBackend) Apply(ctx context.Context, target Target) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	payload, err := markerBytes(target)
 	if err != nil {
 		return err
@@ -98,7 +107,7 @@ func (backend *StateMarkerBackend) Apply(target Target) error {
 	}
 	if err := os.Link(temporaryPath, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			observation, observeErr := backend.Observe(target)
+			observation, observeErr := backend.Observe(ctx, target)
 			if observeErr == nil && observation.State == "MATCHED" {
 				return nil
 			}

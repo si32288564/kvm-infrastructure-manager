@@ -428,6 +428,7 @@
 | UPG-025 | QEMU/libvirt upgrade時に既存VMのmachine type/CPU model/firmware/device ABI bindingを維持し新規VM defaultと分離する | Must |
 | UPG-026 | Event/evidence decoder artifactを参照payloadのRetention Policy、archive、legal holdとbindし参照中に削除しない | Must |
 | UPG-027 | 複数Feature Gateをrequires/conflicts/rollback dependencyのacyclic graphとして管理し順序付きactivation/rollbackを行う | Must |
+| UPG-028 | KIM-owned component package replacement は Target component identity、verified package digest、administrator-owned closed backend profile に bind し、package version、service state、configured executable path、running binary digest、typed health schema/process identity の current read-back が一致した場合だけ Target を成功へ進める | Must |
 
 ### 2.18 Time and Clock Semantics
 

@@ -28,6 +28,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	targetID := set.String("target-id", os.Getenv("KIM_UPGRADE_TARGET_ID"), "immutable Upgrade Target identity")
 	executorID := set.String("executor-id", os.Getenv("KIM_UPGRADE_TARGET_EXECUTOR_ID"), "stable executor process identity")
 	stateDirectory := set.String("state-directory", os.Getenv("KIM_UPGRADE_TARGET_STATE_DIRECTORY"), "administrator-configured KIM-owned state directory")
+	backendType := set.String("backend", "state-marker", "closed backend type: state-marker or systemd-package")
+	backendProfile := set.String("backend-profile", os.Getenv("KIM_UPGRADE_TARGET_BACKEND_PROFILE"), "administrator-owned backend profile")
 	claimLease := set.Duration("claim-lease", 30*time.Second, "database Target claim lease")
 	claimMaximumLifetime := set.Duration("claim-maximum-lifetime", 10*time.Minute, "maximum lifetime of one Target Attempt")
 	claimRenewInterval := set.Duration("claim-renew-interval", 10*time.Second, "DB-time Target claim renewal interval")
@@ -41,8 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "kim-upgrade-target-executor %s\n", componentmain.Version)
 		return 0
 	}
-	if *databaseURL == "" || *campaignID == "" || *targetID == "" || *executorID == "" || *stateDirectory == "" {
-		fmt.Fprintln(stderr, "kim-upgrade-target-executor configuration error: database, Campaign, Target, executor, and state directory are required")
+	if *databaseURL == "" || *campaignID == "" || *targetID == "" || *executorID == "" {
+		fmt.Fprintln(stderr, "kim-upgrade-target-executor configuration error: database, Campaign, Target, and executor identities are required")
 		return 2
 	}
 	if *claimLease <= 0 || *claimMaximumLifetime < *claimLease || *claimRenewInterval <= 0 ||
@@ -51,7 +53,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "kim-upgrade-target-executor configuration error: bounded lease/renewal/poll/settle/database settings are required")
 		return 2
 	}
-	backend, err := targetexecutor.NewStateMarkerBackend(*stateDirectory)
+	var backend targetexecutor.Backend
+	var err error
+	switch *backendType {
+	case "state-marker":
+		backend, err = targetexecutor.NewStateMarkerBackend(*stateDirectory)
+	case "systemd-package":
+		backend, err = targetexecutor.NewSystemdPackageBackend(*backendProfile)
+	default:
+		err = fmt.Errorf("unsupported backend %q", *backendType)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "kim-upgrade-target-executor backend configuration error: %v\n", err)
 		return 2
@@ -132,11 +143,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func executeTarget(ctx context.Context, pool postgres.TxBeginner, backend *targetexecutor.StateMarkerBackend,
+func executeTarget(ctx context.Context, pool postgres.TxBeginner, backend targetexecutor.Backend,
 	claim postgres.UpgradeTargetClaim, settle time.Duration, stdout io.Writer) error {
 	target := targetexecutor.Target{TargetID: claim.TargetID, ComponentType: claim.ComponentType,
 		ComponentID: claim.ComponentID, TargetArtifactDigest: claim.TargetArtifactDigest, TargetDigest: claim.TargetDigest}
-	observation, err := backend.Observe(target)
+	observation, err := backend.Observe(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -148,7 +159,7 @@ func executeTarget(ctx context.Context, pool postgres.TxBeginner, backend *targe
 		return err
 	}
 	if decision.Action == "APPLY_AUTHORIZED" {
-		if err := backend.Apply(target); err != nil {
+		if err := backend.Apply(ctx, target); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "kim-upgrade-target-executor applied target=%s attempt=%d\n", claim.TargetID, claim.AttemptGeneration)
@@ -161,7 +172,7 @@ func executeTarget(ctx context.Context, pool postgres.TxBeginner, backend *targe
 			case <-timer.C:
 			}
 		}
-		observation, err = backend.Observe(target)
+		observation, err = backend.Observe(ctx, target)
 		if err != nil {
 			return err
 		}

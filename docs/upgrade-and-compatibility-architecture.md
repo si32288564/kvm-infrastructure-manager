@@ -154,6 +154,10 @@ Target execution は Coordinator process 内の関数呼び出しではありま
 
 Developer Preview の最初の closed backend は KIM-owned state marker です。Target ID から path を導出し、Target payload から path、argv、package manager command、service name を受け取りません。これは Target execution authority と fault semantics の qualification backend であり、実 component package/service replacement の certification ではありません。
 
+Debian/systemd profile では administrator-owned backend profile が Target component type / identity と artifact digest を exact `.deb` path、package version、running binary digest へ対応付け、package 名、service 名、binary path、health path/schema を固定します。profile は group/world writable であってはならず、privileged executor では root-owned でなければなりません。Target payload はこれらの backend identity や `dpkg` / `systemctl` argv を指定できません。executor は package を一度 open し、同一 FD の SHA-256 を再検証した後、その FD だけを standard `dpkg --install` に渡します。続けて `systemctl daemon-reload/restart` の閉じた operation だけを実行します。
+
+Package install response や service restart response は成功 authority ではありません。read-back は installed package version、systemd `ActiveState=active` / `SubState=running` / `MainPID`、configured binary path と `/proc/<MainPID>/exe` の一致、executable SHA-256、boot ID / process start ticks、typed health schema/version/ready/PID/boot identity を独立に取得します。すべてが current Target profile と一致した場合だけ `MATCHED` とします。restart 後に executor が失われても successor `READ_BACK_FIRST` はこの evidence から収束し、既に一致する package を再 install しません。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。
