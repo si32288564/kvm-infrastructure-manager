@@ -79,6 +79,7 @@
 | ID | Invariant | 主な検証 |
 |---|---|---|
 | INV-CMP-001 | VM define plan は accepted Final Admission と current resource authority からのみ生成し、Image/Network 未実現を READY/RUNNING へ昇格せず、caller supplied XML/path/libvirt method/flagを受け入れない | AT-CMP-009 |
+| INV-CMP-002 | Domain `DEFINED` はboot readinessではなく、current generationのDomain/Image/Network/Storage evidenceがすべて収束するまでpower-on authorityを発行せず、stale component evidenceでreadinessを進めない | AT-CMP-010 |
 
 ## 6. Execution
 

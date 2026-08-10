@@ -479,6 +479,69 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if vmLifecycle != "MATERIALIZATION_PENDING" || commandType != "VIRTUAL_MACHINE_DEFINE" || commandState != "PENDING" || imageMaterialization != "PENDING" || networkRealization != "PENDING" {
 		t.Fatalf("VM materialization authority = %s/%s/%s/%s/%s", vmLifecycle, commandType, commandState, imageMaterialization, networkRealization)
 	}
+	vmDefinitionDigest := digestBytes([]byte("vm-definition-observation-" + suffix))
+	vmVerifierDigest := digestBytes([]byte("vm-definition-verifier"))
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.command_lease_grants (
+			command_id,lease_generation,attempt_index,host_id,
+			host_authority_generation,session_generation,token_digest,not_before,expires_at
+		) VALUES ($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')
+	`, vmMaterialization.CommandID, hostID, digestBytes([]byte("vm-definition-lease"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.command_attempts (
+			command_id,attempt_index,lease_generation,host_authority_generation,session_generation
+		) VALUES ($1,1,1,1,1)
+	`, vmMaterialization.CommandID); err != nil {
+		t.Fatal(err)
+	}
+	vmVerificationID := "vm-definition-verification-" + suffix
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.command_verification_evidence (
+			verification_id,command_id,attempt_index,observation_generation,
+			observation_digest,verification_state,verifier_artifact_digest,evidence_payload
+		) VALUES ($1,$2,1,1,$3,'MATCHED',$4,jsonb_build_object(
+			'domain_uuid',$5::text,'materialization_generation',1,
+			'plan_digest',$6::text,'domain_present',true,
+			'domain_identity_matches',true,'plan_identity_matches',true,
+			'compute_shape_matches',true,'root_volume_identity_matches',true,
+			'image_materialization_state','PENDING','network_realization_state','PENDING'
+		))
+	`, vmVerificationID, vmMaterialization.CommandID, vmDefinitionDigest,
+		vmVerifierDigest, vmMaterialization.VMID, vmDecision.PlanDigest); err != nil {
+		t.Fatal(err)
+	}
+	vmDefinition := VMDefinitionObservation{
+		EvidenceID: "vm-definition-evidence-" + suffix, VMID: vmMaterialization.VMID,
+		VMGeneration: 1, PlanID: vmMaterialization.PlanID, PlanDigest: vmDecision.PlanDigest,
+		HostID: hostID, CommandID: vmMaterialization.CommandID, AttemptIndex: 1,
+		VerificationID: vmVerificationID, ObservationGeneration: 1,
+		ObservationDigest: vmDefinitionDigest, VerifierDigest: vmVerifierDigest,
+		EvidenceState: "MATCHED", DomainPresent: true, DomainIdentityMatches: true,
+		PlanIdentityMatches: true, ComputeShapeMatches: true, RootVolumeIdentityMatches: true,
+	}
+	if err := AcceptVMDefinitionObservation(ctx, pool, vmDefinition); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptVMDefinitionObservation(ctx, pool, vmDefinition); err != nil {
+		t.Fatalf("idempotent VM definition observation: %v", err)
+	}
+	var domainState, imageState, networkState, storageState, bootReadiness string
+	var blockingReasons []string
+	if err := pool.QueryRow(ctx, `
+		SELECT domain_state,image_state,network_state,storage_state,boot_readiness,blocking_reasons
+		FROM kim.vm_materialization_readiness_current WHERE vm_id=$1
+	`, vmMaterialization.VMID).Scan(&domainState, &imageState, &networkState,
+		&storageState, &bootReadiness, &blockingReasons); err != nil {
+		t.Fatal(err)
+	}
+	if domainState != "DEFINED" || imageState != "PENDING" || networkState != "PENDING" || storageState != "BOUND" || bootReadiness != "BLOCKED" || len(blockingReasons) != 2 {
+		t.Fatalf("VM readiness = %s/%s/%s/%s/%s/%v", domainState, imageState, networkState, storageState, bootReadiness, blockingReasons)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.vm_definition_observation_evidence SET domain_present=false WHERE evidence_id=$1`, vmDefinition.EvidenceID); err == nil {
+		t.Fatal("immutable VM definition evidence accepted UPDATE")
+	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_materialization_plan_evidence SET plan_digest=$2 WHERE plan_id=$1`, vmMaterialization.PlanID, digestBytes([]byte("forged-plan"))); err == nil {
 		t.Fatal("immutable VM materialization plan accepted UPDATE")
 	}
