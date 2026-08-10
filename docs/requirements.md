@@ -286,6 +286,7 @@
 | NET-044 | Network identity の release request、timeout、単一 observation を absence の証明にせず、current Port/Binding/OVN NB/SB/Host absence の独立した連続 evidence が揃うまで `RELEASE_PENDING` または `QUARANTINED` として再利用を禁止する | Must |
 | NET-045 | OVN Logical Switch の ownership を Network ID/generation、Logical Switch Port の ownership を Port intent ID/generation/digest に分離し、同一 Network の複数 Port realization が共有 Logical Switch marker を上書きしない | Must |
 | NET-046 | Production OVN adapter は current Host mapping の OVN Chassis reference と immutable typed plan だけを受け取り、標準 `ovn-nbctl`/`ovn-sbctl`、`unix:` または authenticated `ssl:` DB endpoint、bounded timeout、ownership pre-read、apply後 read-back を強制する | Must |
+| NET-047 | OVN runtime work は PostgreSQL-backed bounded claim で multi-worker 間を排他し、claim expiry を非実行証明にせず immutable `DISPATCH_UNKNOWN` evidence を残す。再取得 worker は apply 前に同一 intent の typed read-back を行い、current owner/claim generation だけが observation と current projection を進める | Must |
 
 ### 2.13 NFV Dataplane
 

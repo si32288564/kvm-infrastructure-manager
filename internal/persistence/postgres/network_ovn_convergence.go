@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/network/ovnadapter"
@@ -98,6 +99,30 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 		if err != nil {
 			return err
 		}
+		workID := fmt.Sprintf("ovn-runtime:%s:%d", request.IntentID, request.IntentGeneration)
+		if _, err := tx.Exec(ctx, `
+			UPDATE kim.ovn_runtime_work_current
+			SET work_state='SUPERSEDED',claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,updated_at=statement_timestamp()
+			WHERE port_id=$1 AND intent_generation<$2
+			  AND work_state IN ('PENDING','CLAIMED','DISPATCH_UNKNOWN')
+		`, request.PortID, request.IntentGeneration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.ovn_runtime_work_current(
+			 work_id,intent_id,intent_generation,port_id,port_generation,binding_generation,object_set_digest,work_state
+			) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING')
+			ON CONFLICT(intent_id,intent_generation) DO NOTHING
+		`, workID, request.IntentID, request.IntentGeneration, request.PortID, portGeneration, bindingGeneration, digest); err != nil {
+			return err
+		}
+		var identicalWork bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.ovn_runtime_work_current
+			WHERE work_id=$1 AND intent_id=$2 AND intent_generation=$3 AND port_id=$4
+			 AND port_generation=$5 AND binding_generation=$6 AND object_set_digest=$7
+		)`, workID, request.IntentID, request.IntentGeneration, request.PortID, portGeneration, bindingGeneration, digest).Scan(&identicalWork); err != nil || !identicalWork {
+			return ErrPlacementConflict
+		}
 		decision = OVNPortIntentDecision{IntentID: request.IntentID, PortID: request.PortID, ObjectSetDigest: digest,
 			IntentGeneration: request.IntentGeneration, PortGeneration: uint64(portGeneration), BindingGeneration: uint64(bindingGeneration), CanonicalObjectSet: plan}
 		return nil
@@ -116,9 +141,29 @@ type OVNPortObservation struct {
 }
 
 func AcceptOVNPortObservation(ctx context.Context, db TxBeginner, observed OVNPortObservation) error {
+	if err := validateOVNPortObservation(observed); err != nil {
+		return err
+	}
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		var state string
+		var terminalObservationID *string
+		if err := tx.QueryRow(ctx, `SELECT work_state,terminal_observation_id
+			FROM kim.ovn_runtime_work_current
+			WHERE intent_id=$1 AND intent_generation=$2 FOR UPDATE`, observed.IntentID, observed.IntentGeneration).Scan(&state, &terminalObservationID); err != nil || state != "OBSERVED" || terminalObservationID == nil || *terminalObservationID != observed.SBObservationID {
+			return ErrPlacementConflict
+		}
+		return acceptOVNPortObservationTx(ctx, tx, observed)
+	})
+}
+
+func validateOVNPortObservation(observed OVNPortObservation) error {
 	if observed.NBObservationID == "" || observed.SBObservationID == "" || observed.IntentID == "" || observed.PortID == "" || observed.IntentGeneration == 0 || observed.PortGeneration == 0 || observed.BindingGeneration == 0 || observed.NBObservationGeneration == 0 || observed.SBObservationGeneration == 0 || len(observed.NBObservationDigest) != 64 || len(observed.SBObservationDigest) != 64 || len(observed.AdapterArtifactDigest) != 64 || len(observed.ChassisIdentityDigest) != 64 || (observed.ApplyResponseState != "RECEIVED" && observed.ApplyResponseState != "LOST" && observed.ApplyResponseState != "UNKNOWN") {
 		return ErrPlacementConflict
 	}
+	return nil
+}
+
+func acceptOVNPortObservationTx(ctx context.Context, tx pgx.Tx, observed OVNPortObservation) error {
 	nbState, sbState := observed.Observation.NBState(), observed.Observation.SBState()
 	layerStatus := "UNKNOWN"
 	if nbState == "CONFLICTING" || sbState == "CONFLICTING" {
@@ -128,12 +173,11 @@ func AcceptOVNPortObservation(ctx context.Context, db TxBeginner, observed OVNPo
 	} else if nbState == "MATCHED" {
 		layerStatus = "NB_APPLIED"
 	}
-	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
-			return err
-		}
-		var current bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1
+	if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+		return err
+	}
+	var current bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1
 			FROM kim.network_ovn_state_current current
 			JOIN kim.network_intent_revision_evidence intent ON intent.intent_id=current.intent_id AND intent.intent_generation=current.intent_generation
 			JOIN kim.network_ports_current port ON port.port_id=current.port_id AND port.port_generation=current.port_generation
@@ -148,84 +192,83 @@ func AcceptOVNPortObservation(ctx context.Context, db TxBeginner, observed OVNPo
 			 AND intent.port_generation=port.port_generation AND intent.binding_generation=binding.binding_generation
 			 AND intent.segment_claim_id=segment.segment_claim_id AND intent.intent_state='COMMITTED'
 		)`, observed.PortID, observed.PortGeneration, observed.BindingGeneration, observed.IntentID, observed.IntentGeneration).Scan(&current); err != nil || !current {
-			return ErrPlacementConflict
-		}
-		// The adapter supplies typed booleans only; raw OVN rows/columns are not accepted here.
-		nbTag, err := tx.Exec(ctx, `INSERT INTO kim.ovn_nb_observation_evidence(
+		return ErrPlacementConflict
+	}
+	// The adapter supplies typed booleans only; raw OVN rows/columns are not accepted here.
+	nbTag, err := tx.Exec(ctx, `INSERT INTO kim.ovn_nb_observation_evidence(
 			observation_id,intent_id,intent_generation,observation_generation,observation_digest,apply_response_state,
 			ownership_marker_matches,object_set_digest_matches,logical_switch_present,logical_switch_port_present,nb_state,adapter_artifact_digest
 			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(observation_id) DO NOTHING`,
-			observed.NBObservationID, observed.IntentID, observed.IntentGeneration, observed.NBObservationGeneration,
-			observed.NBObservationDigest, observed.ApplyResponseState, observed.Observation.OwnershipMarkerMatches,
-			observed.Observation.ObjectSetDigestMatches, observed.Observation.LogicalSwitchPresent,
-			observed.Observation.LogicalSwitchPortPresent, nbState, observed.AdapterArtifactDigest)
-		if err != nil {
-			return err
-		}
-		if nbTag.RowsAffected() == 0 {
-			var identical bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.ovn_nb_observation_evidence
+		observed.NBObservationID, observed.IntentID, observed.IntentGeneration, observed.NBObservationGeneration,
+		observed.NBObservationDigest, observed.ApplyResponseState, observed.Observation.OwnershipMarkerMatches,
+		observed.Observation.ObjectSetDigestMatches, observed.Observation.LogicalSwitchPresent,
+		observed.Observation.LogicalSwitchPortPresent, nbState, observed.AdapterArtifactDigest)
+	if err != nil {
+		return err
+	}
+	if nbTag.RowsAffected() == 0 {
+		var identical bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.ovn_nb_observation_evidence
 			 WHERE observation_id=$1 AND intent_id=$2 AND intent_generation=$3 AND observation_generation=$4
 			  AND observation_digest=$5 AND apply_response_state=$6 AND ownership_marker_matches=$7
 			  AND object_set_digest_matches=$8 AND logical_switch_present=$9 AND logical_switch_port_present=$10
 			  AND nb_state=$11 AND adapter_artifact_digest=$12)`, observed.NBObservationID, observed.IntentID,
-				observed.IntentGeneration, observed.NBObservationGeneration, observed.NBObservationDigest,
-				observed.ApplyResponseState, observed.Observation.OwnershipMarkerMatches,
-				observed.Observation.ObjectSetDigestMatches, observed.Observation.LogicalSwitchPresent,
-				observed.Observation.LogicalSwitchPortPresent, nbState, observed.AdapterArtifactDigest).Scan(&identical); err != nil || !identical {
-				return ErrPlacementConflict
-			}
+			observed.IntentGeneration, observed.NBObservationGeneration, observed.NBObservationDigest,
+			observed.ApplyResponseState, observed.Observation.OwnershipMarkerMatches,
+			observed.Observation.ObjectSetDigestMatches, observed.Observation.LogicalSwitchPresent,
+			observed.Observation.LogicalSwitchPortPresent, nbState, observed.AdapterArtifactDigest).Scan(&identical); err != nil || !identical {
+			return ErrPlacementConflict
 		}
-		sbTag, err := tx.Exec(ctx, `INSERT INTO kim.ovn_sb_observation_evidence(
+	}
+	sbTag, err := tx.Exec(ctx, `INSERT INTO kim.ovn_sb_observation_evidence(
 			observation_id,intent_id,intent_generation,nb_observation_id,observation_generation,observation_digest,
 			port_binding_present,datapath_present,expected_chassis_matches,chassis_identity_digest,sb_state,adapter_artifact_digest
 			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT(observation_id) DO NOTHING`,
-			observed.SBObservationID, observed.IntentID, observed.IntentGeneration, observed.NBObservationID,
-			observed.SBObservationGeneration, observed.SBObservationDigest, observed.Observation.PortBindingPresent,
-			observed.Observation.DatapathPresent, observed.Observation.ExpectedChassisMatches,
-			observed.ChassisIdentityDigest, sbState, observed.AdapterArtifactDigest)
-		if err != nil {
-			return err
-		}
-		if sbTag.RowsAffected() == 0 {
-			var identical bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.ovn_sb_observation_evidence
+		observed.SBObservationID, observed.IntentID, observed.IntentGeneration, observed.NBObservationID,
+		observed.SBObservationGeneration, observed.SBObservationDigest, observed.Observation.PortBindingPresent,
+		observed.Observation.DatapathPresent, observed.Observation.ExpectedChassisMatches,
+		observed.ChassisIdentityDigest, sbState, observed.AdapterArtifactDigest)
+	if err != nil {
+		return err
+	}
+	if sbTag.RowsAffected() == 0 {
+		var identical bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.ovn_sb_observation_evidence
 			 WHERE observation_id=$1 AND intent_id=$2 AND intent_generation=$3 AND nb_observation_id=$4
 			  AND observation_generation=$5 AND observation_digest=$6 AND port_binding_present=$7
 			  AND datapath_present=$8 AND expected_chassis_matches=$9 AND chassis_identity_digest=$10
 			  AND sb_state=$11 AND adapter_artifact_digest=$12)`, observed.SBObservationID, observed.IntentID,
-				observed.IntentGeneration, observed.NBObservationID, observed.SBObservationGeneration,
-				observed.SBObservationDigest, observed.Observation.PortBindingPresent,
-				observed.Observation.DatapathPresent, observed.Observation.ExpectedChassisMatches,
-				observed.ChassisIdentityDigest, sbState, observed.AdapterArtifactDigest).Scan(&identical); err != nil || !identical {
-				return ErrPlacementConflict
-			}
+			observed.IntentGeneration, observed.NBObservationID, observed.SBObservationGeneration,
+			observed.SBObservationDigest, observed.Observation.PortBindingPresent,
+			observed.Observation.DatapathPresent, observed.Observation.ExpectedChassisMatches,
+			observed.ChassisIdentityDigest, sbState, observed.AdapterArtifactDigest).Scan(&identical); err != nil || !identical {
+			return ErrPlacementConflict
 		}
-		tag, err := tx.Exec(ctx, `UPDATE kim.network_ovn_state_current SET
+	}
+	tag, err := tx.Exec(ctx, `UPDATE kim.network_ovn_state_current SET
 			nb_observation_id=$6,nb_observation_generation=$7,nb_state=$8,
 			sb_observation_id=$9,sb_observation_generation=$10,sb_state=$11,layer_status=$12,updated_at=statement_timestamp()
 			WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3 AND intent_id=$4 AND intent_generation=$5
 			 AND (nb_observation_generation IS NULL OR nb_observation_generation<$7)
 			 AND (sb_observation_generation IS NULL OR sb_observation_generation<$10)`, observed.PortID, observed.PortGeneration,
-			observed.BindingGeneration, observed.IntentID, observed.IntentGeneration, observed.NBObservationID,
-			observed.NBObservationGeneration, nbState, observed.SBObservationID, observed.SBObservationGeneration,
-			sbState, layerStatus)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			var identical bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_ovn_state_current
+		observed.BindingGeneration, observed.IntentID, observed.IntentGeneration, observed.NBObservationID,
+		observed.NBObservationGeneration, nbState, observed.SBObservationID, observed.SBObservationGeneration,
+		sbState, layerStatus)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		var identical bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_ovn_state_current
 			 WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3 AND intent_id=$4
 			  AND intent_generation=$5 AND nb_observation_id=$6 AND nb_observation_generation=$7
 			  AND nb_state=$8 AND sb_observation_id=$9 AND sb_observation_generation=$10
 			  AND sb_state=$11 AND layer_status=$12)`, observed.PortID, observed.PortGeneration,
-				observed.BindingGeneration, observed.IntentID, observed.IntentGeneration, observed.NBObservationID,
-				observed.NBObservationGeneration, nbState, observed.SBObservationID,
-				observed.SBObservationGeneration, sbState, layerStatus).Scan(&identical); err != nil || !identical {
-				return ErrPlacementConflict
-			}
+			observed.BindingGeneration, observed.IntentID, observed.IntentGeneration, observed.NBObservationID,
+			observed.NBObservationGeneration, nbState, observed.SBObservationID,
+			observed.SBObservationGeneration, sbState, layerStatus).Scan(&identical); err != nil || !identical {
+			return ErrPlacementConflict
 		}
-		return nil
-	})
+	}
+	return nil
 }

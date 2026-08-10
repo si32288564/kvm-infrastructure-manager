@@ -86,6 +86,9 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"ovn_geneve_tunnel_observation_evidence",
 		"network_ovn_tunnel_state_current",
 		"network_identity_release_observation_evidence",
+		"ovn_runtime_work_current",
+		"ovn_runtime_work_attempt_evidence",
+		"ovn_runtime_work_event_evidence",
 		"vm_materialization_readiness_current",
 	}
 	for _, table := range requiredTables {

@@ -65,6 +65,27 @@ func TestRuntimeReadsBackAfterApplyResponseLoss(t *testing.T) {
 	}
 }
 
+func TestRuntimeObservePortNeverApplies(t *testing.T) {
+	raw, digest, plan := runtimePlan(t)
+	runner := &scriptedRunner{commands: []scriptedCommand{
+		{output: markerOutput(plan.NetworkExternalIDs, "")}, {output: markerOutput(plan.PortExternalIDs, digest)},
+		{output: markerOutput(plan.NetworkExternalIDs, "")}, {output: markerOutput(plan.PortExternalIDs, digest)},
+		{output: "datapath-uuid"}, {output: "chassis-uuid"}, {output: `"chassis-1"`},
+	}}
+	result, err := (Runtime{Config: testRuntimeConfig(), Runner: runner}).ObservePort(context.Background(), raw, digest)
+	if err != nil || result.ApplyResponseState != "UNKNOWN" || result.Observation.NBState() != "MATCHED" || result.Observation.SBState() != "MATCHED" {
+		t.Fatalf("observe-only result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 7 {
+		t.Fatalf("observe-only calls=%#v", runner.calls)
+	}
+	for _, call := range runner.calls {
+		if containsCommand(call, "ls-add") || containsCommand(call, "lsp-add") {
+			t.Fatalf("observe-only path issued mutation: %#v", call)
+		}
+	}
+}
+
 func TestRuntimeDoesNotOverwriteForeignSharedObject(t *testing.T) {
 	raw, digest, _ := runtimePlan(t)
 	runner := &scriptedRunner{commands: []scriptedCommand{{output: markerOutput(map[string]string{"kim.owner": "FOREIGN"}, "")}}}

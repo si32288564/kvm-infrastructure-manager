@@ -206,6 +206,8 @@ Network Controller Adapterは`plan -> apply -> observe`のtyped contractを実�
 
 Production runtime は current `HostNetworkMapping` に bind された OVN Chassis nameをtyped planへ固定します。adapter設定は管理者管理の `unix:` またはcredential付き `ssl:` NB/SB endpoint、standard `ovn-nbctl`/`ovn-sbctl` path、bounded command timeoutだけを許可します。Port/API payloadからDB endpoint、CLI path、OVN table/column、argvを受け取りません。apply前にdeterministic object nameのownership markerをread-backし、foreign/conflicting objectを上書きしません。apply responseがtimeout/lostでも別objectまたは反対operationへ進まず、同じNetwork/LSP marker、object digest、SB Port Binding/datapath/chassisを再読込します。
 
+Runtime work の owner は worker process や in-memory queue ではなく PostgreSQL の current work claim です。claim は bounded batch、DB authority time による expiry、worker ID、単調増加する claim generation を持ちます。expiry は OVN apply が行われなかった証明ではないため、旧 attempt に immutable `DISPATCH_UNKNOWN` event を残し、再取得を `READ_BACK_FIRST` に限定します。read-back が同一 intent の matching NB/SB evidence を返した場合は再 apply せず terminal observation へ収束します。不一致の場合も、current claim が有効で read-back evidence が記録済みであることを PostgreSQL transaction で確認した後だけ同じ idempotent intent の apply を許可します。旧 worker の遅延 observation は current claim owner/generation と一致しないため拒否します。
+
 Port intent、NB observation、SB observation はそれぞれ immutable evidence として保持し、current OVN projection は current Network/Port/Segment/Host mapping/Binding generation との一致から再構築します。apply response を失っても stable KIM ownership marker、intent generation、object digest を使って同じ NB object を read-back し、反対 operation を発行しません。NB/SB 収束は Host-side OVS dataplane、end-to-end reachability、Guest readiness を暗黙に進めません。
 
 KIM所有markerのないobject、unknown generation、外部管理objectを自動adopt/deleteしません。intent driftはowned objectだけをtyped reconcileし、ownership conflictは`CONFLICTING/QUARANTINED`にします。

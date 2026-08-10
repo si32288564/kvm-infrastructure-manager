@@ -956,7 +956,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	ovnObservation := OVNPortObservation{
 		NBObservationID: "ovn-nb-observation-" + suffix, SBObservationID: "ovn-sb-observation-" + suffix,
 		IntentID: ovnIntent.IntentID, IntentGeneration: 1, PortID: ovsPortID, PortGeneration: 1, BindingGeneration: 1,
-		NBObservationGeneration: 1, SBObservationGeneration: 1,
+		NBObservationGeneration: 2, SBObservationGeneration: 2,
 		NBObservationDigest:   digestBytes([]byte("ovn-nb-observation-" + suffix)),
 		SBObservationDigest:   digestBytes([]byte("ovn-sb-observation-" + suffix)),
 		AdapterArtifactDigest: digestBytes([]byte("ovn-adapter")), ChassisIdentityDigest: digestBytes([]byte("ovn-chassis")),
@@ -965,11 +965,53 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, PortBindingPresent: true,
 			DatapathPresent: true, ExpectedChassisMatches: true},
 	}
-	if err := AcceptOVNPortObservation(ctx, pool, ovnObservation); err != nil {
+	firstRuntimeClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-a", Limit: 1, Lease: time.Minute})
+	if err != nil || len(firstRuntimeClaims) != 1 || firstRuntimeClaims[0].ClaimMode != "APPLY_ALLOWED" || firstRuntimeClaims[0].ClaimGeneration != 1 {
+		t.Fatalf("first OVN runtime claim=%#v err=%v", firstRuntimeClaims, err)
+	}
+	if competing, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-competing", Limit: 1, Lease: time.Minute}); err != nil || len(competing) != 0 {
+		t.Fatalf("competing OVN runtime claim=%#v err=%v", competing, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_runtime_work_current SET claim_expires_at=statement_timestamp()-interval '1 second' WHERE work_id=$1`, firstRuntimeClaims[0].WorkID); err != nil {
+		t.Fatal(err)
+	}
+	secondRuntimeClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-b", Limit: 1, Lease: time.Minute})
+	if err != nil || len(secondRuntimeClaims) != 1 || secondRuntimeClaims[0].ClaimMode != "READ_BACK_FIRST" || secondRuntimeClaims[0].ClaimGeneration != 2 {
+		t.Fatalf("reclaimed OVN runtime work=%#v err=%v", secondRuntimeClaims, err)
+	}
+	staleRuntimeClaim := OVNRuntimeClaim{WorkID: firstRuntimeClaims[0].WorkID, Owner: "ovn-worker-a", ClaimGeneration: 1}
+	if err := AuthorizeOVNRuntimeApply(ctx, pool, staleRuntimeClaim); !errors.Is(err, ErrStaleOVNRuntimeClaim) {
+		t.Fatalf("stale OVN worker apply authorization error=%v", err)
+	}
+	currentRuntimeClaim := OVNRuntimeClaim{WorkID: secondRuntimeClaims[0].WorkID, Owner: "ovn-worker-b", ClaimGeneration: 2}
+	if err := AuthorizeOVNRuntimeApply(ctx, pool, currentRuntimeClaim); !errors.Is(err, ErrStaleOVNRuntimeClaim) {
+		t.Fatalf("read-back-first claim authorized without read-back evidence: %v", err)
+	}
+	if err := RecordOVNRuntimeReadBackStarted(ctx, pool, currentRuntimeClaim); err != nil {
+		t.Fatal(err)
+	}
+	if err := AuthorizeOVNRuntimeApply(ctx, pool, currentRuntimeClaim); err != nil {
+		t.Fatal(err)
+	}
+	if err := CompleteOVNRuntimeWork(ctx, pool, currentRuntimeClaim, ovnObservation); err != nil {
 		t.Fatal(err)
 	}
 	if err := AcceptOVNPortObservation(ctx, pool, ovnObservation); err != nil {
 		t.Fatalf("idempotent OVN observation: %v", err)
+	}
+	var runtimeWorkState string
+	var runtimeAttempts, runtimeUnknownEvents int
+	if err := pool.QueryRow(ctx, `SELECT work_state FROM kim.ovn_runtime_work_current WHERE work_id=$1`, currentRuntimeClaim.WorkID).Scan(&runtimeWorkState); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_attempt_evidence WHERE work_id=$1`, currentRuntimeClaim.WorkID).Scan(&runtimeAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_event_evidence WHERE work_id=$1 AND event_type='DISPATCH_UNKNOWN'`, currentRuntimeClaim.WorkID).Scan(&runtimeUnknownEvents); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeWorkState != "OBSERVED" || runtimeAttempts != 2 || runtimeUnknownEvents != 1 {
+		t.Fatalf("OVN runtime convergence state=%s attempts=%d unknown=%d", runtimeWorkState, runtimeAttempts, runtimeUnknownEvents)
 	}
 	var nbState, sbState string
 	if err := pool.QueryRow(ctx, `SELECT nb_state,sb_state,layer_status FROM kim.network_ovn_state_current WHERE port_id=$1`, ovsPortID).Scan(&nbState, &sbState, &ovnLayerStatus); err != nil || nbState != "MATCHED" || sbState != "MATCHED" || ovnLayerStatus != "SB_REALIZED" {
@@ -979,7 +1021,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		LogicalFlowObservationID:  "ovn-flow-observation-" + suffix,
 		ChassisEncapObservationID: "ovn-chassis-observation-" + suffix,
 		IntentID:                  ovnIntent.IntentID, IntentGeneration: 1, PortID: ovsPortID, PortGeneration: 1,
-		BindingGeneration: 1, SBObservationID: ovnObservation.SBObservationID, SBObservationGeneration: 1,
+		BindingGeneration: 1, SBObservationID: ovnObservation.SBObservationID, SBObservationGeneration: 2,
 		LogicalFlowObservationGeneration: 1, ChassisObservationGeneration: 1,
 		LogicalFlowObservationDigest:   digestBytes([]byte("ovn-flow-observation-" + suffix)),
 		ChassisObservationDigest:       digestBytes([]byte("ovn-chassis-observation-" + suffix)),

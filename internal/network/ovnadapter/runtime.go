@@ -51,6 +51,17 @@ type Runtime struct {
 }
 
 func (runtime Runtime) ReconcilePort(ctx context.Context, canonicalPlan []byte, objectSetDigest string) (RuntimeResult, error) {
+	return runtime.reconcilePort(ctx, canonicalPlan, objectSetDigest, true)
+}
+
+// ObservePort performs the same typed ownership and NB/SB read-back as
+// ReconcilePort without issuing an OVN mutation. It is the mandatory first
+// step after an expired or otherwise uncertain worker claim.
+func (runtime Runtime) ObservePort(ctx context.Context, canonicalPlan []byte, objectSetDigest string) (RuntimeResult, error) {
+	return runtime.reconcilePort(ctx, canonicalPlan, objectSetDigest, false)
+}
+
+func (runtime Runtime) reconcilePort(ctx context.Context, canonicalPlan []byte, objectSetDigest string, apply bool) (RuntimeResult, error) {
 	if err := runtime.Config.validate(); err != nil {
 		return RuntimeResult{}, err
 	}
@@ -98,18 +109,21 @@ func (runtime Runtime) ReconcilePort(ctx context.Context, canonicalPlan []byte, 
 		return RuntimeResult{}, ErrForeignOVNObject
 	}
 
-	applyArgs := append([]string{}, nbGlobal...)
-	applyArgs = append(applyArgs, "--may-exist", "ls-add", plan.LogicalSwitch.Name, "--", "set", "Logical_Switch", plan.LogicalSwitch.Name)
-	applyArgs = append(applyArgs, markerAssignments(plan.NetworkExternalIDs, "")...)
-	applyArgs = append(applyArgs, "--", "--may-exist", "lsp-add", plan.LogicalSwitch.Name, plan.LogicalPort.Name,
-		"--", "lsp-set-addresses", plan.LogicalPort.Name, plan.LogicalPort.MACAddress+" "+plan.LogicalPort.IPAddress,
-		"--", "set", "Logical_Switch_Port", plan.LogicalPort.Name, "options:requested-chassis="+plan.LogicalPort.OVNChassisName)
-	applyArgs = append(applyArgs, markerAssignments(plan.PortExternalIDs, objectSetDigest)...)
-	applyResponseState := "RECEIVED"
-	if _, err := run(runtime.Config.NBCTL, applyArgs...); err != nil {
-		// A failed command response is an unknown apply outcome. Always read back
-		// the stable object names and ownership markers before deciding.
-		applyResponseState = "LOST"
+	applyResponseState := "UNKNOWN"
+	if apply {
+		applyArgs := append([]string{}, nbGlobal...)
+		applyArgs = append(applyArgs, "--may-exist", "ls-add", plan.LogicalSwitch.Name, "--", "set", "Logical_Switch", plan.LogicalSwitch.Name)
+		applyArgs = append(applyArgs, markerAssignments(plan.NetworkExternalIDs, "")...)
+		applyArgs = append(applyArgs, "--", "--may-exist", "lsp-add", plan.LogicalSwitch.Name, plan.LogicalPort.Name,
+			"--", "lsp-set-addresses", plan.LogicalPort.Name, plan.LogicalPort.MACAddress+" "+plan.LogicalPort.IPAddress,
+			"--", "set", "Logical_Switch_Port", plan.LogicalPort.Name, "options:requested-chassis="+plan.LogicalPort.OVNChassisName)
+		applyArgs = append(applyArgs, markerAssignments(plan.PortExternalIDs, objectSetDigest)...)
+		applyResponseState = "RECEIVED"
+		if _, err := run(runtime.Config.NBCTL, applyArgs...); err != nil {
+			// A failed command response is an unknown apply outcome. Always read back
+			// the stable object names and ownership markers before deciding.
+			applyResponseState = "LOST"
+		}
 	}
 
 	nbSwitch, switchErr := run(runtime.Config.NBCTL, withGlobal(nbGlobal,
