@@ -54,22 +54,28 @@ func (client *CLIClient) LogicalVolume(ctx context.Context, vgName, lvName strin
 		return LogicalVolume{}, false, errors.New("invalid Local LVM resource identity")
 	}
 	selector := "vg_name=" + vgName + " && lv_name=" + lvName
-	output, err := exec.CommandContext(ctx, client.LVSPath, "--noheadings", "--readonly", "--units", "b", "--nosuffix", "--separator", "|", "-o", "vg_uuid,lv_uuid,lv_name,lv_size", "--select", selector).CombinedOutput()
+	// Do not use LVM's --readonly reporting mode here: lv_device_open is then
+	// reported as "unknown" and cannot prove holder presence or absence. lvs is
+	// still a read-only query; it owns no activation or mutation argument.
+	output, err := exec.CommandContext(ctx, client.LVSPath, "--noheadings", "--units", "b", "--nosuffix", "--separator", "|", "-o", "vg_uuid,lv_uuid,lv_name,lv_size,lv_device_open", "--select", selector).CombinedOutput()
 	if err != nil {
 		return LogicalVolume{}, false, fmt.Errorf("read Local LVM LV identity: %w: %s", err, boundedOutput(output))
 	}
 	if strings.TrimSpace(string(output)) == "" {
 		return LogicalVolume{}, false, nil
 	}
-	fields := splitRecord(string(output), 4)
-	if len(fields) != 4 {
+	fields := splitRecord(string(output), 5)
+	if len(fields) != 5 {
 		return LogicalVolume{}, false, errors.New("unexpected Local LVM read-back shape")
 	}
 	size, err := strconv.ParseUint(fields[3], 10, 64)
 	if err != nil {
 		return LogicalVolume{}, false, errors.New("invalid Local LVM read-back size")
 	}
-	return LogicalVolume{VGUUID: fields[0], LVUUID: fields[1], Name: fields[2], SizeBytes: size}, true, nil
+	if fields[4] != "" && fields[4] != "open" {
+		return LogicalVolume{}, false, errors.New("invalid Local LVM open-holder read-back")
+	}
+	return LogicalVolume{VGUUID: fields[0], LVUUID: fields[1], Name: fields[2], SizeBytes: size, DeviceOpen: fields[4] == "open"}, true, nil
 }
 
 func (client *CLIClient) CreateLogicalVolume(ctx context.Context, vgName, lvName string, sizeMiB uint64) error {

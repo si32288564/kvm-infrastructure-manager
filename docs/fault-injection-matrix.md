@@ -181,6 +181,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-STORAGE-016 | Storage adapterがsecret/raw device pathをerror/Eventへ返し、またはside effect後timeoutをFAILED化 | conformance/redaction/UNKNOWN violation | adapter quarantine、affected new mutations停止 | payload digest、manifest/version、test evidence | secret leak、blind retry/silent fallback | patched certified adapterとread-back reconciliation |
 | FI-STORAGE-017 | concurrent Volume create中にCeph/LVM observed freeをstale化しthin metadata圧迫/外部使用量を注入 | ledger conflict、health/freshness threshold | claim上限内だけcommit、stale/pressure scope ineligible | capacity generations、claims、backend observations | over-allocation、UNKNOWN freeの楽観利用、delete中capacity再利用 | fresh healthy capacityとbackend absence後にclaim/release再評価 |
 | FI-STORAGE-018 | Local LVM LV create と read-back 後、Result delivery 前に Agent process を SIGKILL | Attempt/transport outcome UNKNOWN | LV/Binding Intent を推測変更せず、再起動後の typed read-back を要求 | write-before-execute journal、Host/VG/LV UUID、size、observation digest | blind lvcreate、予約名から LV UUID 捏造、別 VG/LV adopt | current generation の read-back MATCHED と immutable Binding evidence 受理 |
+| FI-STORAGE-019 | Local LVM disk attach/detach と device/holder read-back 後、Result delivery 前に Agent process を SIGKILLし、新しい detach evidence の後に旧 attach observation を遅延再送 | Attempt/transport outcome UNKNOWN、stale observation | Claim state を response や process loss から推測せず typed Verification を要求し、旧 generation をfence | journal、Domain UUID、target、VG/LV UUID、device identity、lv_device_open、observation generation | duplicate attach、foreign target replacement、holder open 中の DETACHED/Claim release、stale replayによる再ACTIVE化 | current Binding/Claim と device/holder evidence が MATCHEDし、旧 observation 拒否後も current state不変 |
 | FI-UPG-001 | Manifest versionと実artifact digest/provenanceを不一致にする | artifact/manifest mismatch | target quarantine、campaign開始/継続停止 | manifest/artifact/evaluator digests、decision | version文字列だけでready | verified artifactへ置換または新Manifest |
 | FI-UPG-002 | N/N-1混在中にN-2またはunmanaged replica/Agentを接続する | unsupported compatibility edge | serving/dispatch poolから除外 | component/session/schema ranges、bounded reason | N-2 writer/Command処理 | supported revisionへ更新し再評価 |
 | FI-UPG-003 | old writerが理解できないenum/authority fieldをFeature Gate前にnew writerから送る | mixed writer contract violation | write/feature activation拒否、campaign pause | writer/schema/feature generations、payload digest | old readerの誤解釈、部分authority進行 | 全required writer対応後にgate switch |
@@ -259,7 +260,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
 | Network / NFV Dataplane | FI-NET-001..018, FI-DPDK-001..006 |
-| Storage | FI-STORAGE-001..018 |
+| Storage | FI-STORAGE-001..019 |
 | Upgrade / Compatibility | FI-UPG-001..018 |
 | Time / Clock Semantics | FI-TIME-001..019 |
 | PKI / Trust Lifecycle | FI-PKI-001..020 |

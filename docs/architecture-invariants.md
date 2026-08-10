@@ -182,6 +182,7 @@
 | INV-STO-018 | force detach/client fence/lock break/backend delete/Adoptionは個別permission/approval/auditを要求する | FI-STORAGE-015 |
 | INV-STO-019 | Storage capacityはtransactional ledgerでclaimし、stale/UNKNOWN backend usageを空きへ丸めずbackend absence前に再利用しない | FI-STORAGE-017 |
 | INV-STO-020 | Local LVM の予約名を LV identity とみなさず、typed read-back の Host/VG/LV UUID、size、Binding generation が一致した immutable evidence だけを current BOUND authority へ昇格する | FI-STORAGE-018 |
+| INV-STO-021 | libvirt attach/detach response 単独では Attachment authority を変更せず、current generation の Binding/Claim と device identity/LVM holder の typed read-back が一致してから ATTACHED/DETACHED と ACTIVE/RELEASED を不可分に確定し、stale observation は current authority を変更できない | FI-STORAGE-019 |
 
 ### NFV Dataplane
 

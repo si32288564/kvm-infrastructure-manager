@@ -30,6 +30,7 @@ var volumeTargetPattern = regexp.MustCompile(`^volume:([a-zA-Z0-9][a-zA-Z0-9._-]
 type LogicalVolume struct {
 	VGUUID, LVUUID, Name string
 	SizeBytes            uint64
+	DeviceOpen           bool
 }
 
 type Client interface {

@@ -60,10 +60,12 @@ make check
 ## 5. Remaining P1-C04 work
 
 - typed Local LVM delete と create Result loss の full distributed qualification
-- typed libvirt attach/detach、device/holder observation、`ATTACHED` verification
+- guest-coordinated live detach と full distributed Result-loss qualification
 - disk-full/LVM response-loss/Agent kill に対する `UNKNOWN` / read-back convergence
 - verified detach/fencing、capacity release、quarantine/reuse workflow
 - READ_ONLY_MANY、thin pool metadata policy、encryption/Secret Provider integration
 - Volume/Attachment public API、Quota、Operation/Job/Outbox atomic commit
 
 typed create/read-back、Agent kill、immutable LV identity evidence、current `BOUND` Binding は [P1-C04 Local LVM Kill / Read-back Validation](p1-c04-local-lvm-kill-readback-20260810.md) で検証済みです。
+
+typed libvirt attach/cold-detach、Agent kill、device/LVM holder read-back、`ATTACHED` / `DETACHED` Claim transition は [P1-C04 Libvirt Attachment Kill / Read-back Validation](p1-c04-libvirt-attachment-kill-readback-20260810.md) で検証済みです。

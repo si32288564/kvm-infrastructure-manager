@@ -64,6 +64,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"outbox_messages",
 		"volume_backend_binding_evidence",
 		"volume_backend_bindings_current",
+		"volume_attachment_observation_evidence",
+		"volume_attachment_observations_current",
 	}
 	for _, table := range requiredTables {
 		var exists bool

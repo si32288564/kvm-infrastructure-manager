@@ -290,6 +290,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-022 | Storage adapterがstable identity、typed side effect、UNKNOWN/read-back、secret/fencing evidence contractへ適合する |
 | AT-STO-023 | Storage Capacity Poolがreserved/allocated/observed/external usageとthin data/metadata healthを分離しtransactional claim/releaseする |
 | AT-STO-024 | closed typed Local LVM create を実 Host で実行し、Agent kill 後も同じ LV UUID を標準 LVM read-back で確認して immutable evidence と current BOUND Binding へ収束する |
+| AT-STO-025 | current BOUND Local LVM Volume を実 Domain へ typed attach/detach し、各 Agent kill 後に libvirt device と LVM holder の一致/absence を確認して ATTACHED/DETACHED Claim authority へ収束し、遅延した旧 observation が current state を巻き戻さない |
 
 ## 13. NFV Dataplane
 

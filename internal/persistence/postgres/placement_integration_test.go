@@ -489,6 +489,48 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := AcceptLocalLVMBindingObservation(ctx, pool, mismatched); !errors.Is(err, ErrPlacementConflict) {
 		t.Fatalf("mismatched Local LVM evidence error = %v", err)
 	}
+	winnerAttachmentID := winner.request.Storage[0].AttachmentID
+	domainUUID := "44444444-4444-4444-8444-444444444444"
+	attachVerification := localLVMAttachmentVerificationFixture{
+		JobID: "attach-job-" + suffix, CommandID: "attach-command-" + suffix,
+		VerificationID: "attach-verification-" + suffix, AttachmentID: winnerAttachmentID,
+		VolumeID: winnerVolumeID, HostID: hostID, DomainUUID: domainUUID,
+		TargetDevice: "vdb", LVUUID: localLVUUID, DesiredState: "ATTACHED",
+		DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true,
+		HolderOpen: true, ObservationDigest: digestBytes([]byte("attach-observation-" + suffix)),
+		VerifierDigest: localLVMVerifierDigest, ObservationGeneration: 1,
+	}
+	if err := seedLocalLVMAttachmentVerification(ctx, pool, attachVerification); err != nil {
+		t.Fatal(err)
+	}
+	attachObservation := LocalLVMAttachmentObservation{
+		EvidenceID: "attach-evidence-" + suffix, AttachmentID: winnerAttachmentID,
+		VolumeID: winnerVolumeID, BindingID: winnerBindingID, HostID: hostID,
+		DomainUUID: domainUUID, TargetDevice: "vdb", ObservedLVUUID: localLVUUID,
+		DesiredState: "ATTACHED", CommandID: attachVerification.CommandID,
+		VerificationID: attachVerification.VerificationID, ObservationDigest: attachVerification.ObservationDigest,
+		VerifierDigest: localLVMVerifierDigest, EvidenceState: "MATCHED",
+		AttachmentGeneration: 1, BindingGeneration: 1, ObservationGeneration: 1, AttemptIndex: 1,
+		DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true, HolderOpen: true,
+	}
+	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, attachObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, attachObservation); err != nil {
+		t.Fatalf("idempotent Attachment evidence replay: %v", err)
+	}
+	var attachmentState, attachmentClaimState string
+	if err := pool.QueryRow(ctx, `
+		SELECT observation.attachment_state, claim.claim_state
+		FROM kim.volume_attachment_observations_current observation
+		JOIN kim.volume_attachment_claims claim USING (attachment_id)
+		WHERE observation.attachment_id=$1
+	`, winnerAttachmentID).Scan(&attachmentState, &attachmentClaimState); err != nil {
+		t.Fatal(err)
+	}
+	if attachmentState != "ATTACHED" || attachmentClaimState != "ACTIVE" {
+		t.Fatalf("Attachment state/Claim = %s/%s", attachmentState, attachmentClaimState)
+	}
 	secondWriterErr := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		secondAttachmentID := "attachment-second-writer-" + suffix
 		if _, err := tx.Exec(ctx, `
@@ -518,6 +560,65 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}
 	if attachmentClaims != 1 {
 		t.Fatalf("single-writer Attachment Claim count = %d", attachmentClaims)
+	}
+	detachVerification := attachVerification
+	detachVerification.JobID = "detach-job-" + suffix
+	detachVerification.CommandID = "detach-command-" + suffix
+	detachVerification.VerificationID = "detach-verification-" + suffix
+	detachVerification.DesiredState = "DETACHED"
+	detachVerification.DevicePresent = false
+	detachVerification.DeviceIdentityMatches = false
+	detachVerification.SourceIdentityMatches = false
+	detachVerification.HolderOpen = false
+	detachVerification.ObservationGeneration = 2
+	detachVerification.ObservationDigest = digestBytes([]byte("detach-observation-" + suffix))
+	if err := seedLocalLVMAttachmentVerification(ctx, pool, detachVerification); err != nil {
+		t.Fatal(err)
+	}
+	detachObservation := attachObservation
+	detachObservation.EvidenceID = "detach-evidence-" + suffix
+	detachObservation.CommandID = detachVerification.CommandID
+	detachObservation.VerificationID = detachVerification.VerificationID
+	detachObservation.DesiredState = "DETACHED"
+	detachObservation.ObservationGeneration = 2
+	detachObservation.ObservationDigest = detachVerification.ObservationDigest
+	detachObservation.DevicePresent = false
+	detachObservation.DeviceIdentityMatches = false
+	detachObservation.SourceIdentityMatches = false
+	detachObservation.HolderOpen = false
+	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, detachObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, detachObservation); err != nil {
+		t.Fatalf("idempotent detached Attachment evidence replay: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT observation.attachment_state, claim.claim_state
+		FROM kim.volume_attachment_observations_current observation
+		JOIN kim.volume_attachment_claims claim USING (attachment_id)
+		WHERE observation.attachment_id=$1
+	`, winnerAttachmentID).Scan(&attachmentState, &attachmentClaimState); err != nil {
+		t.Fatal(err)
+	}
+	if attachmentState != "DETACHED" || attachmentClaimState != "RELEASED" {
+		t.Fatalf("detached Attachment state/Claim = %s/%s", attachmentState, attachmentClaimState)
+	}
+	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, attachObservation); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("stale attached observation replay error = %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT observation.attachment_state, claim.claim_state
+		FROM kim.volume_attachment_observations_current observation
+		JOIN kim.volume_attachment_claims claim USING (attachment_id)
+		WHERE observation.attachment_id=$1
+	`, winnerAttachmentID).Scan(&attachmentState, &attachmentClaimState); err != nil {
+		t.Fatal(err)
+	}
+	if attachmentState != "DETACHED" || attachmentClaimState != "RELEASED" {
+		t.Fatalf("stale replay changed Attachment state/Claim = %s/%s", attachmentState, attachmentClaimState)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.volume_attachment_observation_evidence SET holder_open=true WHERE evidence_id=$1`, detachObservation.EvidenceID); err == nil {
+		t.Fatal("immutable Attachment evidence accepted UPDATE")
 	}
 }
 
@@ -576,6 +677,65 @@ func seedLocalLVMVerification(ctx context.Context, pool *pgxpool.Pool, fixture l
 		`, fixture.VerificationID, fixture.CommandID, fixture.ObservationDigest,
 			fixture.VerifierDigest, fixture.VGUUID, fixture.LVUUID,
 			fixture.ResourceKey, fixture.SizeBytes)
+		return err
+	})
+}
+
+type localLVMAttachmentVerificationFixture struct {
+	JobID, CommandID, VerificationID, AttachmentID, VolumeID, HostID string
+	DomainUUID, TargetDevice, LVUUID, DesiredState                   string
+	ObservationDigest, VerifierDigest                                string
+	ObservationGeneration                                            uint64
+	DevicePresent, DeviceIdentityMatches, SourceIdentityMatches      bool
+	HolderOpen, ReadOnly                                             bool
+}
+
+func seedLocalLVMAttachmentVerification(ctx context.Context, pool *pgxpool.Pool, fixture localLVMAttachmentVerificationFixture) error {
+	return pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.execution_jobs (job_id, resource_type, resource_id, desired_revision, job_state) VALUES ($1,'VOLUME_ATTACHMENT',$2,1,'SUCCEEDED')`, fixture.JobID, fixture.AttachmentID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.execution_commands (
+				command_id, job_id, host_id, command_type, schema_version,
+				target_resource_id, payload, payload_digest
+			) VALUES ($1,$2,$3,'LOCAL_LVM_VOLUME_ATTACHMENT_ENSURE','kim.command.local-lvm-volume-attachment/v1',$4,'{}'::jsonb,$5)
+		`, fixture.CommandID, fixture.JobID, fixture.HostID, "attachment:"+fixture.AttachmentID, digestBytes([]byte(fixture.CommandID))); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.execution_commands_current (command_id, command_state, current_attempt_index) VALUES ($1,'SUCCEEDED',1)`, fixture.CommandID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.execution_jobs SET current_command_id=$2 WHERE job_id=$1`, fixture.JobID, fixture.CommandID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.command_lease_grants (
+				command_id, lease_generation, attempt_index, host_id,
+				host_authority_generation, session_generation, token_digest,
+				not_before, expires_at
+			) VALUES ($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')
+		`, fixture.CommandID, fixture.HostID, digestBytes([]byte("attachment-lease-"+fixture.CommandID))); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.command_attempts (command_id, attempt_index, lease_generation, host_authority_generation, session_generation) VALUES ($1,1,1,1,1)`, fixture.CommandID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO kim.command_verification_evidence (
+				verification_id, command_id, attempt_index, observation_generation,
+				observation_digest, verification_state, verifier_artifact_digest, evidence_payload
+			) VALUES ($1,$2,1,$3,$4,'MATCHED',$5,jsonb_build_object(
+				'attachment_id',$6::text,'volume_id',$7::text,'domain_uuid',$8::text,
+				'target_device',$9::text,'observed_lv_uuid',$10::text,'desired_state',$11::text,
+				'device_present',$12::boolean,'device_identity_matches',$13::boolean,
+				'source_identity_matches',$14::boolean,'holder_open',$15::boolean,'read_only',$16::boolean
+			))
+		`, fixture.VerificationID, fixture.CommandID, fixture.ObservationGeneration,
+			fixture.ObservationDigest, fixture.VerifierDigest, fixture.AttachmentID,
+			fixture.VolumeID, fixture.DomainUUID, fixture.TargetDevice, fixture.LVUUID,
+			fixture.DesiredState, fixture.DevicePresent, fixture.DeviceIdentityMatches,
+			fixture.SourceIdentityMatches, fixture.HolderOpen, fixture.ReadOnly)
 		return err
 	})
 }
