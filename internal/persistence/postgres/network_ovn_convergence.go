@@ -100,6 +100,10 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 			return err
 		}
 		workID := fmt.Sprintf("ovn-runtime:%s:%d", request.IntentID, request.IntentGeneration)
+		workSchema := OVNRuntimeWorkSchemaV1
+		if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT write_work_schema_version FROM kim.release_authority_current WHERE singleton=true),$1)`, OVNRuntimeWorkSchemaV1).Scan(&workSchema); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE kim.ovn_runtime_work_current
 			SET work_state='SUPERSEDED',claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,
@@ -111,17 +115,17 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO kim.ovn_runtime_work_current(
-			 work_id,intent_id,intent_generation,port_id,port_generation,binding_generation,object_set_digest,work_state
-			) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING')
+			 work_id,intent_id,intent_generation,port_id,port_generation,binding_generation,object_set_digest,work_state,required_work_schema_version
+			) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING',$8)
 			ON CONFLICT(intent_id,intent_generation) DO NOTHING
-		`, workID, request.IntentID, request.IntentGeneration, request.PortID, portGeneration, bindingGeneration, digest); err != nil {
+		`, workID, request.IntentID, request.IntentGeneration, request.PortID, portGeneration, bindingGeneration, digest, workSchema); err != nil {
 			return err
 		}
 		var identicalWork bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.ovn_runtime_work_current
 			WHERE work_id=$1 AND intent_id=$2 AND intent_generation=$3 AND port_id=$4
-			 AND port_generation=$5 AND binding_generation=$6 AND object_set_digest=$7
-		)`, workID, request.IntentID, request.IntentGeneration, request.PortID, portGeneration, bindingGeneration, digest).Scan(&identicalWork); err != nil || !identicalWork {
+			 AND port_generation=$5 AND binding_generation=$6 AND object_set_digest=$7 AND required_work_schema_version=$8
+		)`, workID, request.IntentID, request.IntentGeneration, request.PortID, portGeneration, bindingGeneration, digest, workSchema).Scan(&identicalWork); err != nil || !identicalWork {
 			return ErrPlacementConflict
 		}
 		decision = OVNPortIntentDecision{IntentID: request.IntentID, PortID: request.PortID, ObjectSetDigest: digest,

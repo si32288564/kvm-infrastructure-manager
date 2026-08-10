@@ -47,6 +47,7 @@ func TestOVNRuntimeWorkerProcessKillReadBackConvergence(t *testing.T) {
 	}
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	ids := seedOVNAuthority(t, ctx, pool, suffix)
+	publishCurrentTestWorkerRelease(t, ctx, pool, digest("qualified-ovn-adapter"))
 	decision, err := postgres.CommitOVNPortIntent(ctx, pool, postgres.OVNPortIntentRequest{IntentID: ids.intentID, IntentGeneration: 1, PortID: ids.portID})
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +74,7 @@ func TestOVNRuntimeWorkerProcessKillReadBackConvergence(t *testing.T) {
 		"-batch-limit", "1", "-claim-lease", "750ms", "-command-timeout", "5s",
 		"-claim-maximum-lifetime", "750ms", "-claim-renew-interval", "0",
 	}
+	baseArgs = append(baseArgs, testWorkerReleaseArguments()...)
 	workerA := startProcess(t, workerBinary, append(baseArgs, "-worker-id", "ovn-worker-a")...)
 	workerA.cmd.Env = append(os.Environ(),
 		"KIM_OVN_FIXTURE_STATE="+statePath,

@@ -262,10 +262,10 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
-| UPG-001, UPG-002, UPG-003 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-001, INV-UPG-002 | AT-UPG-002, AT-UPG-003, AT-UPG-004, FI-UPG-001 | Planned |
+| UPG-001, UPG-002, UPG-003 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-001, INV-UPG-002, INV-UPG-022 | AT-UPG-002, AT-UPG-003, AT-UPG-004, AT-UPG-029, FI-UPG-001, FI-UPG-019 | Partial (immutable ReleaseManifest/component/explicit edge、CompatibilityDecision、current worker binding foundation implemented and OVN worker N/N-1 process qualification PASS; product-wide component graph/provenance/SBOM pending) |
 | UPG-004, UPG-005 | upgrade-and-compatibility-architecture, data-persistence-architecture | ADR-0018, ADR-0021 | INV-UPG-003 | AT-UPG-005, AT-UPG-006, FI-UPG-010 | Planned |
 | UPG-006, UPG-007 | upgrade-and-compatibility-architecture, host-grouping-architecture | ADR-0014, ADR-0021 | INV-UPG-007 | AT-UPG-007, FI-UPG-005, FI-UPG-015 | Planned |
-| UPG-008, UPG-009 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-004, INV-UPG-005 | AT-UPG-008, FI-UPG-002, FI-UPG-003 | Planned |
+| UPG-008, UPG-009 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-004, INV-UPG-005, INV-UPG-022 | AT-UPG-008, AT-UPG-029, FI-UPG-002, FI-UPG-003, FI-UPG-019 | Partial (OVN worker explicit N/N-1 edge、drain-aware claim fencing、all-participant work-schema FeatureGate implemented; other Control Plane/Agent/Event writers pending) |
 | UPG-010 | upgrade-and-compatibility-architecture, data-persistence-architecture | ADR-0018, ADR-0021 | INV-DATA-011, INV-UPG-006 | AT-UPG-010, FI-DATA-007, FI-UPG-004 | Planned |
 | UPG-011 | upgrade-and-compatibility-architecture, ha-dr | ADR-0009, ADR-0021 | INV-HA-001, INV-UPG-007 | AT-UPG-001, FI-UPG-015 | Planned |
 | UPG-012, UPG-013, UPG-014 | upgrade-and-compatibility-architecture, agent-protocol, host-lifecycle-and-compliance-architecture | ADR-0004, ADR-0008, ADR-0013, ADR-0021 | INV-UPG-009, INV-UPG-010 | AT-UPG-011, AT-UPG-012, FI-UPG-006, FI-UPG-007 | Planned |

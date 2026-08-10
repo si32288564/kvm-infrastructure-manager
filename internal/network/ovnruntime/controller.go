@@ -26,7 +26,10 @@ type WorkStore interface {
 	Complete(context.Context, postgres.OVNRuntimeClaim, postgres.OVNPortObservation) error
 }
 
-type PostgresWorkStore struct{ DB postgres.TxBeginner }
+type PostgresWorkStore struct {
+	DB                       postgres.TxBeginner
+	ReleaseBindingGeneration uint64
+}
 
 type itemLocalError struct {
 	workID string
@@ -70,6 +73,7 @@ func (failure *RunOnceError) ItemLocalOnly() bool {
 }
 
 func (store PostgresWorkStore) Claim(ctx context.Context, request postgres.OVNRuntimeClaimRequest) ([]postgres.OVNRuntimeWork, error) {
+	request.ReleaseBindingGeneration = store.ReleaseBindingGeneration
 	return postgres.ClaimOVNRuntimeWork(ctx, store.DB, request)
 }
 

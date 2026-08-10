@@ -64,6 +64,7 @@ func TestOVNRuntimeWorkerRepeatedPostgreSQLFailoverDuringRenewal(t *testing.T) {
 		initialPool.Close()
 		t.Fatal(err)
 	}
+	publishCurrentTestWorkerRelease(t, ctx, initialPool, digest("qualified-ovn-adapter"))
 	var restoreEpoch string
 	var authorityGeneration int64
 	if err := initialPool.QueryRow(ctx, `SELECT restore_epoch,authority_generation FROM kim.database_authority WHERE singleton`).Scan(&restoreEpoch, &authorityGeneration); err != nil {
@@ -134,13 +135,14 @@ func runRepeatedFailoverCycle(t *testing.T, ctx context.Context, cycle repeatedF
 	readBackSignal := filepath.Join(cycle.workspace, cycle.name+"-readback-started")
 	readBackRelease := filepath.Join(cycle.workspace, cycle.name+"-readback-release")
 	baseArgs := func(databaseURL, workerID string) []string {
-		return []string{
+		arguments := []string{
 			"-database-url", databaseURL, "-adapter-artifact-digest", digest("qualified-ovn-adapter"),
 			"-ovn-nb-db", "unix:/fixture/nb.sock", "-ovn-sb-db", "unix:/fixture/sb.sock",
 			"-ovn-nbctl", cycle.nbctl, "-ovn-sbctl", cycle.sbctl, "-poll-interval", "20ms",
 			"-batch-limit", "1", "-claim-lease", "500ms", "-claim-maximum-lifetime", "4s",
 			"-claim-renew-interval", "100ms", "-command-timeout", "5s", "-worker-id", workerID,
 		}
+		return append(arguments, testWorkerReleaseArguments()...)
 	}
 	workerA := startProcess(t, cycle.workerBinary, baseArgs(cycle.activeURL, cycle.activeWorker)...)
 	workerA.cmd.Env = append(os.Environ(),

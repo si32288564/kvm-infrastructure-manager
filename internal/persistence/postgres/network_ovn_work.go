@@ -19,10 +19,11 @@ var ErrOVNRuntimeClaimMaximumLifetime = errors.New("OVN runtime work claim maxim
 const MaxOVNRuntimeClaimLifetime = 24 * time.Hour
 
 type OVNRuntimeClaimRequest struct {
-	Owner           string
-	Limit           int
-	Lease           time.Duration
-	MaximumLifetime time.Duration
+	Owner                    string
+	Limit                    int
+	Lease                    time.Duration
+	MaximumLifetime          time.Duration
+	ReleaseBindingGeneration uint64
 }
 
 type OVNRuntimeWork struct {
@@ -31,6 +32,7 @@ type OVNRuntimeWork struct {
 	ClaimGeneration                                      uint64
 	ClaimExpiresAt, ClaimMaximumExpiresAt                time.Time
 	CanonicalObjectSet                                   []byte
+	RequiredWorkSchemaVersion                            string
 }
 
 type OVNRuntimeClaim struct {
@@ -57,21 +59,58 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
+		var releaseAuthorityEnabled bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_authority_current WHERE singleton=true)`).Scan(&releaseAuthorityEnabled); err != nil {
+			return err
+		}
+		if releaseAuthorityEnabled && request.ReleaseBindingGeneration == 0 {
+			return ErrIncompatibleRelease
+		}
+		if releaseAuthorityEnabled {
+			var active bool
+			if err := tx.QueryRow(ctx, `SELECT true
+				FROM kim.component_release_bindings_current release_binding
+				JOIN kim.compatibility_decision_evidence compatibility
+				  ON compatibility.decision_id=release_binding.compatibility_decision_id
+				JOIN kim.release_authority_current release_authority ON release_authority.singleton=true
+				WHERE release_binding.component_id=$1 AND release_binding.component_type='OVN_RUNTIME_WORKER'
+				 AND release_binding.binding_generation=$2 AND release_binding.lifecycle_state='ACTIVE'
+				 AND release_binding.compatibility_state IN ('VALIDATED','COMPATIBLE')
+				 AND compatibility.target_release_id=release_authority.release_id
+				 AND compatibility.target_manifest_revision=release_authority.manifest_revision
+				 AND compatibility.release_authority_generation=release_authority.authority_generation
+				FOR SHARE OF release_binding`, request.Owner, request.ReleaseBindingGeneration).Scan(&active); err != nil || !active {
+				return ErrIncompatibleRelease
+			}
+		}
 		rows, err := tx.Query(ctx, `
 			SELECT work.work_id,work.intent_id,work.intent_generation,work.port_id,work.port_generation,
 			 work.binding_generation,work.object_set_digest,work.work_state,work.claim_owner,work.claim_generation,
-			 intent.canonical_object_set
+			 intent.canonical_object_set,work.required_work_schema_version
 			FROM kim.ovn_runtime_work_current work
 			JOIN kim.network_ovn_state_current current ON current.port_id=work.port_id
 			 AND current.intent_id=work.intent_id AND current.intent_generation=work.intent_generation
 			 AND current.port_generation=work.port_generation AND current.binding_generation=work.binding_generation
 			JOIN kim.network_intent_revision_evidence intent ON intent.intent_id=work.intent_id
 			 AND intent.intent_generation=work.intent_generation AND intent.object_set_digest=work.object_set_digest
-			WHERE work.work_state IN ('PENDING','DISPATCH_UNKNOWN')
-			 OR (work.work_state='CLAIMED' AND work.claim_expires_at<=statement_timestamp())
+			WHERE (work.work_state IN ('PENDING','DISPATCH_UNKNOWN')
+			 OR (work.work_state='CLAIMED' AND work.claim_expires_at<=statement_timestamp()))
+			AND ($2::bigint=0 OR EXISTS(
+			 SELECT 1 FROM kim.component_release_bindings_current release_binding
+			 JOIN kim.compatibility_decision_evidence compatibility
+			   ON compatibility.decision_id=release_binding.compatibility_decision_id
+			 JOIN kim.release_authority_current release_authority ON release_authority.singleton=true
+			 WHERE release_binding.component_id=$3 AND release_binding.component_type='OVN_RUNTIME_WORKER'
+			  AND release_binding.binding_generation=$2 AND release_binding.lifecycle_state='ACTIVE'
+			  AND release_binding.compatibility_state IN ('VALIDATED','COMPATIBLE')
+			  AND compatibility.target_release_id=release_authority.release_id
+			  AND compatibility.target_manifest_revision=release_authority.manifest_revision
+			  AND compatibility.release_authority_generation=release_authority.authority_generation
+			  AND work.required_work_schema_version=ANY(release_binding.supported_work_schema_versions)
+			))
 			ORDER BY work.created_at,work.work_id
 			FOR UPDATE OF work SKIP LOCKED LIMIT $1
-		`, request.Limit)
+		`, request.Limit, request.ReleaseBindingGeneration, request.Owner)
 		if err != nil {
 			return err
 		}
@@ -87,7 +126,7 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 			var intentGeneration, portGeneration, bindingGeneration int64
 			if err := rows.Scan(&item.work.WorkID, &item.work.IntentID, &intentGeneration, &item.work.PortID,
 				&portGeneration, &bindingGeneration, &item.work.ObjectSetDigest, &item.state,
-				&item.priorOwner, &item.priorGeneration, &item.work.CanonicalObjectSet); err != nil {
+				&item.priorOwner, &item.priorGeneration, &item.work.CanonicalObjectSet, &item.work.RequiredWorkSchemaVersion); err != nil {
 				rows.Close()
 				return err
 			}
@@ -128,8 +167,8 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 			}
 			item.work.ClaimMode, item.work.ClaimGeneration, item.work.ClaimExpiresAt, item.work.ClaimMaximumExpiresAt = mode, uint64(generation), expires, maximumExpires
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.ovn_runtime_work_attempt_evidence(
-				work_id,claim_generation,claim_owner,claim_mode,lease_expires_at,maximum_expires_at
-			) VALUES($1,$2,$3,$4,$5,$6)`, item.work.WorkID, generation, request.Owner, mode, expires, maximumExpires); err != nil {
+				work_id,claim_generation,claim_owner,claim_mode,lease_expires_at,maximum_expires_at,release_binding_generation
+			) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0))`, item.work.WorkID, generation, request.Owner, mode, expires, maximumExpires, request.ReleaseBindingGeneration); err != nil {
 				return err
 			}
 			claim := OVNRuntimeClaim{WorkID: item.work.WorkID, Owner: request.Owner, ClaimGeneration: uint64(generation)}

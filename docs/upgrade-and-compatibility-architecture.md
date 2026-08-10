@@ -199,6 +199,8 @@ DRAFT
 
 同じresourceを異version workerが処理しても、PostgreSQL generation、Lease、idempotency、Result fencingは共通です。upgrade coordinatorはこれらのauthorityを代替しません。
 
+runtime worker は起動時に自身の Release Manifest revision、artifact digest、supported work schema と evaluator digest を PostgreSQL の current release authority に照合し、immutable Compatibility Decision と current component binding generation を得ます。work claim はこの binding generation と work が要求する schema を同一 transaction で再検証します。`DRAINING` は new claim eligibility だけを失わせ、既取得 claim の Lease や backend outcome を revoke しません。new schema の Feature Gate は、その schema を理解しない `ACTIVE` または `DRAINING` participant が一つでも残る間は fail closed とします。
+
 ## 9. Control Plane and Database Order
 
 Control Plane rolling upgradeはHA/readiness budgetを守り、一度にrequired quorum/serving capacityを失いません。

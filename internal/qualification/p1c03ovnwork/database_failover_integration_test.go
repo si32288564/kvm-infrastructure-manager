@@ -45,6 +45,7 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 	}
 	suffix := fmt.Sprintf("failover-%d", time.Now().UnixNano())
 	ids := seedOVNAuthority(t, ctx, primaryPool, suffix)
+	publishCurrentTestWorkerRelease(t, ctx, primaryPool, digest("qualified-ovn-adapter"))
 	decision, err := postgres.CommitOVNPortIntent(ctx, primaryPool, postgres.OVNPortIntentRequest{IntentID: ids.intentID, IntentGeneration: 1, PortID: ids.portID})
 	if err != nil {
 		primaryPool.Close()
@@ -78,13 +79,14 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 	})
 	readBackSignal, readBackRelease := workspace+"/readback-started", workspace+"/readback-release"
 	baseArgs := func(databaseURL string) []string {
-		return []string{
+		arguments := []string{
 			"-database-url", databaseURL, "-adapter-artifact-digest", digest("qualified-ovn-adapter"),
 			"-ovn-nb-db", "unix:/fixture/nb.sock", "-ovn-sb-db", "unix:/fixture/sb.sock",
 			"-ovn-nbctl", nbctl, "-ovn-sbctl", sbctl, "-poll-interval", "20ms",
 			"-batch-limit", "1", "-claim-lease", "500ms", "-claim-maximum-lifetime", "4s",
 			"-claim-renew-interval", "100ms", "-command-timeout", "5s",
 		}
+		return append(arguments, testWorkerReleaseArguments()...)
 	}
 	workerA := startProcess(t, workerBinary, append(baseArgs(cluster.primaryURL), "-worker-id", "ovn-db-primary-worker")...)
 	workerA.cmd.Env = append(os.Environ(),

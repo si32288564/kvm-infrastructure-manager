@@ -33,6 +33,11 @@ func TestOVNRuntimeWorkerProcessDrainBoundaries(t *testing.T) {
 	if _, err := postgres.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.database_authority(restore_epoch,authority_generation,mode)
+		VALUES($1,1,'ACTIVE')`, fmt.Sprintf("ovn-hard-drain-%d", time.Now().UnixNano())); err != nil {
+		t.Fatal(err)
+	}
+	publishCurrentTestWorkerRelease(t, ctx, pool, digest("qualified-ovn-hard-drain-adapter"))
 
 	root, err := filepath.Abs("../../..")
 	if err != nil {
@@ -169,6 +174,7 @@ func workerArguments(databaseURL, nbctl, sbctl, owner, metricsAddress, claimLeas
 	if metricsAddress != "" {
 		arguments = append(arguments, "-metrics-listen-address", metricsAddress)
 	}
+	arguments = append(arguments, testWorkerReleaseArguments()...)
 	return arguments
 }
 

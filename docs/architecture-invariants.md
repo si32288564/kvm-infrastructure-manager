@@ -392,6 +392,7 @@
 | INV-UPG-019 | QEMU/libvirt/default変更だけで既存VMのmachine type/CPU model/firmware/device ABI bindingを変更しない | FI-UPG-016 |
 | INV-UPG-020 | Event/evidence payload referenceまたはlegal hold中にrequired decoder artifactをfinalize/GCしない | FI-UPG-017 |
 | INV-UPG-021 | Feature Gate dependency graphのcycle/未充足/conflictを拒否しdependency-aware orderを迂回しない | FI-UPG-018 |
+| INV-UPG-022 | OVN runtime work claim は current `ReleaseManifest`、明示 N/N-1 edge、artifact digest、supported work schema、immutable `CompatibilityDecision` と current component binding generation を要求する。`DRAINING` は new claim を停止して current claim を revoke せず、active/draining participant が理解できない schema の FeatureGate activation と、edge のない N-2 component の claim を拒否する | AT-UPG-029, FI-UPG-019 |
 
 ## 18. Time and Clock Semantics
 

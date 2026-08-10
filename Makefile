@@ -80,6 +80,9 @@ test-p1c03-ovn-worker-drain:
 test-p1c03-ovn-worker-hard-drain:
 	KIM_RUN_DOCKER_POSTGRES_OVN_WORKER_HARD_DRAIN=1 $(GO) test -race -v -count=1 -timeout 180s -run TestOVNRuntimeWorkerProcessDrainBoundaries ./internal/qualification/p1c03ovnwork
 
+test-p1d03-ovn-worker-rolling-upgrade:
+	KIM_RUN_DOCKER_POSTGRES_OVN_WORKER_ROLLING_UPGRADE=1 $(GO) test -race -v -count=1 -timeout 180s -run TestOVNRuntimeWorkerExplicitNMinusOneRollingUpgrade ./internal/qualification/p1c03ovnwork
+
 test-p1c03-ovn-worker-soak:
 	KIM_RUN_DOCKER_POSTGRES_OVN_SOAK=1 $(GO) test -v -count=1 -timeout 240s -run TestOVNRuntimeBacklogRetryStormMultiWorkerSoak ./internal/qualification/p1c03ovnwork
 
