@@ -18,6 +18,7 @@ type WorkAdapter interface {
 
 type WorkStore interface {
 	Claim(context.Context, postgres.OVNRuntimeClaimRequest) ([]postgres.OVNRuntimeWork, error)
+	Renew(context.Context, postgres.OVNRuntimeClaim, time.Duration) (postgres.OVNRuntimeRenewal, error)
 	RecordReadBack(context.Context, postgres.OVNRuntimeClaim) error
 	AuthorizeApply(context.Context, postgres.OVNRuntimeClaim) error
 	Quarantine(context.Context, postgres.OVNRuntimeClaim, string) error
@@ -28,6 +29,10 @@ type PostgresWorkStore struct{ DB postgres.TxBeginner }
 
 func (store PostgresWorkStore) Claim(ctx context.Context, request postgres.OVNRuntimeClaimRequest) ([]postgres.OVNRuntimeWork, error) {
 	return postgres.ClaimOVNRuntimeWork(ctx, store.DB, request)
+}
+
+func (store PostgresWorkStore) Renew(ctx context.Context, claim postgres.OVNRuntimeClaim, lease time.Duration) (postgres.OVNRuntimeRenewal, error) {
+	return postgres.RenewOVNRuntimeClaim(ctx, store.DB, claim, lease)
 }
 
 func (store PostgresWorkStore) RecordReadBack(ctx context.Context, claim postgres.OVNRuntimeClaim) error {
@@ -54,15 +59,21 @@ type Worker struct {
 	Owner                 string
 	BatchLimit            int
 	ClaimLease            time.Duration
+	ClaimMaximumLifetime  time.Duration
+	ClaimRenewInterval    time.Duration
 	AdapterArtifactDigest string
 }
 
 func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 	_, digestErr := hex.DecodeString(worker.AdapterArtifactDigest)
-	if worker.Store == nil || worker.Adapter == nil || worker.Owner == "" || worker.BatchLimit < 1 || worker.BatchLimit > 100 || worker.ClaimLease <= 0 || len(worker.AdapterArtifactDigest) != 64 || digestErr != nil {
+	maximumLifetime := worker.ClaimMaximumLifetime
+	if maximumLifetime == 0 {
+		maximumLifetime = worker.ClaimLease
+	}
+	if worker.Store == nil || worker.Adapter == nil || worker.Owner == "" || worker.BatchLimit < 1 || worker.BatchLimit > 100 || worker.ClaimLease <= 0 || maximumLifetime < worker.ClaimLease || maximumLifetime > postgres.MaxOVNRuntimeClaimLifetime || worker.ClaimRenewInterval < 0 || (worker.ClaimRenewInterval > 0 && (worker.ClaimRenewInterval >= worker.ClaimLease || maximumLifetime <= worker.ClaimLease)) || len(worker.AdapterArtifactDigest) != 64 || digestErr != nil {
 		return 0, errors.New("complete bounded OVN runtime worker configuration is required")
 	}
-	work, err := worker.Store.Claim(ctx, postgres.OVNRuntimeClaimRequest{Owner: worker.Owner, Limit: worker.BatchLimit, Lease: worker.ClaimLease})
+	work, err := worker.Store.Claim(ctx, postgres.OVNRuntimeClaimRequest{Owner: worker.Owner, Limit: worker.BatchLimit, Lease: worker.ClaimLease, MaximumLifetime: maximumLifetime})
 	if err != nil {
 		return 0, err
 	}
@@ -74,7 +85,9 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 			if err := worker.Store.RecordReadBack(ctx, claim); err != nil {
 				return completed, err
 			}
-			result, err = worker.Adapter.ObservePort(ctx, item.CanonicalObjectSet, item.ObjectSetDigest)
+			result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
+				return worker.Adapter.ObservePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
+			})
 			if err != nil {
 				if errors.Is(err, ovnadapter.ErrForeignOVNObject) {
 					if quarantineErr := worker.Store.Quarantine(ctx, claim, "foreign_ovn_object"); quarantineErr != nil {
@@ -95,7 +108,9 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 		if err := worker.Store.AuthorizeApply(ctx, claim); err != nil {
 			return completed, err
 		}
-		result, err = worker.Adapter.ReconcilePort(ctx, item.CanonicalObjectSet, item.ObjectSetDigest)
+		result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
+			return worker.Adapter.ReconcilePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
+		})
 		if err != nil {
 			if errors.Is(err, ovnadapter.ErrForeignOVNObject) {
 				if quarantineErr := worker.Store.Quarantine(ctx, claim, "foreign_ovn_object"); quarantineErr != nil {
@@ -111,6 +126,41 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 		completed++
 	}
 	return completed, nil
+}
+
+func (worker Worker) runAdapterWithRenewal(ctx context.Context, claim postgres.OVNRuntimeClaim, operation func(context.Context) (ovnadapter.RuntimeResult, error)) (ovnadapter.RuntimeResult, error) {
+	if worker.ClaimRenewInterval == 0 {
+		return operation(ctx)
+	}
+	operationContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type outcome struct {
+		result ovnadapter.RuntimeResult
+		err    error
+	}
+	completed := make(chan outcome, 1)
+	go func() {
+		result, err := operation(operationContext)
+		completed <- outcome{result: result, err: err}
+	}()
+	ticker := time.NewTicker(worker.ClaimRenewInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case result := <-completed:
+			return result.result, result.err
+		case <-ticker.C:
+			if _, err := worker.Store.Renew(ctx, claim, worker.ClaimLease); err != nil {
+				cancel()
+				result := <-completed
+				return result.result, errors.Join(err, result.err)
+			}
+		case <-ctx.Done():
+			cancel()
+			result := <-completed
+			return result.result, errors.Join(ctx.Err(), result.err)
+		}
+	}
 }
 
 func (worker Worker) Run(ctx context.Context, pollInterval time.Duration) error {

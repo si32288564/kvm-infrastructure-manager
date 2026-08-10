@@ -965,15 +965,33 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, PortBindingPresent: true,
 			DatapathPresent: true, ExpectedChassisMatches: true},
 	}
-	firstRuntimeClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-a", Limit: 1, Lease: time.Minute})
+	firstRuntimeClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-a", Limit: 1, Lease: time.Minute, MaximumLifetime: 2 * time.Minute})
 	if err != nil || len(firstRuntimeClaims) != 1 || firstRuntimeClaims[0].ClaimMode != "APPLY_ALLOWED" || firstRuntimeClaims[0].ClaimGeneration != 1 {
 		t.Fatalf("first OVN runtime claim=%#v err=%v", firstRuntimeClaims, err)
 	}
 	if competing, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-competing", Limit: 1, Lease: time.Minute}); err != nil || len(competing) != 0 {
 		t.Fatalf("competing OVN runtime claim=%#v err=%v", competing, err)
 	}
+	firstClaim := OVNRuntimeClaim{WorkID: firstRuntimeClaims[0].WorkID, Owner: "ovn-worker-a", ClaimGeneration: 1}
+	renewal, err := RenewOVNRuntimeClaim(ctx, pool, firstClaim, 90*time.Second)
+	if err != nil || renewal.RenewalGeneration != 1 || !renewal.RenewedExpiresAt.After(renewal.PriorExpiresAt) || renewal.RenewedExpiresAt.After(renewal.MaximumAt) {
+		t.Fatalf("OVN runtime renewal=%#v err=%v", renewal, err)
+	}
+	if _, err := RenewOVNRuntimeClaim(ctx, pool, OVNRuntimeClaim{WorkID: firstClaim.WorkID, Owner: "foreign-worker", ClaimGeneration: 1}, 90*time.Second); !errors.Is(err, ErrStaleOVNRuntimeClaim) {
+		t.Fatalf("foreign OVN runtime renewal error=%v", err)
+	}
+	maximumRenewal, err := RenewOVNRuntimeClaim(ctx, pool, firstClaim, 2*time.Minute)
+	if err != nil || maximumRenewal.RenewalGeneration != 2 || !maximumRenewal.RenewedExpiresAt.Equal(maximumRenewal.MaximumAt) {
+		t.Fatalf("maximum OVN runtime renewal=%#v err=%v", maximumRenewal, err)
+	}
+	if _, err := RenewOVNRuntimeClaim(ctx, pool, firstClaim, 2*time.Minute); !errors.Is(err, ErrOVNRuntimeClaimMaximumLifetime) {
+		t.Fatalf("OVN runtime maximum lifetime error=%v", err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_runtime_work_current SET claim_expires_at=statement_timestamp()-interval '1 second' WHERE work_id=$1`, firstRuntimeClaims[0].WorkID); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := RenewOVNRuntimeClaim(ctx, pool, firstClaim, 90*time.Second); !errors.Is(err, ErrStaleOVNRuntimeClaim) {
+		t.Fatalf("expired OVN runtime renewal error=%v", err)
 	}
 	secondRuntimeClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-worker-b", Limit: 1, Lease: time.Minute})
 	if err != nil || len(secondRuntimeClaims) != 1 || secondRuntimeClaims[0].ClaimMode != "READ_BACK_FIRST" || secondRuntimeClaims[0].ClaimGeneration != 2 {
@@ -1000,7 +1018,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("idempotent OVN observation: %v", err)
 	}
 	var runtimeWorkState string
-	var runtimeAttempts, runtimeUnknownEvents int
+	var runtimeAttempts, runtimeRenewals, runtimeUnknownEvents int
 	if err := pool.QueryRow(ctx, `SELECT work_state FROM kim.ovn_runtime_work_current WHERE work_id=$1`, currentRuntimeClaim.WorkID).Scan(&runtimeWorkState); err != nil {
 		t.Fatal(err)
 	}
@@ -1010,8 +1028,11 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_event_evidence WHERE work_id=$1 AND event_type='DISPATCH_UNKNOWN'`, currentRuntimeClaim.WorkID).Scan(&runtimeUnknownEvents); err != nil {
 		t.Fatal(err)
 	}
-	if runtimeWorkState != "OBSERVED" || runtimeAttempts != 2 || runtimeUnknownEvents != 1 {
-		t.Fatalf("OVN runtime convergence state=%s attempts=%d unknown=%d", runtimeWorkState, runtimeAttempts, runtimeUnknownEvents)
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_renewal_evidence WHERE work_id=$1`, currentRuntimeClaim.WorkID).Scan(&runtimeRenewals); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeWorkState != "OBSERVED" || runtimeAttempts != 2 || runtimeRenewals != 2 || runtimeUnknownEvents != 1 {
+		t.Fatalf("OVN runtime convergence state=%s attempts=%d renewals=%d unknown=%d", runtimeWorkState, runtimeAttempts, runtimeRenewals, runtimeUnknownEvents)
 	}
 	var nbState, sbState string
 	if err := pool.QueryRow(ctx, `SELECT nb_state,sb_state,layer_status FROM kim.network_ovn_state_current WHERE port_id=$1`, ovsPortID).Scan(&nbState, &sbState, &ovnLayerStatus); err != nil || nbState != "MATCHED" || sbState != "MATCHED" || ovnLayerStatus != "SB_REALIZED" {

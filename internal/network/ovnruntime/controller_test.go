@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,11 +18,17 @@ type fakeWorkStore struct {
 	sequence  []string
 	completed postgres.OVNPortObservation
 	claim     postgres.OVNRuntimeClaim
+	renewals  atomic.Int32
 }
 
 func (store *fakeWorkStore) Claim(context.Context, postgres.OVNRuntimeClaimRequest) ([]postgres.OVNRuntimeWork, error) {
 	store.sequence = append(store.sequence, "claim")
 	return store.work, nil
+}
+
+func (store *fakeWorkStore) Renew(_ context.Context, claim postgres.OVNRuntimeClaim, _ time.Duration) (postgres.OVNRuntimeRenewal, error) {
+	store.renewals.Add(1)
+	return postgres.OVNRuntimeRenewal{WorkID: claim.WorkID, Owner: claim.Owner, ClaimGeneration: claim.ClaimGeneration}, nil
 }
 
 func (store *fakeWorkStore) RecordReadBack(_ context.Context, claim postgres.OVNRuntimeClaim) error {
@@ -52,6 +59,7 @@ type fakeWorkAdapter struct {
 	observeResult, reconcileResult ovnadapter.RuntimeResult
 	observeErr, reconcileErr       error
 	observeCount, reconcileCount   int
+	reconcileDelay                 time.Duration
 	sequence                       *[]string
 }
 
@@ -61,10 +69,37 @@ func (adapter *fakeWorkAdapter) ObservePort(context.Context, []byte, string) (ov
 	return adapter.observeResult, adapter.observeErr
 }
 
-func (adapter *fakeWorkAdapter) ReconcilePort(context.Context, []byte, string) (ovnadapter.RuntimeResult, error) {
+func (adapter *fakeWorkAdapter) ReconcilePort(ctx context.Context, _ []byte, _ string) (ovnadapter.RuntimeResult, error) {
 	adapter.reconcileCount++
 	*adapter.sequence = append(*adapter.sequence, "apply")
+	if adapter.reconcileDelay > 0 {
+		select {
+		case <-time.After(adapter.reconcileDelay):
+		case <-ctx.Done():
+			return ovnadapter.RuntimeResult{}, ctx.Err()
+		}
+	}
 	return adapter.reconcileResult, adapter.reconcileErr
+}
+
+func TestWorkerRenewsClaimDuringLongRunningAdapterOperation(t *testing.T) {
+	store := &fakeWorkStore{work: []postgres.OVNRuntimeWork{{
+		WorkID: "work-renew", IntentID: "intent-renew", IntentGeneration: 1, PortID: "port-renew",
+		PortGeneration: 1, BindingGeneration: 1, ObjectSetDigest: digest("plan"),
+		ClaimMode: "APPLY_ALLOWED", ClaimGeneration: 1, CanonicalObjectSet: []byte(`{}`),
+	}}}
+	matched := ovnadapter.RuntimeResult{ApplyResponseState: "RECEIVED", NBObservationDigest: digest("nb"), SBObservationDigest: digest("sb"), ChassisIdentityDigest: digest("chassis"), Observation: ovnadapter.Observation{
+		OwnershipMarkerMatches: true, ObjectSetDigestMatches: true, LogicalSwitchPresent: true,
+		LogicalSwitchPortPresent: true, PortBindingPresent: true, DatapathPresent: true, ExpectedChassisMatches: true,
+	}}
+	adapter := &fakeWorkAdapter{reconcileResult: matched, reconcileDelay: 120 * time.Millisecond, sequence: &store.sequence}
+	worker := Worker{Store: store, Adapter: adapter, Owner: "worker-renew", BatchLimit: 1,
+		ClaimLease: 60 * time.Millisecond, ClaimMaximumLifetime: time.Second, ClaimRenewInterval: 20 * time.Millisecond,
+		AdapterArtifactDigest: digest("adapter")}
+	completed, err := worker.RunOnce(context.Background())
+	if err != nil || completed != 1 || store.renewals.Load() < 2 || adapter.reconcileCount != 1 {
+		t.Fatalf("completed=%d renewals=%d reconciles=%d err=%v sequence=%v", completed, store.renewals.Load(), adapter.reconcileCount, err, store.sequence)
+	}
 }
 
 func TestWorkerReadsBackUncertainClaimBeforeApply(t *testing.T) {

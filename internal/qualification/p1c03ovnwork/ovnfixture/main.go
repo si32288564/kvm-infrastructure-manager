@@ -46,6 +46,13 @@ func main() {
 
 func runNB(statePath string, state *fixtureState, arguments []string) error {
 	if contains(arguments, "ls-add") && contains(arguments, "lsp-add") {
+		if delayText := os.Getenv("KIM_OVN_FIXTURE_APPLY_DELAY"); delayText != "" {
+			delay, err := time.ParseDuration(delayText)
+			if err != nil || delay < 0 {
+				return errors.New("invalid fixture apply delay")
+			}
+			time.Sleep(delay)
+		}
 		state.Applied = true
 		state.ApplyCount++
 		return writeState(statePath, *state)

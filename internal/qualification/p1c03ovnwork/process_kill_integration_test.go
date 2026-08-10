@@ -70,6 +70,7 @@ func TestOVNRuntimeWorkerProcessKillReadBackConvergence(t *testing.T) {
 		"-ovn-nb-db", "unix:/fixture/nb.sock", "-ovn-sb-db", "unix:/fixture/sb.sock",
 		"-ovn-nbctl", nbctl, "-ovn-sbctl", sbctl, "-poll-interval", "20ms",
 		"-batch-limit", "1", "-claim-lease", "750ms", "-command-timeout", "5s",
+		"-claim-maximum-lifetime", "750ms", "-claim-renew-interval", "0",
 	}
 	workerA := startProcess(t, workerBinary, append(baseArgs, "-worker-id", "ovn-worker-a")...)
 	workerA.cmd.Env = append(os.Environ(),

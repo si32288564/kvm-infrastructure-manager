@@ -14,18 +14,22 @@ import (
 )
 
 var ErrStaleOVNRuntimeClaim = errors.New("stale OVN runtime work claim")
+var ErrOVNRuntimeClaimMaximumLifetime = errors.New("OVN runtime work claim maximum lifetime reached")
+
+const MaxOVNRuntimeClaimLifetime = 24 * time.Hour
 
 type OVNRuntimeClaimRequest struct {
-	Owner string
-	Limit int
-	Lease time.Duration
+	Owner           string
+	Limit           int
+	Lease           time.Duration
+	MaximumLifetime time.Duration
 }
 
 type OVNRuntimeWork struct {
 	WorkID, IntentID, PortID, ObjectSetDigest, ClaimMode string
 	IntentGeneration, PortGeneration, BindingGeneration  uint64
 	ClaimGeneration                                      uint64
-	ClaimExpiresAt                                       time.Time
+	ClaimExpiresAt, ClaimMaximumExpiresAt                time.Time
 	CanonicalObjectSet                                   []byte
 }
 
@@ -34,8 +38,18 @@ type OVNRuntimeClaim struct {
 	ClaimGeneration uint64
 }
 
+type OVNRuntimeRenewal struct {
+	WorkID, Owner                               string
+	ClaimGeneration, RenewalGeneration          uint64
+	PriorExpiresAt, RenewedExpiresAt, MaximumAt time.Time
+}
+
 func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeClaimRequest) ([]OVNRuntimeWork, error) {
-	if request.Owner == "" || request.Limit < 1 || request.Limit > 100 || request.Lease <= 0 {
+	maximumLifetime := request.MaximumLifetime
+	if maximumLifetime == 0 {
+		maximumLifetime = request.Lease
+	}
+	if request.Owner == "" || request.Limit < 1 || request.Limit > 100 || request.Lease <= 0 || maximumLifetime < request.Lease || maximumLifetime > MaxOVNRuntimeClaimLifetime {
 		return nil, errors.New("bounded OVN runtime claim parameters are required")
 	}
 	var claimed []OVNRuntimeWork
@@ -102,19 +116,20 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 				}
 			}
 			var generation int64
-			var expires time.Time
+			var expires, maximumExpires time.Time
 			if err := tx.QueryRow(ctx, `UPDATE kim.ovn_runtime_work_current SET
 				work_state='CLAIMED',claim_owner=$2,claim_generation=last_claim_generation+1,
 				last_claim_generation=last_claim_generation+1,
 				claim_expires_at=statement_timestamp()+($3*interval '1 microsecond'),
+				claim_maximum_expires_at=statement_timestamp()+($4*interval '1 microsecond'),last_renewal_generation=0,
 				attempt_count=attempt_count+1,updated_at=statement_timestamp()
-				WHERE work_id=$1 RETURNING claim_generation,claim_expires_at`, item.work.WorkID, request.Owner, request.Lease.Microseconds()).Scan(&generation, &expires); err != nil {
+				WHERE work_id=$1 RETURNING claim_generation,claim_expires_at,claim_maximum_expires_at`, item.work.WorkID, request.Owner, request.Lease.Microseconds(), maximumLifetime.Microseconds()).Scan(&generation, &expires, &maximumExpires); err != nil {
 				return err
 			}
-			item.work.ClaimMode, item.work.ClaimGeneration, item.work.ClaimExpiresAt = mode, uint64(generation), expires
+			item.work.ClaimMode, item.work.ClaimGeneration, item.work.ClaimExpiresAt, item.work.ClaimMaximumExpiresAt = mode, uint64(generation), expires, maximumExpires
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.ovn_runtime_work_attempt_evidence(
-				work_id,claim_generation,claim_owner,claim_mode,lease_expires_at
-			) VALUES($1,$2,$3,$4,$5)`, item.work.WorkID, generation, request.Owner, mode, expires); err != nil {
+				work_id,claim_generation,claim_owner,claim_mode,lease_expires_at,maximum_expires_at
+			) VALUES($1,$2,$3,$4,$5,$6)`, item.work.WorkID, generation, request.Owner, mode, expires, maximumExpires); err != nil {
 				return err
 			}
 			claim := OVNRuntimeClaim{WorkID: item.work.WorkID, Owner: request.Owner, ClaimGeneration: uint64(generation)}
@@ -126,6 +141,51 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 		return nil
 	})
 	return claimed, err
+}
+
+func RenewOVNRuntimeClaim(ctx context.Context, db TxBeginner, claim OVNRuntimeClaim, lease time.Duration) (OVNRuntimeRenewal, error) {
+	if lease <= 0 || lease > MaxOVNRuntimeClaimLifetime {
+		return OVNRuntimeRenewal{}, errors.New("bounded OVN runtime renewal lease is required")
+	}
+	var renewed OVNRuntimeRenewal
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		if claim.WorkID == "" || claim.Owner == "" || claim.ClaimGeneration == 0 {
+			return ErrStaleOVNRuntimeClaim
+		}
+		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+			return err
+		}
+		var prior, maximum time.Time
+		var lastRenewal int64
+		if err := tx.QueryRow(ctx, `SELECT claim_expires_at,claim_maximum_expires_at,last_renewal_generation
+			FROM kim.ovn_runtime_work_current
+			WHERE work_id=$1 AND work_state='CLAIMED' AND claim_owner=$2 AND claim_generation=$3
+			 AND claim_expires_at>statement_timestamp() FOR UPDATE`, claim.WorkID, claim.Owner, claim.ClaimGeneration).Scan(&prior, &maximum, &lastRenewal); err != nil {
+			return ErrStaleOVNRuntimeClaim
+		}
+		var next time.Time
+		if err := tx.QueryRow(ctx, `SELECT LEAST($1::timestamptz,statement_timestamp()+($2*interval '1 microsecond'))`, maximum, lease.Microseconds()).Scan(&next); err != nil {
+			return err
+		}
+		if !next.After(prior) {
+			return ErrOVNRuntimeClaimMaximumLifetime
+		}
+		renewalGeneration := lastRenewal + 1
+		if _, err := tx.Exec(ctx, `UPDATE kim.ovn_runtime_work_current SET
+			claim_expires_at=$4,last_renewal_generation=$5,updated_at=statement_timestamp()
+			WHERE work_id=$1 AND claim_owner=$2 AND claim_generation=$3`, claim.WorkID, claim.Owner, claim.ClaimGeneration, next, renewalGeneration); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.ovn_runtime_work_renewal_evidence(
+			work_id,claim_generation,renewal_generation,claim_owner,prior_expires_at,renewed_expires_at,maximum_expires_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7)`, claim.WorkID, claim.ClaimGeneration, renewalGeneration, claim.Owner, prior, next, maximum); err != nil {
+			return err
+		}
+		renewed = OVNRuntimeRenewal{WorkID: claim.WorkID, Owner: claim.Owner, ClaimGeneration: claim.ClaimGeneration,
+			RenewalGeneration: uint64(renewalGeneration), PriorExpiresAt: prior, RenewedExpiresAt: next, MaximumAt: maximum}
+		return nil
+	})
+	return renewed, err
 }
 
 func RecordOVNRuntimeReadBackStarted(ctx context.Context, db TxBeginner, claim OVNRuntimeClaim) error {
@@ -157,7 +217,7 @@ func QuarantineOVNRuntimeWork(ctx context.Context, db TxBeginner, claim OVNRunti
 	}
 	return withCurrentOVNRuntimeClaim(ctx, db, claim, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE kim.ovn_runtime_work_current SET work_state='CONFLICTING',
-			claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,updated_at=statement_timestamp()
+			claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,claim_maximum_expires_at=NULL,updated_at=statement_timestamp()
 			WHERE work_id=$1 AND claim_owner=$2 AND claim_generation=$3`, claim.WorkID, claim.Owner, claim.ClaimGeneration); err != nil {
 			return err
 		}
@@ -192,7 +252,7 @@ func CompleteOVNRuntimeWork(ctx context.Context, db TxBeginner, claim OVNRuntime
 			state = "OBSERVED"
 		}
 		if _, err := tx.Exec(ctx, `UPDATE kim.ovn_runtime_work_current SET work_state=$4,
-			claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,terminal_observation_id=$5,updated_at=statement_timestamp()
+			claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,claim_maximum_expires_at=NULL,terminal_observation_id=$5,updated_at=statement_timestamp()
 			WHERE work_id=$1 AND claim_owner=$2 AND claim_generation=$3`, claim.WorkID, claim.Owner, claim.ClaimGeneration, state, observed.SBObservationID); err != nil {
 			return err
 		}

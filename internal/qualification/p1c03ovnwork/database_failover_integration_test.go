@@ -82,7 +82,8 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 			"-database-url", databaseURL, "-adapter-artifact-digest", digest("qualified-ovn-adapter"),
 			"-ovn-nb-db", "unix:/fixture/nb.sock", "-ovn-sb-db", "unix:/fixture/sb.sock",
 			"-ovn-nbctl", nbctl, "-ovn-sbctl", sbctl, "-poll-interval", "20ms",
-			"-batch-limit", "1", "-claim-lease", "1500ms", "-command-timeout", "5s",
+			"-batch-limit", "1", "-claim-lease", "500ms", "-claim-maximum-lifetime", "4s",
+			"-claim-renew-interval", "100ms", "-command-timeout", "5s",
 		}
 	}
 	workerA := startProcess(t, workerBinary, append(baseArgs(cluster.primaryURL), "-worker-id", "ovn-db-primary-worker")...)
@@ -91,6 +92,7 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 		"KIM_OVN_FIXTURE_BLOCK_READBACK=1",
 		"KIM_OVN_FIXTURE_READBACK_SIGNAL="+readBackSignal,
 		"KIM_OVN_FIXTURE_READBACK_RELEASE="+readBackRelease,
+		"KIM_OVN_FIXTURE_APPLY_DELAY=800ms",
 	)
 	workerA.start(t)
 	defer workerA.stop()
@@ -103,6 +105,16 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 		primaryPool.Close()
 		t.Fatalf("pre-failover claim=%s/%d err=%v", firstOwner, firstGeneration, err)
 	}
+	var initialExpiry, renewedExpiry, maximumExpiry time.Time
+	if err := primaryPool.QueryRow(ctx, `SELECT lease_expires_at,maximum_expires_at FROM kim.ovn_runtime_work_attempt_evidence
+		WHERE work_id=$1 AND claim_generation=1`, workID).Scan(&initialExpiry, &maximumExpiry); err != nil {
+		primaryPool.Close()
+		t.Fatal(err)
+	}
+	eventually(t, 5*time.Second, func() bool {
+		return primaryPool.QueryRow(ctx, `SELECT claim_expires_at FROM kim.ovn_runtime_work_current
+			WHERE work_id=$1 AND last_renewal_generation>0`, workID).Scan(&renewedExpiry) == nil && renewedExpiry.After(initialExpiry) && !renewedExpiry.After(maximumExpiry)
+	}, "worker A did not durably renew its long-running claim")
 
 	cluster.failover(t, ctx)
 	primaryPool.Close()
@@ -125,6 +137,11 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 	if !promoted || !replayed || promotedEpoch != restoreEpoch || promotedGeneration != authorityGeneration {
 		t.Fatalf("promoted=%t replayed=%t authority=%s/%d want=%s/%d", promoted, replayed, promotedEpoch, promotedGeneration, restoreEpoch, authorityGeneration)
 	}
+	var replicatedRenewals int
+	if err := newPrimaryPool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_renewal_evidence
+		WHERE work_id=$1 AND claim_generation=1`, workID).Scan(&replicatedRenewals); err != nil || replicatedRenewals < 1 {
+		t.Fatalf("replicated renewal evidence=%d err=%v", replicatedRenewals, err)
+	}
 
 	workerB := startProcess(t, workerBinary, append(baseArgs(cluster.standbyURL), "-worker-id", "ovn-db-promoted-worker")...)
 	workerB.cmd.Env = append(os.Environ(), "KIM_OVN_FIXTURE_STATE="+statePath)
@@ -139,7 +156,7 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 	if err := postgres.AuthorizeOVNRuntimeApply(ctx, newPrimaryPool, stale); !errors.Is(err, postgres.ErrStaleOVNRuntimeClaim) {
 		t.Fatalf("pre-failover claim accepted by promoted primary: %v", err)
 	}
-	var attempts, unknownEvents, readBackEvents, applyEvents int
+	var attempts, renewalEvents, unknownEvents, readBackEvents, applyEvents int
 	if err := newPrimaryPool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_attempt_evidence WHERE work_id=$1`, workID).Scan(&attempts); err != nil {
 		t.Fatal(err)
 	}
@@ -150,9 +167,12 @@ func TestOVNRuntimeWorkerPostgreSQLFailoverConvergence(t *testing.T) {
 		FROM kim.ovn_runtime_work_event_evidence WHERE work_id=$1`, workID).Scan(&unknownEvents, &readBackEvents, &applyEvents); err != nil {
 		t.Fatal(err)
 	}
+	if err := newPrimaryPool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_renewal_evidence WHERE work_id=$1`, workID).Scan(&renewalEvents); err != nil {
+		t.Fatal(err)
+	}
 	state := readFixtureState(t, statePath)
-	if attempts != 2 || unknownEvents != 1 || readBackEvents != 1 || applyEvents != 1 || state.ApplyCount != 1 {
-		t.Fatalf("attempts=%d unknown=%d readback=%d apply-events=%d physical-applies=%d", attempts, unknownEvents, readBackEvents, applyEvents, state.ApplyCount)
+	if attempts != 2 || renewalEvents < 1 || unknownEvents != 1 || readBackEvents != 1 || applyEvents != 1 || state.ApplyCount != 1 {
+		t.Fatalf("attempts=%d renewals=%d unknown=%d readback=%d apply-events=%d physical-applies=%d", attempts, renewalEvents, unknownEvents, readBackEvents, applyEvents, state.ApplyCount)
 	}
 	var acceptedOwner, claimMode string
 	var acceptedGeneration int64

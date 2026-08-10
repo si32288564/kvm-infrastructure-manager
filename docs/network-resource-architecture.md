@@ -208,6 +208,8 @@ Production runtime は current `HostNetworkMapping` に bind された OVN Chass
 
 Runtime work の owner は worker process や in-memory queue ではなく PostgreSQL の current work claim です。claim は bounded batch、DB authority time による expiry、worker ID、単調増加する claim generation を持ちます。expiry は OVN apply が行われなかった証明ではないため、旧 attempt に immutable `DISPATCH_UNKNOWN` event を残し、再取得を `READ_BACK_FIRST` に限定します。read-back が同一 intent の matching NB/SB evidence を返した場合は再 apply せず terminal observation へ収束します。不一致の場合も、current claim が有効で read-back evidence が記録済みであることを PostgreSQL transaction で確認した後だけ同じ idempotent intent の apply を許可します。旧 worker の遅延 observation は current claim owner/generation と一致しないため拒否します。
 
+long-running adapter operation はcurrent claimと同じ owner/generationのまま、bounded intervalでrenewalを要求できます。renewal transactionはDB authority timeで未失効であることを再検証し、claim開始時に固定したmaximum expiryを超えない新expiryと単調増加するrenewal generationをimmutable evidenceへcommitします。expired claim、foreign owner、old generationを時刻更新で復活させません。renewal failureはadapter operationをcancelしますが、side effect不在の証明にはしません。DB failoverまたはresponse lossでrenewal outcomeが不明なら、maximum lifetimeを超えて推測継続せず、expiry後のnew claimを`READ_BACK_FIRST`へ限定します。
+
 Port intent、NB observation、SB observation はそれぞれ immutable evidence として保持し、current OVN projection は current Network/Port/Segment/Host mapping/Binding generation との一致から再構築します。apply response を失っても stable KIM ownership marker、intent generation、object digest を使って同じ NB object を read-back し、反対 operation を発行しません。NB/SB 収束は Host-side OVS dataplane、end-to-end reachability、Guest readiness を暗黙に進めません。
 
 KIM所有markerのないobject、unknown generation、外部管理objectを自動adopt/deleteしません。intent driftはowned objectだけをtyped reconcileし、ownership conflictは`CONFLICTING/QUARANTINED`にします。

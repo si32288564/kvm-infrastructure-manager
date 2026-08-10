@@ -185,6 +185,7 @@
 | INV-NET-030 | 共有 OVN Logical Switch は Network generation の stable ownership marker だけを持ち、Port 固有 intent/digest marker は Logical Switch Port に限定する。同一 Network の別 Port が共有 object ownership を変更してはならない | AT-NET-034, FI-NET-025 |
 | INV-NET-031 | OVN runtime は caller supplied command/column/DB endpoint を受け取らず、current typed plan と管理者設定の secure endpointだけを標準 OVN CLI へ変換する。apply timeout/response lossを非実行証明にせず、stable object/marker read-backで解決する | AT-NET-035, FI-NET-025 |
 | INV-NET-032 | OVN runtime worker は PostgreSQL の current work claim owner/generation/expiry を持たずに apply または observation acceptance を行わない。expired/uncertain claim の再取得は `READ_BACK_FIRST` とし、旧 worker の遅延結果を current authority へ進めない | AT-NET-036, AT-NET-037, AT-NET-038, FI-NET-026, FI-NET-027, FI-DB-003 |
+| INV-NET-033 | OVN runtime claim renewalはcurrent owner/generation、DB authority time上の未失効、固定maximum lifetimeを不可分に検証し、immutable renewal generationを残す。renewal failure/response loss/DB failoverからexpired claimをreviveせず、曖昧なside effectをread-backなしに再実行しない | AT-NET-039, FI-DB-004 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

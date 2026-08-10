@@ -102,7 +102,8 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 		workID := fmt.Sprintf("ovn-runtime:%s:%d", request.IntentID, request.IntentGeneration)
 		if _, err := tx.Exec(ctx, `
 			UPDATE kim.ovn_runtime_work_current
-			SET work_state='SUPERSEDED',claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,updated_at=statement_timestamp()
+			SET work_state='SUPERSEDED',claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,
+			 claim_maximum_expires_at=NULL,updated_at=statement_timestamp()
 			WHERE port_id=$1 AND intent_generation<$2
 			  AND work_state IN ('PENDING','CLAIMED','DISPATCH_UNKNOWN')
 		`, request.PortID, request.IntentGeneration); err != nil {

@@ -35,6 +35,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	pollInterval := set.Duration("poll-interval", 250*time.Millisecond, "bounded work polling interval")
 	batchLimit := set.Int("batch-limit", 16, "maximum work claims per poll")
 	claimLease := set.Duration("claim-lease", 30*time.Second, "database work claim lease")
+	claimMaximumLifetime := set.Duration("claim-maximum-lifetime", 2*time.Minute, "maximum lifetime of one claim generation")
+	claimRenewInterval := set.Duration("claim-renew-interval", 10*time.Second, "renewal interval during a long-running typed adapter operation; zero disables renewal")
 	commandTimeout := set.Duration("command-timeout", 15*time.Second, "bounded OVN CLI timeout")
 	if err := set.Parse(args); err != nil {
 		return 2
@@ -62,7 +64,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			PrivateKeyPath: *privateKey, CertificatePath: *certificate, CACertPath: *caCert,
 			CommandTimeout: *commandTimeout,
 		}},
-		Owner: *owner, BatchLimit: *batchLimit, ClaimLease: *claimLease, AdapterArtifactDigest: *adapterDigest,
+		Owner: *owner, BatchLimit: *batchLimit, ClaimLease: *claimLease,
+		ClaimMaximumLifetime: *claimMaximumLifetime, ClaimRenewInterval: *claimRenewInterval,
+		AdapterArtifactDigest: *adapterDigest,
 	}
 	if err := worker.Run(ctx, *pollInterval); err != nil {
 		fmt.Fprintf(stderr, "kim-network-worker stopped: %v\n", err)
