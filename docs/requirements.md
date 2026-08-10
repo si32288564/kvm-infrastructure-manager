@@ -291,6 +291,7 @@
 | NET-049 | claim renewal の commit 後に response を失った worker は adapter operation を停止し、renewal の成功・失敗または side effect 不在を推測しない。PostgreSQL に commit 済みの renewed expiry までは別 worker の takeover を禁止し、expiry 後だけ新 claim generation の `READ_BACK_FIRST` で解決する | Must |
 | NET-050 | OVN runtime worker は一括取得した claim を未更新の local serial queue に滞留させず、`BatchLimit` を process 内の同時実行上限として各 work の authority check と renewal loop を直ちに開始する。item-local adapter error は観測可能に報告して bounded poll を継続するが、DB claim/renewal authority error は process を停止する。deployment profile は全 replica の aggregate in-flight claim 数を PostgreSQL/backend capacity 以下に制限し、意図的 failure 数を超える retry amplification を qualification で拒否する | Must |
 | NET-051 | 同一 Site の PostgreSQL HA は primary/standby の役割を繰り返し切り替えても `restore_epoch` と database authority generation を変更せず、各 failover 前に synchronous `remote_apply` された work/renewal evidence を保持する。各 old-primary worker を停止し、renewed expiry 後の successor を新 claim generation の `READ_BACK_FIRST` に限定して duplicate backend mutation を許可しない | Must |
+| NET-052 | OVN runtime worker は PostgreSQL connection pool を明示的に bounded とし、process-local `database-max-connections` を少なくとも `2 × BatchLimit` として claim/renewal/completion 用 headroom を確保する。deployment profile は measured pool wait と OVN endpoint uncertainty に対して claim Lease/renewal interval/maximum lifetime を qualification し、slow endpoint、partial timeout、pool wait を side effect 不在または claim expiry の証明へ昇格させない | Must |
 
 ### 2.13 NFV Dataplane
 

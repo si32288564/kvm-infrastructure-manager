@@ -34,6 +34,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	caCert := set.String("ovn-ca-cert", os.Getenv("KIM_OVN_CA_CERT"), "OVN SSL CA certificate path")
 	pollInterval := set.Duration("poll-interval", 250*time.Millisecond, "bounded work polling interval")
 	batchLimit := set.Int("batch-limit", 16, "maximum work claims per poll")
+	databaseMaxConnections := set.Int("database-max-connections", 32, "bounded PostgreSQL pool size; must be at least twice batch-limit")
 	claimLease := set.Duration("claim-lease", 30*time.Second, "database work claim lease")
 	claimMaximumLifetime := set.Duration("claim-maximum-lifetime", 2*time.Minute, "maximum lifetime of one claim generation")
 	claimRenewInterval := set.Duration("claim-renew-interval", 10*time.Second, "renewal interval during a long-running typed adapter operation; zero disables renewal")
@@ -49,9 +50,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "kim-network-worker configuration error: database, worker identity, adapter digest, and NB/SB endpoints are required")
 		return 2
 	}
+	if *databaseMaxConnections < 1 || *databaseMaxConnections > 1024 || *batchLimit < 1 || *batchLimit > 100 || *databaseMaxConnections < 2*(*batchLimit) {
+		fmt.Fprintln(stderr, "kim-network-worker configuration error: database-max-connections must be bounded and at least twice batch-limit")
+		return 2
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pool, err := postgres.Open(ctx, *databaseURL)
+	pool, err := postgres.OpenWithMaxConnections(ctx, *databaseURL, int32(*databaseMaxConnections))
 	if err != nil {
 		fmt.Fprintf(stderr, "kim-network-worker PostgreSQL error: %v\n", err)
 		return 1
