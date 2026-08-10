@@ -56,3 +56,20 @@ func TestLogicalFlowAndChassisEncapStates(t *testing.T) {
 		t.Fatalf("foreign chassis state=%s", foreignChassis.ChassisEncapState())
 	}
 }
+
+func TestTunnelObservationState(t *testing.T) {
+	verified := TunnelObservation{SourceChassisMatches: true, DestinationChassisMatches: true, SourceTunnelPresent: true, DestinationTunnelPresent: true, PacketsSent: 3, PacketsReceived: 3}
+	if verified.State() != "VERIFIED" {
+		t.Fatalf("verified tunnel state=%s", verified.State())
+	}
+	degraded := verified
+	degraded.PacketsReceived = 2
+	if degraded.State() != "DEGRADED" {
+		t.Fatalf("degraded tunnel state=%s", degraded.State())
+	}
+	foreign := verified
+	foreign.DestinationChassisMatches = false
+	if foreign.State() != "CONFLICTING" {
+		t.Fatalf("foreign tunnel state=%s", foreign.State())
+	}
+}

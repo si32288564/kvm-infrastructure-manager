@@ -69,6 +69,25 @@ type ControlPlaneObservation struct {
 	EncapPresent, EncapTypeAllowed, TunnelEndpointKnown bool
 }
 
+type TunnelObservation struct {
+	SourceChassisMatches, DestinationChassisMatches bool
+	SourceTunnelPresent, DestinationTunnelPresent   bool
+	PacketsSent, PacketsReceived                    uint64
+}
+
+func (observation TunnelObservation) State() string {
+	if !observation.SourceChassisMatches || !observation.DestinationChassisMatches {
+		return "CONFLICTING"
+	}
+	if !observation.SourceTunnelPresent || !observation.DestinationTunnelPresent || observation.PacketsSent == 0 {
+		return "UNKNOWN"
+	}
+	if observation.PacketsReceived == observation.PacketsSent {
+		return "VERIFIED"
+	}
+	return "DEGRADED"
+}
+
 func (observation ControlPlaneObservation) LogicalFlowState() string {
 	if !observation.ExpectedDatapathMatches {
 		return "CONFLICTING"

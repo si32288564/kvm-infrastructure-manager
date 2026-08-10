@@ -221,6 +221,8 @@ Port/Networkの表示状態はlayer別に保持します。
 
 SB realization の後段では、current Port datapath に属する individual/shared Logical Flow の required ingress/egress coverage と、expected Host chassis identity、許可された Encap type、endpoint registration を別々の immutable evidence として保持します。両方が current intent/SB generation に一致した状態を `CONTROL_PLANE_CONVERGED` としますが、これは cross-chassis tunnel traffic、Host OVS programming、end-to-end reachability を証明しません。単一 chassis の Encap registration と複数 chassis 間の tunnel datapath verification は別 qualification です。
 
+cross-chassis Geneve packet path は、異なる current Host に bind された source/destination Port を方向付き pair として扱います。両端の current `CONTROL_PLANE_CONVERGED`、Host mapping generation、Chassis/Encap evidence、tunnel interface identity と bounded packet probe を PostgreSQL で再検証し、送信 packet が全て受信された immutable evidence だけを `VERIFIED` projection へ昇格します。これは tunnel transport の観測であり、tenant L3 reachability、Guest readiness、application health の証明ではありません。単一 Host 内の network namespace fixture は kernel Geneve packet-path verifier の検証にだけ用い、実 2 Host qualification の代替にはしません。
+
 NB apply成功だけでPortをACTIVEにしません。SB/Host/dataplaneが未収束なら`PROVISIONING/DEGRADED/UNKNOWN`を区別します。timeout、controller reconnect、chassis row消失、heartbeat lossをunbind/release/fencingの証明にしません。
 
 Network-side `UNKNOWN`では次を禁止します。

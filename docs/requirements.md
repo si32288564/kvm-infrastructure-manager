@@ -281,6 +281,7 @@
 | NET-039 | OVS post-boot dataplane convergence は current RUNNING VM、pre-boot Port evidence、Network/Segment/Mapping/Binding generation と、active libvirt NIC target・OVS bridge・link state の typed read-back が一致した場合だけ `CONVERGED` に進め、end-to-end reachability、OVN convergence、Guest readiness を主張しない | Must |
 | NET-040 | OVN Port intent、NB materialization、SB datapath/chassis realization を immutable evidence と独立 current state で管理し、apply response loss は stable KIM ownership marker、intent generation、object digest の read-back で解決する。SB realization を Host dataplane、end-to-end reachability、Guest readiness へ暗黙昇格しない | Must |
 | NET-041 | OVN SB logical-flow pipeline と current Port identity coverage、Chassis/Encap registration を SB Port Binding、Host mapping、intent generation に結び付く独立 immutable evidence として評価する。logical-flow/Encap readiness だけで Host programming、cross-chassis tunnel traffic、end-to-end reachability を主張しない | Must |
+| NET-042 | cross-chassis Geneve packet path は、異なる current Host/Port/chassis authority、current mapping generation、両端 tunnel interface identity、方向付き packet probe の immutable evidence から評価する。Encap registration または control-plane convergence だけで tunnel traffic を証明せず、tunnel verification から tenant L3 reachability、Guest readiness、application health を主張しない | Must |
 
 ### 2.13 NFV Dataplane
 

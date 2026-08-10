@@ -865,6 +865,67 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := AcceptOVNControlPlaneObservation(ctx, pool, staleControlPlane); !errors.Is(err, ErrPlacementConflict) {
 		t.Fatalf("stale OVN control-plane generation error=%v", err)
 	}
+	destinationHostID, destinationPortID := "tunnel-host-"+suffix, "tunnel-port-"+suffix
+	destinationIntentID := "tunnel-intent-" + suffix
+	destinationNBID, destinationSBID := "tunnel-nb-"+suffix, "tunnel-sb-"+suffix
+	destinationFlowID, destinationChassisID := "tunnel-flow-"+suffix, "tunnel-chassis-"+suffix
+	tunnelSeed := &pgx.Batch{}
+	tunnelSeed.Queue(`INSERT INTO kim.host_identities(host_id,enrollment_state) VALUES($1,'APPROVED')`, destinationHostID)
+	tunnelSeed.Queue(`INSERT INTO kim.host_network_mappings_current(host_id,segment_claim_id,mapping_generation,mapping_state,maximum_mtu,supported_binding_types) VALUES($1,$2,1,'CURRENT',1500,ARRAY['OVS'])`, destinationHostID, segmentClaimID)
+	tunnelSeed.Queue(`INSERT INTO kim.network_ports_current(port_id,placement_admission_id,project_id,workload_id,network_id,subnet_id,port_generation,desired_state) VALUES($1,$2,'project',$3,$4,$5,1,'ACTIVE')`, destinationPortID, winner.admission.AdmissionID, "tunnel-workload-"+suffix, networkID, subnetID)
+	tunnelSeed.Queue(`INSERT INTO kim.port_bindings_current(port_id,placement_admission_id,host_id,segment_claim_id,binding_generation,binding_type,binding_state) VALUES($1,$2,$3,$4,1,'OVS','ACTIVE')`, destinationPortID, winner.admission.AdmissionID, destinationHostID, segmentClaimID)
+	tunnelSeed.Queue(`INSERT INTO kim.network_intent_revision_evidence(intent_id,intent_generation,aggregate_type,aggregate_id,project_id,network_id,network_generation,port_generation,segment_claim_id,segment_generation,host_mapping_generation,binding_generation,schema_version,canonical_object_set,object_set_digest,intent_state) VALUES($1,1,'PORT',$2,'project',$3,1,1,$4,1,1,1,$5,'{}',$6,'COMMITTED')`, destinationIntentID, destinationPortID, networkID, segmentClaimID, ovnadapter.PortIntentSchema, digestBytes([]byte(destinationIntentID)))
+	tunnelSeed.Queue(`INSERT INTO kim.ovn_nb_observation_evidence(observation_id,intent_id,intent_generation,observation_generation,observation_digest,apply_response_state,ownership_marker_matches,object_set_digest_matches,logical_switch_present,logical_switch_port_present,nb_state,adapter_artifact_digest) VALUES($1,$2,1,1,$3,'RECEIVED',true,true,true,true,'MATCHED',$4)`, destinationNBID, destinationIntentID, digestBytes([]byte(destinationNBID)), digestBytes([]byte("ovn-adapter")))
+	tunnelSeed.Queue(`INSERT INTO kim.ovn_sb_observation_evidence(observation_id,intent_id,intent_generation,nb_observation_id,observation_generation,observation_digest,port_binding_present,datapath_present,expected_chassis_matches,chassis_identity_digest,sb_state,adapter_artifact_digest) VALUES($1,$2,1,$3,1,$4,true,true,true,$5,'MATCHED',$6)`, destinationSBID, destinationIntentID, destinationNBID, digestBytes([]byte(destinationSBID)), digestBytes([]byte(destinationHostID)), digestBytes([]byte("ovn-adapter")))
+	tunnelSeed.Queue(`INSERT INTO kim.network_ovn_state_current(port_id,port_generation,binding_generation,intent_id,intent_generation,nb_observation_id,nb_observation_generation,nb_state,sb_observation_id,sb_observation_generation,sb_state,layer_status) VALUES($1,1,1,$2,1,$3,1,'MATCHED',$4,1,'MATCHED','SB_REALIZED')`, destinationPortID, destinationIntentID, destinationNBID, destinationSBID)
+	tunnelSeed.Queue(`INSERT INTO kim.ovn_logical_flow_observation_evidence(observation_id,intent_id,intent_generation,sb_observation_id,observation_generation,observation_digest,expected_datapath_identity_digest,observed_datapath_identity_digest,logical_flow_set_digest,ingress_flow_count,egress_flow_count,required_pipeline_coverage,required_port_identity_coverage,logical_flow_state,evaluator_artifact_digest) VALUES($1,$2,1,$3,1,$4,$5,$5,$6,1,1,true,true,'MATCHED',$7)`, destinationFlowID, destinationIntentID, destinationSBID, digestBytes([]byte(destinationFlowID)), digestBytes([]byte("destination-datapath")), digestBytes([]byte("destination-flows")), digestBytes([]byte("ovn-control-plane-evaluator")))
+	tunnelSeed.Queue(`INSERT INTO kim.ovn_chassis_encap_observation_evidence(observation_id,intent_id,intent_generation,sb_observation_id,observation_generation,observation_digest,expected_chassis_identity_digest,observed_chassis_identity_digest,encap_type,tunnel_endpoint_digest,encap_options_digest,chassis_registered,encap_present,tunnel_endpoint_observed,chassis_encap_state,evaluator_artifact_digest) VALUES($1,$2,1,$3,1,$4,$5,$5,'GENEVE',$6,$7,true,true,true,'MATCHED',$8)`, destinationChassisID, destinationIntentID, destinationSBID, digestBytes([]byte(destinationChassisID)), digestBytes([]byte(destinationHostID)), digestBytes([]byte("destination-endpoint")), digestBytes([]byte("destination-options")), digestBytes([]byte("ovn-control-plane-evaluator")))
+	tunnelSeed.Queue(`INSERT INTO kim.network_ovn_control_plane_state_current(port_id,port_generation,binding_generation,intent_id,intent_generation,sb_observation_id,sb_observation_generation,logical_flow_observation_id,logical_flow_observation_generation,logical_flow_state,chassis_encap_observation_id,chassis_encap_observation_generation,chassis_encap_state,control_plane_status) VALUES($1,1,1,$2,1,$3,1,$4,1,'MATCHED',$5,1,'MATCHED','CONTROL_PLANE_CONVERGED')`, destinationPortID, destinationIntentID, destinationSBID, destinationFlowID, destinationChassisID)
+	tunnelResults := pool.SendBatch(ctx, tunnelSeed)
+	for range 11 {
+		if _, err := tunnelResults.Exec(); err != nil {
+			_ = tunnelResults.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := tunnelResults.Close(); err != nil {
+		t.Fatal(err)
+	}
+	tunnelObservation := OVNGeneveTunnelObservation{
+		ObservationID: "geneve-tunnel-" + suffix, SourcePortID: ovsPortID, DestinationPortID: destinationPortID,
+		SegmentClaimID: segmentClaimID, SourceChassisObservationID: controlPlaneObservation.ChassisEncapObservationID,
+		DestinationChassisObservationID: destinationChassisID, SourceMappingGeneration: 1, DestinationMappingGeneration: 1,
+		ObservationGeneration: 1, ObservationDigest: digestBytes([]byte("geneve-tunnel-" + suffix)),
+		SourceTunnelInterfaceDigest: digestBytes([]byte("source-geneve")), DestinationTunnelInterfaceDigest: digestBytes([]byte("destination-geneve")),
+		ProbeProtocol: "ICMP", PacketsSent: 3, PacketsReceived: 3, SourceTunnelPresent: true, DestinationTunnelPresent: true,
+		VerifierArtifactDigest: digestBytes([]byte("geneve-verifier")),
+	}
+	if err := AcceptOVNGeneveTunnelObservation(ctx, pool, tunnelObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptOVNGeneveTunnelObservation(ctx, pool, tunnelObservation); err != nil {
+		t.Fatalf("idempotent Geneve tunnel observation replay: %v", err)
+	}
+	var tunnelState string
+	if err := pool.QueryRow(ctx, `SELECT tunnel_state FROM kim.network_ovn_tunnel_state_current WHERE source_port_id=$1 AND destination_port_id=$2 AND segment_claim_id=$3`, ovsPortID, destinationPortID, segmentClaimID).Scan(&tunnelState); err != nil || tunnelState != "VERIFIED" {
+		t.Fatalf("Geneve tunnel state=%s err=%v", tunnelState, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_geneve_tunnel_observation_evidence SET packets_received=0 WHERE observation_id=$1`, tunnelObservation.ObservationID); err == nil {
+		t.Fatal("immutable Geneve tunnel evidence accepted UPDATE")
+	}
+	tunnelConflict := tunnelObservation
+	tunnelConflict.ObservationDigest = digestBytes([]byte("different-geneve-tunnel"))
+	if err := AcceptOVNGeneveTunnelObservation(ctx, pool, tunnelConflict); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("same Geneve evidence/different digest error=%v", err)
+	}
+	staleTunnel := tunnelObservation
+	staleTunnel.ObservationID = "stale-geneve-tunnel-" + suffix
+	staleTunnel.ObservationGeneration = 2
+	staleTunnel.ObservationDigest = digestBytes([]byte(staleTunnel.ObservationID))
+	staleTunnel.DestinationMappingGeneration = 2
+	if err := AcceptOVNGeneveTunnelObservation(ctx, pool, staleTunnel); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("stale Geneve mapping generation error=%v", err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_nb_observation_evidence SET nb_state='UNKNOWN' WHERE observation_id=$1`, ovnObservation.NBObservationID); err == nil {
 		t.Fatal("immutable OVN NB evidence accepted UPDATE")
 	}
