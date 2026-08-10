@@ -135,6 +135,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		defer closeBackend()
 		executionBackends = append(executionBackends, backend)
+		dataplaneBackend, closeDataplaneBackend, dataplaneErr := ovsnetwork.NewDataplane(*libvirtURI, mappings)
+		if dataplaneErr != nil {
+			fmt.Fprintf(stderr, "kim-host-agent OVS Dataplane error: %v\n", dataplaneErr)
+			return 2
+		}
+		defer closeDataplaneBackend()
+		executionBackends = append(executionBackends, dataplaneBackend)
 	}
 	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})
 	if err != nil {

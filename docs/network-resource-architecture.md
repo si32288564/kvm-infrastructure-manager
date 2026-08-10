@@ -161,6 +161,26 @@ Final Admissionは次をlatest generationで評価し、VM Allocation、Network 
 
 `ACTIVE`はcurrent DB Binding、OVN NB logical port intent、OVN SB chassis/datapath realization、Host OVS/NIC/device observationがbinding typeごとのcontractで一致した場合だけ宣言します。
 
+### 6.1 Pre-boot Realization and Post-boot Dataplane
+
+Network authority、pre-boot realization、post-boot dataplane convergence は別の状態です。
+
+```text
+Port / IP / MAC / Binding Claim
+        ↓
+pre-boot libvirt NIC / provider realization
+        ↓
+Boot Readiness = READY
+        ↓
+VM power state = RUNNING
+        ↓
+post-boot Host dataplane observation
+```
+
+OVS Port の post-boot `CONVERGED` は、current VM/Plan、Network、Segment、Host mapping、Port Binding、pre-boot evidence に加え、active libvirt XML の NIC target と Agent 管理 Segment-to-Bridge mapping、OVS Port の bridge/link state が一致する場合だけ宣言します。Command は bridge 名、raw XML、path、argv を受け取りません。
+
+この状態は Host-side OVS Port が期待した bridge で利用可能であることだけを表し、OVN logical flow/chassis convergence、外部 Network の到達性、Guest readiness、application health を意味しません。これらは独立した observation/projection とします。
+
 ## 7. OVN Intent, Apply, and Observation
 
 ```text

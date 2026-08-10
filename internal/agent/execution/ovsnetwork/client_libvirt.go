@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"os/exec"
+	"strings"
 
 	libvirt "libvirt.org/go/libvirt"
 )
@@ -25,6 +26,58 @@ func New(uri string, bridges map[string]string) (*Backend, func() error, error) 
 		return nil, nil, errors.New("connect to libvirt failed")
 	}
 	return &Backend{Client: &client{connection: connection, bridges: bridges}}, func() error { _, err := connection.Close(); return err }, nil
+}
+func NewDataplane(uri string, bridges map[string]string) (*DataplaneBackend, func() error, error) {
+	if uri == "" || len(bridges) == 0 {
+		return nil, nil, errors.New("complete OVS dataplane configuration is required")
+	}
+	connection, err := libvirt.NewConnect(uri)
+	if err != nil {
+		return nil, nil, errors.New("connect to libvirt failed")
+	}
+	c := &client{connection: connection, bridges: bridges}
+	return &DataplaneBackend{Client: c}, func() error { _, err := connection.Close(); return err }, nil
+}
+func (c *client) Dataplane(ctx context.Context, domainUUID, mac, segment string) (DataplaneObservation, error) {
+	bridge, exists, err := c.Bridge(ctx, segment)
+	if err != nil || !exists {
+		return DataplaneObservation{}, errors.New("configured OVS bridge is not observable")
+	}
+	domain, err := c.connection.LookupDomainByUUIDString(domainUUID)
+	if err != nil {
+		return DataplaneObservation{}, errors.New("lookup libvirt Domain failed")
+	}
+	defer domain.Free()
+	active, err := domain.IsActive()
+	if err != nil || !active {
+		return DataplaneObservation{Bridge: bridge}, nil
+	}
+	raw, err := domain.GetXMLDesc(0)
+	if err != nil {
+		return DataplaneObservation{}, errors.New("read active libvirt Domain XML failed")
+	}
+	var current domainDescription
+	if err := xml.Unmarshal([]byte(raw), &current); err != nil {
+		return DataplaneObservation{}, err
+	}
+	target := ""
+	for _, nic := range current.Devices.Interfaces {
+		if nic.MAC.Address == mac {
+			target = nic.Target.Dev
+			break
+		}
+	}
+	if target == "" {
+		return DataplaneObservation{DomainRunning: true, Bridge: bridge}, nil
+	}
+	observed, err := exec.CommandContext(ctx, "ovs-vsctl", "port-to-br", target).Output()
+	if err != nil {
+		return DataplaneObservation{DomainRunning: true, InterfacePresent: true, TargetDevice: target, Bridge: bridge}, nil
+	}
+	observedBridge := strings.TrimSpace(string(observed))
+	linkRaw, _ := exec.CommandContext(ctx, "ovs-vsctl", "--if-exists", "get", "Interface", target, "link_state").Output()
+	link := strings.Trim(strings.TrimSpace(string(linkRaw)), "\"")
+	return DataplaneObservation{DomainRunning: true, InterfacePresent: true, BridgeMatches: observedBridge == bridge, TargetDevice: target, Bridge: observedBridge, LinkState: link}, nil
 }
 func (c *client) Bridge(ctx context.Context, segment string) (string, bool, error) {
 	bridge, ok := c.bridges[segment]
@@ -101,6 +154,10 @@ type domainInterface struct {
 	Source      sourceElement      `xml:"source"`
 	VirtualPort virtualPortElement `xml:"virtualport"`
 	Model       modelElement       `xml:"model"`
+	Target      targetElement      `xml:"target"`
+}
+type targetElement struct {
+	Dev string `xml:"dev,attr"`
 }
 type macElement struct {
 	Address string `xml:"address,attr"`

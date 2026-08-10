@@ -13,7 +13,7 @@ import (
 	libvirt "libvirt.org/go/libvirt"
 )
 
-func TestDisposableLibvirtOVSPrebootRealization(t *testing.T) {
+func TestDisposableLibvirtOVSPrebootAndDataplaneRealization(t *testing.T) {
 	bridge := os.Getenv("KIM_OVS_BRIDGE")
 	if bridge == "" {
 		t.Skip("OVS qualification is not configured")
@@ -38,5 +38,19 @@ func TestDisposableLibvirtOVSPrebootRealization(t *testing.T) {
 	result, err := backend.Execute(context.Background(), contract.CommandLease{TargetResourceID: "port:qualification-port", CommandPayload: payload, AttemptIndex: 1})
 	if err != nil || result.Outcome != "SUCCEEDED" || result.Observation.State != "MATCHED" {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if err := domain.Create(); err != nil {
+		t.Fatal(err)
+	}
+	defer domain.Destroy()
+	dataplaneBackend, closeDataplane, err := ovsnetwork.NewDataplane("qemu:///system", map[string]string{"qualification-segment": bridge})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDataplane()
+	dataplanePayload, _ := json.Marshal(map[string]any{"domain_uuid": domainUUID, "vm_generation": 1, "port_id": "qualification-port", "port_generation": 1, "network_id": "qualification-network", "network_generation": 1, "segment_claim_id": "qualification-segment", "segment_generation": 1, "host_mapping_generation": 1, "binding_generation": 1, "mac_address": "02:00:00:99:00:10", "mtu": 1500, "binding_type": "OVS", "desired_state": "CONVERGED"})
+	dataplaneResult, err := dataplaneBackend.Execute(context.Background(), contract.CommandLease{TargetResourceID: "port:qualification-port", CommandPayload: dataplanePayload, AttemptIndex: 1})
+	if err != nil || dataplaneResult.Outcome != "SUCCEEDED" || dataplaneResult.Observation.State != "MATCHED" {
+		t.Fatalf("dataplane result=%#v err=%v", dataplaneResult, err)
 	}
 }
