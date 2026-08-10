@@ -458,22 +458,43 @@ func loadPCIDeviceAuthority(ctx context.Context, row QueryRower, hostID string, 
 
 func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID string, required placement.NetworkRequirement) (placement.NetworkAuthority, bool, error) {
 	var authority placement.NetworkAuthority
+	allocationSource := required.AllocationSource
+	if allocationSource == "" {
+		allocationSource = "EXPLICIT"
+	}
 	err := row.QueryRow(ctx, `
 		SELECT $3, network.network_id, network.project_id, network.network_generation,
 		       network.lifecycle_state, network.mtu,
 		       subnet.subnet_id, subnet.subnet_generation, subnet.lifecycle_state,
 		       segment.segment_claim_id, segment.segment_generation, segment.claim_state,
 		       mapping.mapping_generation, mapping.mapping_state, mapping.maximum_mtu,
-		       ($7::inet <<= subnet.cidr
-		         AND $7::inet >= subnet.allocation_start
-		         AND $7::inet <= subnet.allocation_end
-		         AND NOT ($7::inet = ANY(subnet.excluded_addresses))),
-		       EXISTS (
+		       CASE WHEN $10='AUTOMATIC' THEN
+		           family(subnet.cidr)=4
+		           AND (subnet.allocation_end - subnet.allocation_start) < $11
+		           AND EXISTS (
+		               SELECT 1
+		               FROM generate_series(0::bigint, subnet.allocation_end - subnet.allocation_start) candidate_offset
+		               WHERE NOT ((subnet.allocation_start + candidate_offset) = ANY(subnet.excluded_addresses))
+		                 AND NOT EXISTS (
+		                     SELECT 1 FROM kim.network_identity_claims automatic_claim
+		                     WHERE automatic_claim.claim_type='IP'
+		                       AND automatic_claim.subnet_id=subnet.subnet_id
+		                       AND automatic_claim.ip_address=(subnet.allocation_start + candidate_offset)
+		                       AND automatic_claim.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
+		                 )
+		           )
+		       ELSE
+		           NULLIF($7,'')::inet <<= subnet.cidr
+		           AND NULLIF($7,'')::inet >= subnet.allocation_start
+		           AND NULLIF($7,'')::inet <= subnet.allocation_end
+		           AND NOT (NULLIF($7,'')::inet = ANY(subnet.excluded_addresses))
+		       END,
+		       CASE WHEN $10='AUTOMATIC' THEN false ELSE EXISTS (
 		           SELECT 1 FROM kim.network_identity_claims identity
 		           WHERE identity.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
-		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=$7::inet)
-		               OR (identity.claim_type='MAC' AND identity.network_id=network.network_id AND identity.mac_address=$8::macaddr))
-		       ),
+		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=NULLIF($7,'')::inet)
+		               OR (identity.claim_type='MAC' AND identity.network_id=network.network_id AND identity.mac_address=NULLIF($8,'')::macaddr))
+		       ) END,
 		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3),
 		       ($9 = ANY(mapping.supported_binding_types))
 		FROM kim.networks_current network
@@ -486,7 +507,7 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID
 		WHERE network.network_id=$4 AND network.project_id=$1
 	`, projectID, hostID, required.PortID, required.NetworkID, required.SubnetID,
 		required.SegmentClaimID, required.IPAddress, required.MACAddress,
-		required.BindingType).Scan(
+		required.BindingType, allocationSource, maximumAutomaticIPv4PoolSize).Scan(
 		&authority.PortID, &authority.NetworkID, &authority.NetworkProjectID,
 		&authority.NetworkGeneration, &authority.NetworkState, &authority.NetworkMTU,
 		&authority.SubnetID, &authority.SubnetGeneration, &authority.SubnetState,
@@ -507,11 +528,18 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID
 func lockNetworkRequirementKeys(ctx context.Context, tx pgx.Tx, requirements []placement.NetworkRequirement) error {
 	keys := make([]string, 0, len(requirements)*3)
 	for _, required := range requirements {
-		keys = append(keys,
-			"network-port/"+required.PortID,
-			"network-ip/"+required.SubnetID+"/"+required.IPAddress,
-			"network-mac/"+required.NetworkID+"/"+required.MACAddress,
-		)
+		keys = append(keys, "network-port/"+required.PortID)
+		if required.AllocationSource == "AUTOMATIC" {
+			keys = append(keys,
+				"network-ipam/"+required.SubnetID,
+				"network-mac-auto/"+required.NetworkID,
+			)
+		} else {
+			keys = append(keys,
+				"network-ip/"+required.SubnetID+"/"+required.IPAddress,
+				"network-mac/"+required.NetworkID+"/"+required.MACAddress,
+			)
+		}
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
@@ -553,14 +581,26 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 		required.NetworkID, required.SubnetID); err != nil {
 		return fmt.Errorf("reserve Network Port %s: %w", required.PortID, err)
 	}
+	allocationSource := required.AllocationSource
+	if allocationSource == "" {
+		allocationSource = "EXPLICIT"
+	}
+	ipAddress, macAddress := required.IPAddress, required.MACAddress
+	if allocationSource == "AUTOMATIC" {
+		var err error
+		ipAddress, macAddress, err = allocateAutomaticNetworkIdentitiesTx(ctx, tx, request.RequestID, required.PortID, required.NetworkID, required.SubnetID)
+		if err != nil {
+			return fmt.Errorf("allocate automatic Network identities for Port %s: %w", required.PortID, err)
+		}
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO kim.network_identity_claims (
 			identity_claim_id, placement_admission_id, port_id, project_id,
 			network_id, subnet_id, claim_type, ip_address,
 			allocation_source, claim_generation, claim_state
-		) VALUES ($1,$2,$3,$4,$5,$6,'IP',$7::inet,'EXPLICIT',1,'RESERVED')
+		) VALUES ($1,$2,$3,$4,$5,$6,'IP',$7::inet,$8,1,'RESERVED')
 	`, "ip:"+request.RequestID+":"+required.PortID, admissionID, required.PortID,
-		request.ProjectID, required.NetworkID, required.SubnetID, required.IPAddress); err != nil {
+		request.ProjectID, required.NetworkID, required.SubnetID, ipAddress, allocationSource); err != nil {
 		return fmt.Errorf("reserve IP identity for Port %s: %w", required.PortID, err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -568,9 +608,9 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 			identity_claim_id, placement_admission_id, port_id, project_id,
 			network_id, subnet_id, claim_type, mac_address,
 			allocation_source, claim_generation, claim_state
-		) VALUES ($1,$2,$3,$4,$5,$6,'MAC',$7::macaddr,'EXPLICIT',1,'RESERVED')
+		) VALUES ($1,$2,$3,$4,$5,$6,'MAC',$7::macaddr,$8,1,'RESERVED')
 	`, "mac:"+request.RequestID+":"+required.PortID, admissionID, required.PortID,
-		request.ProjectID, required.NetworkID, required.SubnetID, required.MACAddress); err != nil {
+		request.ProjectID, required.NetworkID, required.SubnetID, macAddress, allocationSource); err != nil {
 		return fmt.Errorf("reserve MAC identity for Port %s: %w", required.PortID, err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -783,6 +823,19 @@ func validatePlacementAdmissionRequest(request PlacementAdmissionRequest, hostID
 		return errors.New("complete Placement admission request and candidate Host are required")
 	}
 	for _, required := range request.Network {
+		allocationSource := required.AllocationSource
+		if allocationSource == "" {
+			allocationSource = "EXPLICIT"
+		}
+		if allocationSource == "AUTOMATIC" {
+			if required.IPAddress != "" || required.MACAddress != "" {
+				return errors.New("automatic Network identity must not include caller-selected IP or MAC")
+			}
+			continue
+		}
+		if allocationSource != "EXPLICIT" {
+			return errors.New("unsupported Network identity allocation source")
+		}
 		address, err := netip.ParseAddr(required.IPAddress)
 		if err != nil || address.IsUnspecified() || address.IsMulticast() {
 			return errors.New("valid explicit Network IP identity is required")
@@ -815,11 +868,16 @@ func normalizePlacementNetworkRequirements(requirements []placement.NetworkRequi
 	normalized := make([]placement.NetworkRequirement, len(requirements))
 	copy(normalized, requirements)
 	for index := range normalized {
-		if address, err := netip.ParseAddr(normalized[index].IPAddress); err == nil {
-			normalized[index].IPAddress = address.String()
+		if normalized[index].AllocationSource == "" {
+			normalized[index].AllocationSource = "EXPLICIT"
 		}
-		if address, err := net.ParseMAC(normalized[index].MACAddress); err == nil {
-			normalized[index].MACAddress = address.String()
+		if normalized[index].AllocationSource == "EXPLICIT" {
+			if address, err := netip.ParseAddr(normalized[index].IPAddress); err == nil {
+				normalized[index].IPAddress = address.String()
+			}
+			if address, err := net.ParseMAC(normalized[index].MACAddress); err == nil {
+				normalized[index].MACAddress = address.String()
+			}
 		}
 	}
 	sort.Slice(normalized, func(i, j int) bool { return normalized[i].PortID < normalized[j].PortID })

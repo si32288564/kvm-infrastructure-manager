@@ -37,6 +37,7 @@ type PCIRequirement struct {
 type NetworkRequirement struct {
 	PortID, NetworkID, SubnetID, SegmentClaimID            string
 	IPAddress, MACAddress, BindingType, DeviceAddress      string
+	AllocationSource                                       string
 	NetworkGeneration, SubnetGeneration, SegmentGeneration uint64
 	HostMappingGeneration                                  uint64
 	RequiredMTU                                            uint32
@@ -146,7 +147,12 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 	sort.Slice(request.Network, func(i, j int) bool { return request.Network[i].PortID < request.Network[j].PortID })
 	ipIdentities, macIdentities := map[string]struct{}{}, map[string]struct{}{}
 	for index, required := range request.Network {
-		if required.PortID == "" || required.NetworkID == "" || required.NetworkGeneration == 0 || required.SubnetID == "" || required.SubnetGeneration == 0 || required.SegmentClaimID == "" || required.SegmentGeneration == 0 || required.HostMappingGeneration == 0 || required.IPAddress == "" || required.MACAddress == "" || required.RequiredMTU < 576 || (required.BindingType != "OVS" && required.BindingType != "SRIOV_DIRECT") || (index > 0 && request.Network[index-1].PortID == required.PortID) {
+		allocationSource := required.AllocationSource
+		if allocationSource == "" {
+			allocationSource = "EXPLICIT"
+		}
+		identitiesValid := (allocationSource == "EXPLICIT" && required.IPAddress != "" && required.MACAddress != "") || (allocationSource == "AUTOMATIC" && required.IPAddress == "" && required.MACAddress == "")
+		if required.PortID == "" || required.NetworkID == "" || required.NetworkGeneration == 0 || required.SubnetID == "" || required.SubnetGeneration == 0 || required.SegmentClaimID == "" || required.SegmentGeneration == 0 || required.HostMappingGeneration == 0 || !identitiesValid || required.RequiredMTU < 576 || (required.BindingType != "OVS" && required.BindingType != "SRIOV_DIRECT") || (index > 0 && request.Network[index-1].PortID == required.PortID) {
 			return Evaluation{}, fmt.Errorf("invalid or duplicate Network requirement for Port %q", required.PortID)
 		}
 		if required.BindingType == "OVS" && required.DeviceAddress != "" {
@@ -161,14 +167,16 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 				return Evaluation{}, fmt.Errorf("SR-IOV Port %q requires the same qualified PCI device", required.PortID)
 			}
 		}
-		ipKey, macKey := required.SubnetID+"/"+required.IPAddress, required.NetworkID+"/"+required.MACAddress
-		if _, duplicate := ipIdentities[ipKey]; duplicate {
-			return Evaluation{}, fmt.Errorf("duplicate IP identity %q in Placement request", required.IPAddress)
+		if allocationSource == "EXPLICIT" {
+			ipKey, macKey := required.SubnetID+"/"+required.IPAddress, required.NetworkID+"/"+required.MACAddress
+			if _, duplicate := ipIdentities[ipKey]; duplicate {
+				return Evaluation{}, fmt.Errorf("duplicate IP identity %q in Placement request", required.IPAddress)
+			}
+			if _, duplicate := macIdentities[macKey]; duplicate {
+				return Evaluation{}, fmt.Errorf("duplicate MAC identity %q in Placement request", required.MACAddress)
+			}
+			ipIdentities[ipKey], macIdentities[macKey] = struct{}{}, struct{}{}
 		}
-		if _, duplicate := macIdentities[macKey]; duplicate {
-			return Evaluation{}, fmt.Errorf("duplicate MAC identity %q in Placement request", required.MACAddress)
-		}
-		ipIdentities[ipKey], macIdentities[macKey] = struct{}{}, struct{}{}
 	}
 	request.Storage = append([]StorageRequirement(nil), request.Storage...)
 	sort.Slice(request.Storage, func(i, j int) bool { return request.Storage[i].VolumeID < request.Storage[j].VolumeID })

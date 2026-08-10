@@ -47,7 +47,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	acceptPlacementInventory(t, ctx, pool, hostID)
 	qualificationID := hostID + "-vf-qualification"
 	qualifyPlacementVF(t, ctx, pool, hostID, qualificationID)
-	networkID, subnetID, segmentClaimID := "network-"+suffix, "subnet-"+suffix, "segment-"+suffix
+	networkID, subnetID, autoSubnetID, segmentClaimID := "network-"+suffix, "subnet-"+suffix, "subnet-auto-"+suffix, "segment-"+suffix
 	if err := UpsertNetworkFoundation(ctx, pool, NetworkFoundation{
 		NetworkID: networkID, ProjectID: "project", NetworkGeneration: 1,
 		NetworkState: "ACTIVE", MTU: 1500,
@@ -57,6 +57,9 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		SegmentClaimID:    segmentClaimID, SegmentType: "VLAN", ScopeID: "physnet-a-" + suffix,
 		SegmentID: 120, SegmentGeneration: 1, ProviderMappingRevision: 1, SegmentState: "ACTIVE",
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.network_subnets_current(subnet_id,network_id,subnet_generation,lifecycle_state,cidr,allocation_start,allocation_end,excluded_addresses) VALUES($1,$2,1,'ACTIVE','192.0.2.0/24','192.0.2.220','192.0.2.230',ARRAY[]::inet[])`, autoSubnetID, networkID); err != nil {
 		t.Fatal(err)
 	}
 	if err := UpsertHostNetworkMapping(ctx, pool, HostNetworkMapping{
@@ -128,6 +131,162 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			SizeBytes: 8 << 30, AccessMode: "SINGLE_WRITER", Bootable: true,
 		}},
 	}
+	// Automatic IPAM is evaluated without a mutation, then assigns concrete IP
+	// and MAC identities only inside the same Final Admission transaction.
+	automaticRequest := request
+	automaticRequest.RequestID = "request-automatic-" + suffix
+	automaticRequest.WorkloadID = "vm-automatic-" + suffix
+	automaticRequest.PCI = nil
+	automaticRequest.Storage = nil
+	automaticRequest.Network = []placement.NetworkRequirement{{
+		PortID: "port-automatic-" + suffix, NetworkID: networkID, NetworkGeneration: 1,
+		SubnetID: autoSubnetID, SubnetGeneration: 1,
+		SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
+		AllocationSource: "AUTOMATIC", BindingType: "OVS", RequiredMTU: 1500,
+	}}
+	automaticBefore := placementMutationCounts(t, ctx, pool)
+	automaticDry, err := DryEvaluatePlacement(ctx, pool, automaticRequest, hostID)
+	if err != nil || !automaticDry.Eligible {
+		t.Fatalf("automatic IPAM dry evaluation/error = %#v/%v", automaticDry, err)
+	}
+	if afterDry := placementMutationCounts(t, ctx, pool); afterDry != automaticBefore {
+		t.Fatalf("automatic IPAM dry evaluation mutated authority: before=%v after=%v", automaticBefore, afterDry)
+	}
+	automaticAdmission, err := FinalAdmitPlacement(ctx, pool, automaticRequest, automaticDry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var automaticIP, automaticMAC, ipSource, macSource string
+	if err := pool.QueryRow(ctx, `
+		SELECT host(ip.ip_address), mac.mac_address::text, ip.allocation_source, mac.allocation_source
+		FROM kim.network_identity_claims ip
+		JOIN kim.network_identity_claims mac ON mac.port_id=ip.port_id AND mac.claim_type='MAC'
+		WHERE ip.port_id=$1 AND ip.claim_type='IP'
+	`, automaticRequest.Network[0].PortID).Scan(&automaticIP, &automaticMAC, &ipSource, &macSource); err != nil {
+		t.Fatal(err)
+	}
+	if ipSource != "AUTOMATIC" || macSource != "AUTOMATIC" || automaticIP == "" || automaticMAC == "" || automaticIP == "192.0.2.1" {
+		t.Fatalf("automatic identities = %s/%s source=%s/%s", automaticIP, automaticMAC, ipSource, macSource)
+	}
+	replayedAutomatic, err := FinalAdmitPlacement(ctx, pool, automaticRequest, automaticDry)
+	if err != nil || replayedAutomatic.AdmissionID != automaticAdmission.AdmissionID {
+		t.Fatalf("automatic IPAM idempotent replay = %#v/%v", replayedAutomatic, err)
+	}
+
+	verifierDigest := digestBytes([]byte("network-release-verifier"))
+	_, err = RecordNetworkIdentityReleaseObservation(ctx, pool, NetworkIdentityReleaseObservation{
+		ObservationID:   "release-before-request-" + suffix,
+		IdentityClaimID: "ip:" + automaticRequest.RequestID + ":" + automaticRequest.Network[0].PortID,
+		PortID:          automaticRequest.Network[0].PortID,
+		ClaimGeneration: 1, PortGeneration: 1, BindingGeneration: 1,
+		ObservationGeneration: 1, EvidenceState: "MATCHED",
+		PortAbsent: true, BindingAbsent: true, OVNNBAbsent: true,
+		OVNSBAbsent: true, HostAbsent: true,
+		VerifierArtifactDigest: verifierDigest, ObservedAt: time.Unix(1, 0).UTC(),
+	})
+	if !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("release evidence before release request error = %v", err)
+	}
+	if err := BeginNetworkPortRelease(ctx, pool, automaticRequest.Network[0].PortID, 1); err != nil {
+		t.Fatal(err)
+	}
+	recordRelease := func(claimType string, generation uint64, state string, absent bool) string {
+		t.Helper()
+		claimID := claimType + ":" + automaticRequest.RequestID + ":" + automaticRequest.Network[0].PortID
+		result, err := RecordNetworkIdentityReleaseObservation(ctx, pool, NetworkIdentityReleaseObservation{
+			ObservationID:   "release-" + claimType + "-" + fmt.Sprint(generation) + "-" + suffix,
+			IdentityClaimID: claimID, PortID: automaticRequest.Network[0].PortID,
+			ClaimGeneration: 1, PortGeneration: 1, BindingGeneration: 1,
+			ObservationGeneration: generation, EvidenceState: state,
+			PortAbsent: absent, BindingAbsent: absent, OVNNBAbsent: absent,
+			OVNSBAbsent: absent, HostAbsent: absent,
+			VerifierArtifactDigest: verifierDigest, ObservedAt: time.Unix(int64(generation), 0).UTC(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	reuseRequest := automaticRequest
+	reuseRequest.RequestID = "request-reuse-" + suffix
+	reuseRequest.WorkloadID = "vm-reuse-" + suffix
+	reuseRequest.Network = append([]placement.NetworkRequirement(nil), automaticRequest.Network...)
+	reuseRequest.Network[0].PortID = "port-reuse-" + suffix
+	reuseRequest.Network[0].AllocationSource = "EXPLICIT"
+	reuseRequest.Network[0].IPAddress = automaticIP
+	reuseRequest.Network[0].MACAddress = automaticMAC
+	for _, claimType := range []string{"ip", "mac"} {
+		if state := recordRelease(claimType, 1, "UNKNOWN", false); state != "QUARANTINED" {
+			t.Fatalf("%s UNKNOWN release state = %s", claimType, state)
+		}
+	}
+	quarantinedDry, err := DryEvaluatePlacement(ctx, pool, reuseRequest, hostID)
+	if err != nil || quarantinedDry.Eligible || !containsReason(quarantinedDry.ReasonCodes, "network:"+reuseRequest.Network[0].PortID+":identity_claim_conflict") {
+		t.Fatalf("quarantined identity reuse evaluation/error = %#v/%v", quarantinedDry, err)
+	}
+	for _, claimType := range []string{"ip", "mac"} {
+		if state := recordRelease(claimType, 2, "MATCHED", true); state != "QUARANTINED" {
+			t.Fatalf("%s first clean release state = %s", claimType, state)
+		}
+		_, err := RecordNetworkIdentityReleaseObservation(ctx, pool, NetworkIdentityReleaseObservation{
+			ObservationID:   "release-duplicate-generation-" + claimType + "-" + suffix,
+			IdentityClaimID: claimType + ":" + automaticRequest.RequestID + ":" + automaticRequest.Network[0].PortID,
+			PortID:          automaticRequest.Network[0].PortID,
+			ClaimGeneration: 1, PortGeneration: 1, BindingGeneration: 1,
+			ObservationGeneration: 2, EvidenceState: "MATCHED",
+			PortAbsent: true, BindingAbsent: true, OVNNBAbsent: true,
+			OVNSBAbsent: true, HostAbsent: true,
+			VerifierArtifactDigest: verifierDigest, ObservedAt: time.Unix(22, 0).UTC(),
+		})
+		if !errors.Is(err, ErrPlacementStale) {
+			t.Fatalf("%s duplicate observation generation error = %v", claimType, err)
+		}
+		if state := recordRelease(claimType, 3, "MATCHED", true); state != "RELEASED" {
+			t.Fatalf("%s second clean release state = %s", claimType, state)
+		}
+		if state := recordRelease(claimType, 3, "MATCHED", true); state != "RELEASED" {
+			t.Fatalf("%s terminal observation replay state = %s", claimType, state)
+		}
+		_, err = RecordNetworkIdentityReleaseObservation(ctx, pool, NetworkIdentityReleaseObservation{
+			ObservationID:   "release-post-terminal-" + claimType + "-" + suffix,
+			IdentityClaimID: claimType + ":" + automaticRequest.RequestID + ":" + automaticRequest.Network[0].PortID,
+			PortID:          automaticRequest.Network[0].PortID,
+			ClaimGeneration: 1, PortGeneration: 1, BindingGeneration: 1,
+			ObservationGeneration: 4, EvidenceState: "UNKNOWN",
+			VerifierArtifactDigest: verifierDigest, ObservedAt: time.Unix(4, 0).UTC(),
+		})
+		if !errors.Is(err, ErrPlacementStale) {
+			t.Fatalf("%s post-terminal observation error = %v", claimType, err)
+		}
+	}
+	var releasedPort, releasedBinding string
+	if err := pool.QueryRow(ctx, `
+		SELECT port.desired_state, binding.binding_state
+		FROM kim.network_ports_current port
+		JOIN kim.port_bindings_current binding ON binding.port_id=port.port_id
+		WHERE port.port_id=$1
+	`, automaticRequest.Network[0].PortID).Scan(&releasedPort, &releasedBinding); err != nil {
+		t.Fatal(err)
+	}
+	if releasedPort != "RELEASED" || releasedBinding != "RELEASED" {
+		t.Fatalf("released Port/Binding = %s/%s", releasedPort, releasedBinding)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.compute_allocation_claims SET claim_state='RELEASED' WHERE admission_id=$1`, automaticAdmission.AdmissionID); err != nil {
+		t.Fatal(err)
+	}
+
+	reuseDry, err := DryEvaluatePlacement(ctx, pool, reuseRequest, hostID)
+	if err != nil || !reuseDry.Eligible {
+		t.Fatalf("released identity reuse dry evaluation/error = %#v/%v", reuseDry, err)
+	}
+	reuseAdmission, err := FinalAdmitPlacement(ctx, pool, reuseRequest, reuseDry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.compute_allocation_claims SET claim_state='RELEASED' WHERE admission_id=$1`, reuseAdmission.AdmissionID); err != nil {
+		t.Fatal(err)
+	}
+
 	excludedRequest := request
 	excludedRequest.RequestID, excludedRequest.WorkloadID = "request-excluded-"+suffix, "vm-excluded-"+suffix
 	excludedRequest.Network = append([]placement.NetworkRequirement(nil), request.Network...)
@@ -371,7 +530,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.compute_allocation_claims WHERE host_id=$1`, hostID).Scan(&claims); err != nil {
 		t.Fatal(err)
 	}
-	if decisions != 3 || claims != 3 {
+	if decisions != 5 || claims != 5 {
 		t.Fatalf("decision/claim count = %d/%d", decisions, claims)
 	}
 	var vfClaims int
@@ -389,7 +548,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	`, networkID).Scan(&ports, &identities, &bindings); err != nil {
 		t.Fatal(err)
 	}
-	if ports != 3 || identities != 6 || bindings != 3 {
+	if ports != 5 || identities != 10 || bindings != 5 {
 		t.Fatalf("atomic Network Port/identity/binding claims = %d/%d/%d", ports, identities, bindings)
 	}
 	var volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs int

@@ -100,10 +100,11 @@ NetworkIdentityClaim
 - isolated Network間のoverlapping CIDRは許可できますが、同一routing/attachment scopeで曖昧になる構成は拒否します。
 - gateway、DHCP、reserved/excluded addressを一般Portへ割り当てません。
 - explicit IP/MAC要求もProject ownership、pool、conflict、policyを検証します。
+- automatic allocation の dry Eligibility は候補の存在だけを read-only で評価し、具体的な identity を返したり Claim を作ったりしません。Final Admission は Subnet/Network scope を PostgreSQL transaction 内で直列化し、current pool、exclusion、`RESERVED | ACTIVE | RELEASE_PENDING | QUARANTINED` Claim を再読込して concrete IP/MAC を選びます。
 - Port createとIP/MAC Claim、Quota、Operation/Outboxを同じtransactionでcommitします。
 - external IPAMを使用する場合、外部reservation claimをInboxで受け、KIM Claimへbindします。外部応答だけでKIM PortをACTIVEにしません。
 
-Port delete/unbind要求時にIP/MACを直ちに再利用しません。current Port Binding、OVN NB/SB、Host dataplane、NAT/DHCP/anti-spoof referenceのabsenceを検証し、identity claimを`RELEASE_PENDING -> QUARANTINED -> FREE`へ進めます。reuse delayはsecurity/failure policyでversion管理し、UNKNOWN evidence中は解放しません。
+Port delete/unbind要求時にIP/MACを直ちに再利用しません。current Port Binding、OVN NB/SB、Host dataplane、NAT/DHCP/anti-spoof referenceのabsenceを検証し、identity claimを`RELEASE_PENDING -> QUARANTINED -> RELEASED`へ進めます。単一 observation または timeout は解放証明にせず、current authority generation に結び付く二つの独立した完全 absence observation を要求します。observation generation は単調増加とし、`UNKNOWN`、`CONFLICTING`、stale evidence 中は解放しません。`RELEASED` は過去または新しい遅延 evidence で `QUARANTINED` へ逆戻りさせません。
 
 ## 5. VLAN/VNI Segment Authority
 

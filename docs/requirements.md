@@ -282,6 +282,8 @@
 | NET-040 | OVN Port intent、NB materialization、SB datapath/chassis realization を immutable evidence と独立 current state で管理し、apply response loss は stable KIM ownership marker、intent generation、object digest の read-back で解決する。SB realization を Host dataplane、end-to-end reachability、Guest readiness へ暗黙昇格しない | Must |
 | NET-041 | OVN SB logical-flow pipeline と current Port identity coverage、Chassis/Encap registration を SB Port Binding、Host mapping、intent generation に結び付く独立 immutable evidence として評価する。logical-flow/Encap readiness だけで Host programming、cross-chassis tunnel traffic、end-to-end reachability を主張しない | Must |
 | NET-042 | cross-chassis Geneve packet path は、異なる current Host/Port/chassis authority、current mapping generation、両端 tunnel interface identity、方向付き packet probe の immutable evidence から評価する。Encap registration または control-plane convergence だけで tunnel traffic を証明せず、tunnel verification から tenant L3 reachability、Guest readiness、application health を主張しない | Must |
+| NET-043 | Automatic IPAM は dry Eligibility で候補の存在だけを無副作用に評価し、Final Admission の同一 PostgreSQL transaction 内で current Subnet generation、除外範囲、競合 Claim を再検証して具体的な IP/MAC Claim を確定する | Must |
+| NET-044 | Network identity の release request、timeout、単一 observation を absence の証明にせず、current Port/Binding/OVN NB/SB/Host absence の独立した連続 evidence が揃うまで `RELEASE_PENDING` または `QUARANTINED` として再利用を禁止する | Must |
 
 ### 2.13 NFV Dataplane
 

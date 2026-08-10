@@ -158,6 +158,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-NET-021 | OVN NB transaction commit 後に apply response を失い、controller/SB 収束中に Port または Host mapping generation を変更して旧 NB/SB observation を送信 | apply outcome unknown / intent generation conflict | stable ownership marker・generation・digest で NB を read-back し、stale SB evidence の current 昇格を拒否 | immutable intent、NB/SB observations、Port/Segment/Mapping/Binding generations | 反対 create/delete、foreign object adoption、stale SB_REALIZED、Host/E2E convergence 誤表示 | current intent に一致する NB object と SB datapath/chassis observation |
 | FI-NET-022 | current SB Port Binding 後に required egress flow、Chassis registration、Geneve Encap endpoint のいずれかを欠損させ、または Host mapping generation 変更後の旧 flow/chassis evidence を送信 | logical-flow/chassis-encap coverage or generation conflict | control-plane convergence を `UNKNOWN/CONFLICTING` に保ち stale evidence を拒否 | intent/SB/Port/Binding/Mapping generations、flow set/datapath/chassis/Encap digests | SB_REALIZED からの暗黙 convergence、foreign chassis利用、tunnel/E2E reachability 誤表示 | current datapath flow coverage と expected chassis/Encap registration の再観測 |
 | FI-NET-023 | directed Geneve probe 中に片側 tunnel interface を欠損、packet loss、Host mapping/chassis generation 変更、同一 Host endpoint、または旧 observation replay を注入 | tunnel interface/packet/generation/Host identity conflict | tunnel projection を `DEGRADED/UNKNOWN/CONFLICTING` に保ち stale evidence を拒否 | source/destination Host・Port・mapping・chassis generations、interface digests、sent/received counters、verifier digest | Encap registration だけで VERIFIED、単一 Host fixture の実 2 Host certification 昇格、tenant/E2E READY 誤表示 | current 両端 authority と新しい directed packet probe の一致 |
+| FI-NET-024 | Automatic IPAM の並行 Final Admission、Port release response loss、UNKNOWN/CONFLICTING absence、同一 generation replay、`RELEASED` 後の遅延 evidence を注入 | identity allocation/release generation conflict | 一つの Claim だけを commitし、identity を `RELEASE_PENDING/QUARANTINED` に保持し、terminal release を逆戻りさせない | request/Admission、Subnet/Port/Binding/Claim generations、immutable absence observations | duplicate IP/MAC、partial resource Claim、timeout/single observation による early reuse、released identity の再 quarantine | current transaction の勝者または二つの独立した完全 absence evidence 後の explicit reuse |
 | FI-DPDK-001 | active PortのPMD threadを停止/消失させる | PMD/runtime observation | affected Port/Hostへの新規dataplane placement停止 | runtime/Port alarm、generation | ready継続、silent fallback | PMD復旧+RxQ polling verification |
 | FI-DPDK-002 | RxQをunpolledまたは不正PMD coreへdriftさせる | RxQ/PMD assignment mismatch | bindingをdegraded/blocked | desired/observed mapping evidence | compliant/ready誤表示 | policy準拠mappingをobservationで確認 |
 | FI-DPDK-003 | ovs-vswitchd restart適用後にResult responseをdrop | Command timeout/runtime gap | Attempt UNKNOWN、新規disruptive op停止 | journal、runtime generation、Port evidence | blind restart/rollback | full runtime/PMD/Port/RxQ observation |
@@ -264,7 +265,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Workload Resilience Intent | FI-WRI-001..009 |
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
-| Network / NFV Dataplane | FI-NET-001..022, FI-DPDK-001..006 |
+| Network / NFV Dataplane | FI-NET-001..024, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..019 |
 | Upgrade / Compatibility | FI-UPG-001..018 |
 | Time / Clock Semantics | FI-TIME-001..019 |
