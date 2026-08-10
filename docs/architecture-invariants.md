@@ -175,6 +175,7 @@
 | INV-NET-020 | provider pool/gateway/force operation/Adoptionは個別permission/approval/auditを要求しraw topology/credentialをredactする | FI-NET-017 |
 | INV-NET-021 | Network Authority、pre-boot realization、post-boot dataplane convergence を相互に昇格させず、Boot READY は通信可能性ではなく power-on 発行可能性だけを意味する | AT-NET-026 |
 | INV-NET-022 | OVS Command は stable KIM identity/generation のみを含み、Agent 管理 provider mapping と standard OVS/libvirt read-backが一致するまでPortをpre-boot REALIZEDにしない | AT-NET-026 |
+| INV-NET-023 | SRIOV_DIRECT Port は observed VF、current Qualification、`VF_ASSIGN`、allocation policy、exclusive VF Claim の一つでも stale/UNKNOWN/不一致なら REALIZED/READY へ進めない | AT-NET-027, FI-NET-019 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

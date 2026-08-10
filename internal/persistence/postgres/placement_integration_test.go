@@ -117,7 +117,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			SubnetID: subnetID, SubnetGeneration: 1,
 			SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
 			IPAddress: "192.0.2.10", MACAddress: "02:00:00:00:00:10",
-			BindingType: "OVS", RequiredMTU: 1500,
+			BindingType: "SRIOV_DIRECT", DeviceAddress: "0000:03:00.1", RequiredMTU: 1500,
 		}},
 		Storage: []placement.StorageRequirement{{
 			VolumeID: "volume-" + suffix, AttachmentID: "attachment-" + suffix,
@@ -622,32 +622,36 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if imageState != "REALIZED" || networkState != "PENDING" || bootReadiness != "BLOCKED" || len(blockingReasons) != 1 || blockingReasons[0] != "network_pending" {
 		t.Fatalf("post-Image VM readiness = %s/%s/%s/%v", imageState, networkState, bootReadiness, blockingReasons)
 	}
-	ovsRequest := OVSPortRealizationRequest{VMID: vmMaterialization.VMID, PlanID: vmMaterialization.PlanID, PortID: winner.request.Network[0].PortID, JobID: "ovs-job-" + suffix, CommandID: "ovs-command-" + suffix}
-	ovsDecision, err := PrepareOVSPortRealization(ctx, pool, ovsRequest)
-	if err != nil || ovsDecision.HostID != hostID || len(ovsDecision.PayloadDigest) != 64 {
-		t.Fatalf("OVS decision=%#v err=%v", ovsDecision, err)
+	sriovRequest := SRIOVPortRealizationRequest{VMID: vmMaterialization.VMID, PlanID: vmMaterialization.PlanID, PortID: winner.request.Network[0].PortID, JobID: "sriov-job-" + suffix, CommandID: "sriov-command-" + suffix}
+	sriovDecision, err := PrepareSRIOVPortRealization(ctx, pool, sriovRequest)
+	if err != nil || sriovDecision.HostID != hostID || len(sriovDecision.PayloadDigest) != 64 {
+		t.Fatalf("SR-IOV decision=%#v err=%v", sriovDecision, err)
 	}
-	ovsObservationDigest := digestBytes([]byte("ovs-observation-" + suffix))
-	ovsVerifierDigest := digestBytes([]byte("ovs-verifier"))
-	ovsVerificationID := "ovs-verification-" + suffix
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, ovsRequest.CommandID, hostID, digestBytes([]byte("ovs-lease"))); err != nil {
+	sriovObservationDigest := digestBytes([]byte("sriov-observation-" + suffix))
+	sriovVerifierDigest := digestBytes([]byte("sriov-verifier"))
+	sriovVerificationID := "sriov-verification-" + suffix
+	var vfClaimID string
+	if err := pool.QueryRow(ctx, `SELECT claim_id FROM kim.pci_vf_allocation_claims WHERE placement_admission_id=$1 AND device_address='0000:03:00.1'`, winner.admission.AdmissionID).Scan(&vfClaimID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, ovsRequest.CommandID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, sriovRequest.CommandID, hostID, digestBytes([]byte("sriov-lease"))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($1,$2,1,1,$3,'MATCHED',$4,jsonb_build_object('domain_uuid',$5::text,'vm_generation',1,'port_id',$6::text,'port_generation',1,'network_id',$7::text,'network_generation',1,'segment_claim_id',$8::text,'segment_generation',1,'host_mapping_generation',1,'binding_generation',1,'binding_type','OVS','mac_address',$9::text,'mtu',1500,'bridge_observed',true,'domain_nic_present',true,'domain_nic_identity_matches',true))`, ovsVerificationID, ovsRequest.CommandID, ovsObservationDigest, ovsVerifierDigest, vmMaterialization.VMID, winner.request.Network[0].PortID, networkID, segmentClaimID, winner.request.Network[0].MACAddress); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, sriovRequest.CommandID); err != nil {
 		t.Fatal(err)
 	}
-	ovsObservation := OVSPortRealizationObservation{EvidenceID: "ovs-evidence-" + suffix, VMID: vmMaterialization.VMID, VMGeneration: 1, PlanID: vmMaterialization.PlanID, HostID: hostID, PortID: winner.request.Network[0].PortID, PortGeneration: 1, NetworkID: networkID, NetworkGeneration: 1, SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, CommandID: ovsRequest.CommandID, AttemptIndex: 1, VerificationID: ovsVerificationID, ObservationGeneration: 1, ObservationDigest: ovsObservationDigest, VerifierDigest: ovsVerifierDigest, PowerJobID: "power-job-" + suffix, PowerCommandID: "power-command-" + suffix}
-	if err := AcceptOVSPortRealizationAndMaybeArmPower(ctx, pool, ovsObservation); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($1,$2,1,1,$3,'MATCHED',$4,jsonb_build_object('domain_uuid',$5::text,'vm_generation',1,'port_id',$6::text,'network_id',$7::text,'segment_claim_id',$8::text,'mac_address',$9::text,'device_address','0000:03:00.1','vf_claim_id',$10::text,'qualification_id',$11::text,'policy_id','vf-policy','domain_hostdev_identity_matches',true))`, sriovVerificationID, sriovRequest.CommandID, sriovObservationDigest, sriovVerifierDigest, vmMaterialization.VMID, winner.request.Network[0].PortID, networkID, segmentClaimID, winner.request.Network[0].MACAddress, vfClaimID, qualificationID); err != nil {
 		t.Fatal(err)
 	}
-	if err := AcceptOVSPortRealizationAndMaybeArmPower(ctx, pool, ovsObservation); err != nil {
-		t.Fatalf("idempotent OVS realization/power authority replay: %v", err)
+	sriovObservation := SRIOVPortRealizationObservation{EvidenceID: "sriov-evidence-" + suffix, VMID: vmMaterialization.VMID, VMGeneration: 1, PlanID: vmMaterialization.PlanID, HostID: hostID, PortID: winner.request.Network[0].PortID, PortGeneration: 1, NetworkID: networkID, NetworkGeneration: 1, SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, DeviceAddress: "0000:03:00.1", VFClaimID: vfClaimID, PCIObservationGeneration: 1, QualificationID: qualificationID, QualificationRevision: 1, PolicyID: "vf-policy", PolicyGeneration: 1, CommandID: sriovRequest.CommandID, AttemptIndex: 1, VerificationID: sriovVerificationID, ObservationGeneration: 1, ObservationDigest: sriovObservationDigest, VerifierDigest: sriovVerifierDigest, PowerJobID: "power-job-" + suffix, PowerCommandID: "power-command-" + suffix}
+	if err := AcceptSRIOVPortRealizationAndMaybeArmPower(ctx, pool, sriovObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptSRIOVPortRealizationAndMaybeArmPower(ctx, pool, sriovObservation); err != nil {
+		t.Fatalf("idempotent SR-IOV realization/power authority replay: %v", err)
 	}
 	var desiredPower, powerType string
-	if err := pool.QueryRow(ctx, `SELECT ready.network_state,ready.boot_readiness,vm.desired_power_state,command.command_type FROM kim.vm_materialization_readiness_current ready JOIN kim.virtual_machines_current vm USING(vm_id) JOIN kim.execution_jobs job ON job.job_id=$2 JOIN kim.execution_commands command ON command.job_id=job.job_id WHERE ready.vm_id=$1`, vmMaterialization.VMID, ovsObservation.PowerJobID).Scan(&networkState, &bootReadiness, &desiredPower, &powerType); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT ready.network_state,ready.boot_readiness,vm.desired_power_state,command.command_type FROM kim.vm_materialization_readiness_current ready JOIN kim.virtual_machines_current vm USING(vm_id) JOIN kim.execution_jobs job ON job.job_id=$2 JOIN kim.execution_commands command ON command.job_id=job.job_id WHERE ready.vm_id=$1`, vmMaterialization.VMID, sriovObservation.PowerJobID).Scan(&networkState, &bootReadiness, &desiredPower, &powerType); err != nil {
 		t.Fatal(err)
 	}
 	if networkState != "REALIZED" || bootReadiness != "READY" || desiredPower != "RUNNING" || powerType != "VIRTUAL_MACHINE_POWER_STATE_ENSURE" {
@@ -656,17 +660,17 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	powerObservationDigest := digestBytes([]byte("power-observation-" + suffix))
 	powerVerifierDigest := digestBytes([]byte("power-verifier"))
 	powerVerificationID := "power-verification-" + suffix
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, ovsObservation.PowerCommandID, hostID, digestBytes([]byte("power-lease"))); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, sriovObservation.PowerCommandID, hostID, digestBytes([]byte("power-lease"))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, ovsObservation.PowerCommandID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, sriovObservation.PowerCommandID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE kim.execution_commands_current SET command_state='UNKNOWN',current_attempt_index=1 WHERE command_id=$1`, ovsObservation.PowerCommandID); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE kim.execution_commands_current SET command_state='UNKNOWN',current_attempt_index=1 WHERE command_id=$1`, sriovObservation.PowerCommandID); err != nil {
 		t.Fatal(err)
 	}
 	if err := RecordCommandVerification(ctx, pool, CommandVerification{
-		VerificationID: powerVerificationID, CommandID: ovsObservation.PowerCommandID, AttemptIndex: 1,
+		VerificationID: powerVerificationID, CommandID: sriovObservation.PowerCommandID, AttemptIndex: 1,
 		ObservationGeneration: 1, ObservationDigest: powerObservationDigest, State: "MATCHED",
 		VerifierArtifactDigest: powerVerifierDigest,
 		Evidence:               map[string]any{"domain_uuid": vmMaterialization.VMID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"},
@@ -683,7 +687,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_power_observation_evidence SET observed_power_state='SHUTOFF' WHERE verification_id=$1`, powerVerificationID); err == nil {
 		t.Fatal("immutable VM power observation evidence accepted UPDATE")
 	}
-	if _, err := pool.Exec(ctx, `UPDATE kim.vm_network_port_realization_evidence SET preboot_state='UNKNOWN' WHERE evidence_id=$1`, ovsObservation.EvidenceID); err == nil {
+	if _, err := pool.Exec(ctx, `UPDATE kim.vm_network_port_realization_evidence SET preboot_state='UNKNOWN' WHERE evidence_id=$1`, sriovObservation.EvidenceID); err == nil {
 		t.Fatal("immutable OVS realization evidence accepted UPDATE")
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_image_realization_evidence SET observed_content_digest=$2 WHERE evidence_id=$1`, imageObservation.EvidenceID, digestBytes([]byte("forged-image"))); err == nil {

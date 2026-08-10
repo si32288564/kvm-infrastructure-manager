@@ -273,6 +273,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-024 | Network Event/APIがlayer/binding/intent generationを保持しraw OVN/Host/physical identityをredactする |
 | AT-NET-025 | Network adapterがtyped intent、UNKNOWN/read-back、ownership、secret/redaction contractへ適合する |
 | AT-NET-026 | OVS Port Commandがbridge/XML/path/argvを受け付けず、Agent管理mappingのstandard OVS bridgeとinactive libvirt NIC identityをread-backしてimmutable pre-boot evidenceへ収束し、dataplane convergenceを主張しない |
+| AT-NET-027 | Final Admission の qualified VF Claim を SRIOV_DIRECT typed Commandへ固定し、current PCI/Qualification/policy/Binding と libvirt hostdev PCI identity read-backが一致した場合だけPortをREALIZEDへ進める |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |

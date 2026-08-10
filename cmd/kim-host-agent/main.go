@@ -21,6 +21,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/localimage"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/sriovnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/reconnect"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -104,6 +105,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			defer closeVMBackend()
 			executionBackends = append(executionBackends, vmBackend)
+			sriovBackend, closeSRIOVBackend, sriovErr := sriovnetwork.New(*libvirtURI)
+			if sriovErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent SR-IOV Network error: %v\n", sriovErr)
+				return 2
+			}
+			defer closeSRIOVBackend()
+			executionBackends = append(executionBackends, sriovBackend)
 		}
 	}
 	if *imageCacheRoot != "" && *localLVMVGUUID == "" {

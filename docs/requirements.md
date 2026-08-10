@@ -277,6 +277,7 @@
 | NET-035 | Network Event/APIでintent/binding/layer generationとbounded reasonを公開しraw OVN/Host/physical identityをredactする | Must |
 | NET-036 | Network Authority、pre-boot realization、post-boot dataplane convergence を独立状態として保持し、Port RESERVED や NIC realization を dataplane convergence とみなさない | Must |
 | NET-037 | OVS pre-boot realization は Agent 管理の Segment-to-Bridge mapping、standard OVS bridge observation、inactive libvirt NIC identity の typed read-back で確定し、Command から bridge 名/XML/path/argv を受け取らない | Must |
+| NET-038 | SRIOV_DIRECT pre-boot realization は current exclusive VF Claim、PCI observation、Qualification Binding、validated `VF_ASSIGN` operation、allocation policy と Binding generation を再検証し、typed libvirt PCI identity read-back だけを Port realization evidence へ昇格する | Must |
 
 ### 2.13 NFV Dataplane
 

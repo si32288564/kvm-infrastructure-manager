@@ -153,6 +153,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-NET-016 | backend-only/foreign OVN object、unknown chassis/interfaceを提示 | ownership/marker/generation mismatch | quarantine、affected scope mutation停止 | raw/normalized IDs、provenance、observations | auto adopt/delete/unbind | explicit Adoption/repairまたはexternal ownership確定 |
 | FI-NET-017 | unauthorized actorがSegment Pool/Gateway/force unbind/delete/Adoptionを要求しadapterがcredential/raw topologyをerrorへ返す | permission/redaction/conformance failure | request拒否、adapter quarantine/security alert | actor/action/payload digest/audit | backend mutation、credential/topology leak | authorized actionまたはpatched certified adapter |
 | FI-NET-018 | dry/final間にprovider mapping/physnet/SR-IOV/DPDK capability generationを変更 | final admission generation conflict | transaction rollback/reselection | snapshot/current mapping/device generations | unreachable Port、binding type fallback、partial claims | current compatible Host/mappingで全claim commit |
+| FI-NET-019 | SRIOV_DIRECT Final Admission後にVF observation、Qualification Binding、validated operation、policy、exclusive Claimのいずれかを変更してstale hostdev Resultを送信 | PCI/Qualification/Claim generation conflict | Port REALIZEDとBoot READYを停止しstale evidenceを拒否 | VF Claim、PCI observation、Qualification/policy/Binding/Verification generations | unqualified VF attach、別VF identityへの昇格、partial READY | current qualified VF authorityとlibvirt PCI identityの再検証 |
 | FI-DPDK-001 | active PortのPMD threadを停止/消失させる | PMD/runtime observation | affected Port/Hostへの新規dataplane placement停止 | runtime/Port alarm、generation | ready継続、silent fallback | PMD復旧+RxQ polling verification |
 | FI-DPDK-002 | RxQをunpolledまたは不正PMD coreへdriftさせる | RxQ/PMD assignment mismatch | bindingをdegraded/blocked | desired/observed mapping evidence | compliant/ready誤表示 | policy準拠mappingをobservationで確認 |
 | FI-DPDK-003 | ovs-vswitchd restart適用後にResult responseをdrop | Command timeout/runtime gap | Attempt UNKNOWN、新規disruptive op停止 | journal、runtime generation、Port evidence | blind restart/rollback | full runtime/PMD/Port/RxQ observation |
@@ -259,7 +260,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Workload Resilience Intent | FI-WRI-001..009 |
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
-| Network / NFV Dataplane | FI-NET-001..018, FI-DPDK-001..006 |
+| Network / NFV Dataplane | FI-NET-001..019, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..019 |
 | Upgrade / Compatibility | FI-UPG-001..018 |
 | Time / Clock Semantics | FI-TIME-001..019 |
