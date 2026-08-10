@@ -30,7 +30,7 @@ accepted Domain evidenceはVM lifecycleを`DEFINED`へ進めますが、Image/Ne
 
 ## 3. Validation
 
-fresh PostgreSQL 17でmigration 001〜018とrace integrationを実行しました。
+fresh PostgreSQL 17 で migration 001〜019 と integration test を実行しました。Image realization の詳細は [P1-C05 Image Materialization Validation](p1-c05-image-materialization-20260810.md) に記録します。
 
 ```text
 TestMigratePostgreSQLIntegration
@@ -49,7 +49,6 @@ PASS
 
 ## 4. Remaining work
 
-- verified Image binary materialization evidence
 - OVS/SR-IOV Network realization evidence
 - 全 component generation を同一 transaction で再検証する READY transition
 - READYだけを許可するtyped power-on dispatch gate

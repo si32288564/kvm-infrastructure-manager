@@ -200,6 +200,7 @@
 | IMG-001 | qcow2/raw イメージを登録、検証、削除できる | Must |
 | IMG-002 | checksum、署名、取得元、可視性を保持できる | Must |
 | IMG-003 | Host へのイメージキャッシュと整合性確認ができる | Must |
+| IMG-004 | supported format の verified Image revision を identity-verified root Volume へ closed typed operation で materialize し、destination の bounded content identity read-back が current revision、Volume、Binding generation と一致した場合だけ Image realization authority を進める。Developer Preview の Local LVM direct-copy profile は RAW のみに限定し、QCOW2 は certified typed conversion/verification が入るまで fail closed とする | Must |
 | FLV-001 | vCPU、RAM、root disk、追加仕様を Flavor として管理できる | Must |
 | FLV-002 | NUMA、HugePages、CPU Pinning を Flavor で要求できる | Should |
 
@@ -219,6 +220,7 @@
 | CMP-010 | VM power-state mutation を closed typed Command と標準 libvirt API に限定し、Agent process lossで Result が不明な場合は Domain UUID/state の read-back evidence で解決する | Must |
 | CMP-011 | VM materialization は accepted Final Admission と current Compute/Volume Binding/Attachment Claim から immutable plan と Job/Command を不可分生成し、closed typed libvirt define と inactive Domain read-back で収束する | Must |
 | CMP-012 | VM materialization readiness は Domain、Image、Network、Storage を独立状態として評価し、全required componentのcurrent typed evidenceが揃うまでboot/power-on authorityをfail closedにする | Must |
+| CMP-013 | Image materialization 成功だけでは VM を boot ready にせず、current Network realization evidence が未確定なら `BLOCKED` を維持する | Must |
 
 ### 2.11 Scheduler
 

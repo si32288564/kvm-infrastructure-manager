@@ -240,8 +240,10 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-CMP-008 | console accessが短寿命、一回用途、Project scope、監査付きである |
 | AT-CMP-009 | accepted Final Admission と current BOUND root Volume/RESERVED Attachment Claim から immutable VM plan と typed define Job/Command を不可分生成し、標準 libvirt inactive Domain XML read-backで同一plan/compute/root identityへ収束する |
 | AT-CMP-010 | typed Domain Verificationをimmutable evidenceとして受理してもImage/NetworkがPENDINGならDomain=DEFINED、Storage=BOUND、boot readiness=BLOCKEDを維持し、power-on authorityへ昇格しない |
+| AT-CMP-011 | current VM/Plan/Image/BOUND root Binding/RESERVED Attachment Claim と MATCHED Image Verification を同一 transaction で再検証し、Image を REALIZED に進めても Network PENDING なら boot readiness を BLOCKED に維持する |
 | AT-IMG-001 | qcow2/raw image lifecycle、visibility、Project accessを検証する |
 | AT-IMG-002 | checksum/signature不一致imageをcache/boot前に拒否する |
+| AT-IMG-003 | caller supplied URI/path/argv を拒否し、digest-addressed verified RAW cache artifact を identity-verified Local LVM root Volume へ bounded copy/fsync した後、target から再計算した SHA-256、VG/LV UUID、holder absence が一致する場合だけ immutable realization evidence を受理する。QCOW2 direct-copy は拒否する |
 | AT-FLV-001 | FlavorのCPU/RAM/disk/NUMA/HugePages/pinning要求をplacementへ完全伝播する |
 | AT-NET-001 | KIM virtual network操作がWAN/physical switch authorityを変更しない |
 | AT-NET-002 | VLAN/Geneve/DHCP/security group/L3 intentがgeneration付きで収束する |

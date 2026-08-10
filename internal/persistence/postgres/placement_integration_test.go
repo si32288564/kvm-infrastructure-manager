@@ -88,7 +88,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	checksum := digestBytes([]byte("placement-image"))
-	if _, err := RegisterImageRevision(ctx, pool, ImageRevision{ImageID: imageID, Revision: 1, OwnerProjectID: "project", Format: "QCOW2", SizeBytes: 4096, DeclaredChecksum: checksum, ObservedChecksum: checksum, SignatureState: "VERIFIED", SignatureDigest: digestBytes([]byte("signature")), SourceURI: "https://images.invalid/image.qcow2", Visibility: "PRIVATE"}); err != nil {
+	if _, err := RegisterImageRevision(ctx, pool, ImageRevision{ImageID: imageID, Revision: 1, OwnerProjectID: "project", Format: "RAW", SizeBytes: 4096, DeclaredChecksum: checksum, ObservedChecksum: checksum, SignatureState: "VERIFIED", SignatureDigest: digestBytes([]byte("signature")), SourceURI: "https://images.invalid/image.raw", Visibility: "PRIVATE"}); err != nil {
 		t.Fatal(err)
 	}
 	numa, huge := uint32(2), uint64(1048576)
@@ -538,6 +538,90 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}
 	if domainState != "DEFINED" || imageState != "PENDING" || networkState != "PENDING" || storageState != "BOUND" || bootReadiness != "BLOCKED" || len(blockingReasons) != 2 {
 		t.Fatalf("VM readiness = %s/%s/%s/%s/%s/%v", domainState, imageState, networkState, storageState, bootReadiness, blockingReasons)
+	}
+	imageRequest := VMImageMaterializationRequest{
+		VMID: vmMaterialization.VMID, PlanID: vmMaterialization.PlanID,
+		JobID: "vm-image-job-" + suffix, CommandID: "vm-image-command-" + suffix,
+	}
+	imageDecision, err := PrepareVMImageMaterialization(ctx, pool, imageRequest)
+	if err != nil || imageDecision.HostID != hostID || len(imageDecision.PayloadDigest) != 64 {
+		t.Fatalf("VM Image materialization decision/error = %#v/%v", imageDecision, err)
+	}
+	var commandPayload map[string]any
+	if err := pool.QueryRow(ctx, `SELECT payload FROM kim.execution_commands WHERE command_id=$1`, imageRequest.CommandID).Scan(&commandPayload); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"source_uri", "source_path", "target_path", "argv", "flags"} {
+		if _, exists := commandPayload[forbidden]; exists {
+			t.Fatalf("Image Command exposed forbidden %s", forbidden)
+		}
+	}
+	replayedImageDecision, err := PrepareVMImageMaterialization(ctx, pool, imageRequest)
+	if err != nil || replayedImageDecision != imageDecision {
+		t.Fatalf("idempotent VM Image preparation = %#v/%v, want %#v", replayedImageDecision, err, imageDecision)
+	}
+	imageObservationDigest := digestBytes([]byte("vm-image-observation-" + suffix))
+	imageVerifierDigest := digestBytes([]byte("vm-image-verifier"))
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.command_lease_grants (command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at)
+		VALUES ($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')
+	`, imageRequest.CommandID, hostID, digestBytes([]byte("vm-image-lease"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts (command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES ($1,1,1,1,1)`, imageRequest.CommandID); err != nil {
+		t.Fatal(err)
+	}
+	imageVerificationID := "vm-image-verification-" + suffix
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.command_verification_evidence (verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload)
+		VALUES ($1,$2,1,1,$3,'MATCHED',$4,jsonb_build_object(
+			'domain_uuid',$5::text,'materialization_generation',1,
+			'image_id',$6::text,'image_revision',1,
+			'expected_content_digest',$7::text,'observed_content_digest',$7::text,
+			'image_size_bytes',4096,'volume_id',$8::text,
+			'observed_vg_uuid',$9::text,'observed_lv_uuid',$10::text,
+			'backend_resource_key',$11::text,'holder_open',false,
+			'content_identity_matches',true
+		))
+	`, imageVerificationID, imageRequest.CommandID, imageObservationDigest,
+		imageVerifierDigest, vmMaterialization.VMID, imageID, checksum,
+		winnerVolumeID, vgUUID, localLVUUID, winnerResourceKey); err != nil {
+		t.Fatal(err)
+	}
+	imageObservation := VMImageRealizationObservation{
+		EvidenceID: "vm-image-evidence-" + suffix, VMID: vmMaterialization.VMID,
+		VMGeneration: 1, PlanID: vmMaterialization.PlanID, PlanDigest: vmDecision.PlanDigest,
+		HostID: hostID, ImageID: imageID, ImageRevision: 1,
+		ExpectedDigest: checksum, ObservedDigest: checksum, ImageSizeBytes: 4096,
+		VolumeID: winnerVolumeID, BindingID: winnerBindingID, BindingGeneration: 1,
+		VGUUID: vgUUID, LVUUID: localLVUUID, BackendResourceKey: winnerResourceKey,
+		CommandID: imageRequest.CommandID, AttemptIndex: 1,
+		VerificationID: imageVerificationID, ObservationGeneration: 1,
+		ObservationDigest: imageObservationDigest, VerifierDigest: imageVerifierDigest,
+		EvidenceState: "MATCHED", ContentIdentityMatches: true,
+	}
+	if err := AcceptVMImageRealizationObservation(ctx, pool, imageObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptVMImageRealizationObservation(ctx, pool, imageObservation); err != nil {
+		t.Fatalf("idempotent VM Image realization observation: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT image_state,network_state,boot_readiness,blocking_reasons
+		FROM kim.vm_materialization_readiness_current WHERE vm_id=$1
+	`, vmMaterialization.VMID).Scan(&imageState, &networkState, &bootReadiness, &blockingReasons); err != nil {
+		t.Fatal(err)
+	}
+	if imageState != "REALIZED" || networkState != "PENDING" || bootReadiness != "BLOCKED" || len(blockingReasons) != 1 || blockingReasons[0] != "network_pending" {
+		t.Fatalf("post-Image VM readiness = %s/%s/%s/%v", imageState, networkState, bootReadiness, blockingReasons)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.vm_image_realization_evidence SET observed_content_digest=$2 WHERE evidence_id=$1`, imageObservation.EvidenceID, digestBytes([]byte("forged-image"))); err == nil {
+		t.Fatal("immutable VM Image evidence accepted UPDATE")
+	}
+	imageConflict := imageObservation
+	imageConflict.ObservedDigest = digestBytes([]byte("different-image"))
+	if err := AcceptVMImageRealizationObservation(ctx, pool, imageConflict); !errors.Is(err, ErrVMMaterializationConflict) {
+		t.Fatalf("same VM Image evidence/different digest error = %v", err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_definition_observation_evidence SET domain_present=false WHERE evidence_id=$1`, vmDefinition.EvidenceID); err == nil {
 		t.Fatal("immutable VM definition evidence accepted UPDATE")

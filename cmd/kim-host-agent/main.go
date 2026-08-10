@@ -17,6 +17,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtdomain"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/localimage"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/reconnect"
@@ -44,6 +45,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	libvirtURI := set.String("libvirt-uri", os.Getenv("KIM_AGENT_LIBVIRT_URI"), "standard libvirt connection URI; empty disables VM power operations")
 	localLVMVGUUID := set.String("local-lvm-vg-uuid", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_UUID"), "allowed Local LVM VG UUID; empty disables Local LVM realization")
 	localLVMVGName := set.String("local-lvm-vg-name", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_NAME"), "admin-configured Local LVM VG name paired with the allowed UUID")
+	imageCacheRoot := set.String("image-cache-root", os.Getenv("KIM_AGENT_IMAGE_CACHE_ROOT"), "admin-configured digest-addressed verified Image cache root")
 	if err := set.Parse(args); err != nil {
 		return 2
 	}
@@ -81,6 +83,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		volumeGroups := map[string]string{*localLVMVGUUID: *localLVMVGName}
 		executionBackends = append(executionBackends, locallvm.Backend{Client: client, VolumeGroups: volumeGroups})
+		if *imageCacheRoot != "" {
+			executionBackends = append(executionBackends, localimage.Backend{CacheRoot: *imageCacheRoot, Volumes: libvirtvolume.LocalLVMResolver{Client: client, VolumeGroups: volumeGroups}})
+		}
 		if *libvirtURI != "" {
 			attachmentBackend, closeAttachmentBackend, attachmentErr := libvirtvolume.New(*libvirtURI, client, volumeGroups)
 			if attachmentErr != nil {
@@ -97,6 +102,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			defer closeVMBackend()
 			executionBackends = append(executionBackends, vmBackend)
 		}
+	}
+	if *imageCacheRoot != "" && *localLVMVGUUID == "" {
+		fmt.Fprintln(stderr, "kim-host-agent Image cache error: Local LVM identity mapping is required")
+		return 2
 	}
 	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})
 	if err != nil {

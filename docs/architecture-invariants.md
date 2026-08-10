@@ -71,6 +71,7 @@
 | ID | Invariant | 主な検証 |
 |---|---|---|
 | INV-IMG-001 | Image revision の metadata、checksum、signature evidence は immutable とし、checksum または signature verification 不一致の revision を current boot authority へ昇格しない | AT-IMG-001、AT-IMG-002 |
+| INV-IMG-002 | Agent は Image URI/path を Command から受け取らず、admin-configured digest-addressed cache と current BOUND LV identity のみを使用する。copy response ではなく target LV の `image_size_bytes` 範囲の SHA-256 read-back が current RAW revision と一致した場合だけ Image を `REALIZED` に進める。format conversion を byte-copy として扱わない | AT-IMG-003 |
 | INV-FLV-001 | Flavor revision は immutable canonical shape とし、vCPU、memory、root disk、NUMA、HugePages、CPU allocation/pinning、extra specs を欠落なく Placement Request へ伝播する | AT-FLV-001 |
 | INV-FLV-002 | Image/Flavor catalog mutation は `ACTIVE` database authority でのみ行い、`RECOVERY_READ_ONLY` では fail closed とする | FI-DATA-015 |
 
@@ -80,6 +81,7 @@
 |---|---|---|
 | INV-CMP-001 | VM define plan は accepted Final Admission と current resource authority からのみ生成し、Image/Network 未実現を READY/RUNNING へ昇格せず、caller supplied XML/path/libvirt method/flagを受け入れない | AT-CMP-009 |
 | INV-CMP-002 | Domain `DEFINED` はboot readinessではなく、current generationのDomain/Image/Network/Storage evidenceがすべて収束するまでpower-on authorityを発行せず、stale component evidenceでreadinessを進めない | AT-CMP-010 |
+| INV-CMP-003 | Image `REALIZED` は Network realization または boot authority を暗黙に進めず、Network `PENDING` 中は boot readiness を `BLOCKED` に保つ | AT-CMP-011 |
 
 ## 6. Execution
 
