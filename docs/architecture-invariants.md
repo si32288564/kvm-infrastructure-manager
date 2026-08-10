@@ -83,6 +83,7 @@
 | INV-CMP-002 | Domain `DEFINED` はboot readinessではなく、current generationのDomain/Image/Network/Storage evidenceがすべて収束するまでpower-on authorityを発行せず、stale component evidenceでreadinessを進めない | AT-CMP-010 |
 | INV-CMP-003 | Image `REALIZED` は Network realization または boot authority を暗黙に進めず、Network `PENDING` 中は boot readiness を `BLOCKED` に保つ | AT-CMP-011 |
 | INV-CMP-004 | READY 判定は current Domain/Storage/Image と required Port 全件の current evidence を再検証する transaction とし、その transaction からだけ typed RUNNING Command authority を発行する | AT-CMP-012 |
+| INV-CMP-005 | power Command の Result、process liveness、transport ACK だけで VM runtime state を確定せず、current VM generation と READY authority に結び付く standard libvirt read-back evidence だけを current power projection へ昇格する | AT-CMP-013, FI-LIBVIRT-004 |
 
 ## 6. Execution
 

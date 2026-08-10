@@ -27,7 +27,7 @@ Phase 1 では、2 Host の標準 KVM 環境に対して API から VM create/de
 | P1-C02 | In Progress | side-effect-free evaluator、eligible-only scoring/selection、current Pool membership、Compute/Memory/HugePages/qualified PCI VF/Network/Local LVM Storage ledger、transactional Final Admission foundation を実装。[P1-C02 validation](validation/p1-c02-placement-admission-foundation-20260810.md)、[P1-C03 validation](validation/p1-c03-network-admission-foundation-20260810.md)、[P1-C04 validation](validation/p1-c04-local-lvm-admission-foundation-20260810.md) を保持。Quota claim と Job/Operation atomic commit は継続 |
 | P1-C03 | In Progress | VLAN Segment、explicit IP/MAC、Port identity、basic OVS/SR-IOV Port Binding を Final Admission に統合。automatic IPAM、release quarantine workflow、OVS/OVN realization は継続 |
 | P1-C04 | In Progress | Local LVM admission/create/BOUND Binding に加え、closed typed libvirt attach/cold-detach、Agent kill 後の device/LVM holder read-back、immutable/current Attachment evidence、ATTACHED/DETACHED Claim transition を実 Host で検証。live detach と fencing/reuse workflow は継続 |
-| P1-C05 | In Progress | Domain/Storage/Image に加え、closed typed OVS pre-boot realization を実 Hostで検証。required Port evidenceを集約し、current component/generation再検証と同一transactionでREADY + typed power-on authorityを生成。SR-IOV、post-boot dataplane、power execution convergence、delete/public API は継続 |
+| P1-C05 | In Progress | Domain/Storage/Image/OVS pre-boot から READY、typed power-on、standard libvirt read-back、immutable runtime power evidence/current projection まで実装・実 Host検証。SR-IOV、post-boot dataplane、delete/public API は継続 |
 
 ## 2. Implementation Principles
 
@@ -189,7 +189,7 @@ P1-A exit では、全 module を有効化しても一つの current Host sessio
 | P1-C02 | dry eligibility/scoring/selection/transactional Final Admission | B01/B05/B06 | pure evaluator、eligible-only rank、current Pool membership、Compute/Memory/HugePages/qualified PCI VF/Network/Local LVM Storage reservation の同一 transaction commit を実装。Quota と Job/Operation 統合を継続 | AT-PLC-001〜009 |
 | P1-C03 | VLAN/IPAM/MAC/Port Claim と basic Port Binding | A07/C02 | current Network/Subnet/Segment/Host mapping、explicit IP/MAC Claim、Port/Binding reservation を実装。automatic allocation、quarantine/release、OVS/OVN realization を継続 | AT-NET-002〜007 |
 | P1-C04 | Local LVM Volume/Attachment Claim/generation/single-writer | A07/C02 | admission、typed LV create/read-back、BOUND Binding、typed libvirt attach/cold-detach、device/holder evidence、ATTACHED/DETACHED Claim transition を実装。live detach と fencing/reuse を継続 | AT-STO-001〜008, AT-STO-012, AT-STO-024, AT-STO-025 |
-| P1-C05 | VM create/delete with typed libvirt module | C01〜C04/B02 | Domain/Image/Storage/OVS Port pre-boot evidence、all-component READY transaction、typed power-on authority を実装。SR-IOV、post-boot dataplane、power execution、delete/public API を継続 | AT-CMP-001、AT-CMP-009〜012、AT-IMG-003、AT-NET-026 |
+| P1-C05 | VM create/delete with typed libvirt module | C01〜C04/B02 | Domain/Image/Storage/OVS Port pre-boot evidence、all-component READY transaction、typed power-on、libvirt read-back runtime projection を実装。SR-IOV、post-boot dataplane、delete/public API を継続 | AT-CMP-001、AT-CMP-009〜013、AT-IMG-003、AT-NET-026、FI-LIBVIRT-004 |
 | P1-C06 | Availability Policy/VM Binding と Workload Resilience/Recovery Queue read-only model | B06/C02 | new model、no automatic recovery | AT-AVR-001〜005、AT-WRI-001 |
 | P1-C07 | OVS-DPDK capability discovery/read-only observation | A07 | reuse OVS/CPU/PCI collector、new schema | AT-DPL-001/002/009 |
 

@@ -242,6 +242,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-CMP-010 | typed Domain Verificationをimmutable evidenceとして受理してもImage/NetworkがPENDINGならDomain=DEFINED、Storage=BOUND、boot readiness=BLOCKEDを維持し、power-on authorityへ昇格しない |
 | AT-CMP-011 | current VM/Plan/Image/BOUND root Binding/RESERVED Attachment Claim と MATCHED Image Verification を同一 transaction で再検証し、Image を REALIZED に進めても Network PENDING なら boot readiness を BLOCKED に維持する |
 | AT-CMP-012 | required Port 全件の current pre-boot evidenceを集約し、Domain/Storage/Image/Host/Binding generationと同一transactionで再検証した場合だけREADYとtyped RUNNING Job/Commandを不可分生成する |
+| AT-CMP-013 | READY transaction が発行した typed power Command の MATCHED libvirt read-backを immutable evidence として保存し、current VM generation に対する runtime power projectionだけをRUNNINGへ進める |
 | AT-IMG-001 | qcow2/raw image lifecycle、visibility、Project accessを検証する |
 | AT-IMG-002 | checksum/signature不一致imageをcache/boot前に拒否する |
 | AT-IMG-003 | caller supplied URI/path/argv を拒否し、digest-addressed verified RAW cache artifact を identity-verified Local LVM root Volume へ bounded copy/fsync した後、target から再計算した SHA-256、VG/LV UUID、holder absence が一致する場合だけ immutable realization evidence を受理する。QCOW2 direct-copy は拒否する |

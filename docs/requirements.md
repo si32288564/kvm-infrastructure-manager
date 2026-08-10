@@ -222,6 +222,7 @@
 | CMP-012 | VM materialization readiness は Domain、Image、Network、Storage を独立状態として評価し、全required componentのcurrent typed evidenceが揃うまでboot/power-on authorityをfail closedにする | Must |
 | CMP-013 | Image materialization 成功だけでは VM を boot ready にせず、current Network realization evidence が未確定なら `BLOCKED` を維持する | Must |
 | CMP-014 | current VM/Plan と全 required component/Port evidence を同一 PostgreSQL transaction で再検証し、Boot Readiness `READY` と typed power-on Job/Command authority を不可分に生成する | Must |
+| CMP-015 | typed power-on の成功は標準 libvirt read-back の immutable evidence と current VM/runtime generation が一致した場合だけ current power projection を `MATCHED` へ進め、`RUNNING` を dataplane/guest readiness と同一視しない | Must |
 
 ### 2.11 Scheduler
 

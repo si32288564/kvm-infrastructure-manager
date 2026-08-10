@@ -653,6 +653,36 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if networkState != "REALIZED" || bootReadiness != "READY" || desiredPower != "RUNNING" || powerType != "VIRTUAL_MACHINE_POWER_STATE_ENSURE" {
 		t.Fatalf("READY/power=%s/%s/%s/%s", networkState, bootReadiness, desiredPower, powerType)
 	}
+	powerObservationDigest := digestBytes([]byte("power-observation-" + suffix))
+	powerVerifierDigest := digestBytes([]byte("power-verifier"))
+	powerVerificationID := "power-verification-" + suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, ovsObservation.PowerCommandID, hostID, digestBytes([]byte("power-lease"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, ovsObservation.PowerCommandID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.execution_commands_current SET command_state='UNKNOWN',current_attempt_index=1 WHERE command_id=$1`, ovsObservation.PowerCommandID); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordCommandVerification(ctx, pool, CommandVerification{
+		VerificationID: powerVerificationID, CommandID: ovsObservation.PowerCommandID, AttemptIndex: 1,
+		ObservationGeneration: 1, ObservationDigest: powerObservationDigest, State: "MATCHED",
+		VerifierArtifactDigest: powerVerifierDigest,
+		Evidence:               map[string]any{"domain_uuid": vmMaterialization.VMID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var observedPower, convergenceState string
+	if err := pool.QueryRow(ctx, `SELECT observed_power_state,convergence_state FROM kim.vm_power_state_current WHERE vm_id=$1`, vmMaterialization.VMID).Scan(&observedPower, &convergenceState); err != nil {
+		t.Fatal(err)
+	}
+	if observedPower != "RUNNING" || convergenceState != "MATCHED" {
+		t.Fatalf("VM runtime power projection=%s/%s", observedPower, convergenceState)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.vm_power_observation_evidence SET observed_power_state='SHUTOFF' WHERE verification_id=$1`, powerVerificationID); err == nil {
+		t.Fatal("immutable VM power observation evidence accepted UPDATE")
+	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_network_port_realization_evidence SET preboot_state='UNKNOWN' WHERE evidence_id=$1`, ovsObservation.EvidenceID); err == nil {
 		t.Fatal("immutable OVS realization evidence accepted UPDATE")
 	}

@@ -752,6 +752,11 @@ func RecordCommandVerification(ctx context.Context, db TxBeginner, verification 
 			}
 			return nil
 		}
+		if verification.State == "MATCHED" {
+			if err := projectMatchedVMPowerVerificationTx(ctx, tx, verification); err != nil {
+				return err
+			}
+		}
 		commandNext, jobNext, eventType := "UNKNOWN", "ACTION_REQUIRED", "VERIFICATION_UNRESOLVED"
 		switch verification.State {
 		case "MATCHED":
