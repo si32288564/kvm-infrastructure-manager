@@ -45,6 +45,11 @@ type ComponentReleaseBinding struct {
 	SupportedWorkSchemas                                                                   []string
 }
 
+type ReleaseDistrustRequest struct {
+	DistrustID, Scope, SourceReleaseID, TargetReleaseID, Reason, EvaluatorArtifactDigest, EvidenceDigest string
+	SourceManifestRevision, TargetManifestRevision                                                       uint64
+}
+
 func PublishReleaseManifest(ctx context.Context, db TxBeginner, manifest ReleaseManifest) error {
 	manifest.OVNWorkerWorkSchemas = canonicalSchemas(manifest.OVNWorkerWorkSchemas)
 	if manifest.ReleaseID == "" || manifest.ProductVersion == "" || manifest.ManifestRevision == 0 ||
@@ -132,6 +137,12 @@ func SetReleaseAuthority(ctx context.Context, db TxBeginner, releaseID string, r
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
+		var targetDistrusted bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_distrust_evidence
+			WHERE distrust_scope='MANIFEST' AND source_release_id=$1 AND source_manifest_revision=$2)`,
+			releaseID, revision).Scan(&targetDistrusted); err != nil || targetDistrusted {
+			return ErrIncompatibleRelease
+		}
 		var currentID *string
 		var currentRevision *int64
 		if err := tx.QueryRow(ctx, `SELECT release_id,manifest_revision FROM kim.release_authority_current WHERE singleton=true FOR UPDATE`).Scan(&currentID, &currentRevision); err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -139,9 +150,15 @@ func SetReleaseAuthority(ctx context.Context, db TxBeginner, releaseID string, r
 		}
 		if currentID != nil && (*currentID != releaseID || uint64(*currentRevision) != revision) {
 			var allowed bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_compatibility_edge_evidence
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_compatibility_edge_evidence edge
 				WHERE source_release_id=$1 AND source_manifest_revision=$2 AND target_release_id=$3
-				 AND target_manifest_revision=$4 AND certification_state='VALIDATED')`, *currentID, *currentRevision, releaseID, revision).Scan(&allowed); err != nil || !allowed {
+				 AND target_manifest_revision=$4 AND certification_state='VALIDATED'
+				 AND NOT EXISTS(SELECT 1 FROM kim.release_distrust_evidence distrust
+					WHERE distrust.distrust_scope='COMPATIBILITY_EDGE'
+					 AND distrust.source_release_id=edge.source_release_id
+					 AND distrust.source_manifest_revision=edge.source_manifest_revision
+					 AND distrust.target_release_id=edge.target_release_id
+					 AND distrust.target_manifest_revision=edge.target_manifest_revision))`, *currentID, *currentRevision, releaseID, revision).Scan(&allowed); err != nil || !allowed {
 				return ErrIncompatibleRelease
 			}
 		}
@@ -193,15 +210,29 @@ func RegisterOVNWorkerRelease(ctx context.Context, db TxBeginner, request OVNWor
 		}
 		decision, reason := "INCOMPATIBLE", "artifact_or_schema_manifest_mismatch"
 		manifestSchemas = canonicalSchemas(manifestSchemas)
-		if manifestArtifact == request.ArtifactDigest && slices.Equal(manifestSchemas, request.SupportedWorkSchemas) && certification == "VALIDATED" {
+		var manifestDistrusted bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_distrust_evidence
+			WHERE distrust_scope='MANIFEST' AND source_release_id=$1 AND source_manifest_revision=$2)`,
+			request.ReleaseID, request.ManifestRevision).Scan(&manifestDistrusted); err != nil {
+			return err
+		}
+		if manifestDistrusted {
+			reason = "release_manifest_distrusted"
+		} else if manifestArtifact == request.ArtifactDigest && slices.Equal(manifestSchemas, request.SupportedWorkSchemas) && certification == "VALIDATED" {
 			if request.ReleaseID == targetID && request.ManifestRevision == uint64(targetRevision) && slices.Contains(request.SupportedWorkSchemas, writeSchema) {
 				decision, reason = "VALIDATED", "current_release_manifest_match"
 			} else {
 				var edgeAllowed bool
 				if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_compatibility_edge_evidence
-					WHERE source_release_id=$1 AND source_manifest_revision=$2 AND target_release_id=$3
+					edge WHERE source_release_id=$1 AND source_manifest_revision=$2 AND target_release_id=$3
 					 AND target_manifest_revision=$4 AND certification_state='VALIDATED'
-					 AND $5=ANY(allowed_work_schema_versions))`, request.ReleaseID, request.ManifestRevision,
+					 AND $5=ANY(allowed_work_schema_versions)
+					 AND NOT EXISTS(SELECT 1 FROM kim.release_distrust_evidence distrust
+						WHERE distrust.distrust_scope='COMPATIBILITY_EDGE'
+						 AND distrust.source_release_id=edge.source_release_id
+						 AND distrust.source_manifest_revision=edge.source_manifest_revision
+						 AND distrust.target_release_id=edge.target_release_id
+						 AND distrust.target_manifest_revision=edge.target_manifest_revision))`, request.ReleaseID, request.ManifestRevision,
 					targetID, targetRevision, writeSchema).Scan(&edgeAllowed); err != nil {
 					return err
 				}
@@ -272,6 +303,125 @@ func RegisterOVNWorkerRelease(ctx context.Context, db TxBeginner, request OVNWor
 	return binding, err
 }
 
+func RevokeReleaseTrust(ctx context.Context, db TxBeginner, request ReleaseDistrustRequest) error {
+	if request.DistrustID == "" || request.SourceReleaseID == "" || request.SourceManifestRevision == 0 ||
+		request.Reason == "" || !validDigest(request.EvaluatorArtifactDigest) || !validDigest(request.EvidenceDigest) ||
+		(request.Scope != "MANIFEST" && request.Scope != "COMPATIBILITY_EDGE") {
+		return errors.New("complete immutable release distrust evidence is required")
+	}
+	if request.Scope == "COMPATIBILITY_EDGE" && (request.TargetReleaseID == "" || request.TargetManifestRevision == 0) {
+		return errors.New("compatibility edge distrust requires a target release")
+	}
+	if request.Scope == "MANIFEST" && (request.TargetReleaseID != "" || request.TargetManifestRevision != 0) {
+		return errors.New("manifest distrust cannot include a target release")
+	}
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+			return err
+		}
+		var targetID any
+		var targetRevision any
+		if request.Scope == "COMPATIBILITY_EDGE" {
+			targetID, targetRevision = request.TargetReleaseID, request.TargetManifestRevision
+		}
+		command, err := tx.Exec(ctx, `INSERT INTO kim.release_distrust_evidence(
+			distrust_id,distrust_scope,source_release_id,source_manifest_revision,target_release_id,
+			target_manifest_revision,reason,evaluator_artifact_digest,evidence_digest
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`, request.DistrustID, request.Scope,
+			request.SourceReleaseID, request.SourceManifestRevision, targetID, targetRevision, request.Reason,
+			request.EvaluatorArtifactDigest, request.EvidenceDigest)
+		if err != nil {
+			return err
+		}
+		if command.RowsAffected() == 0 {
+			var identical bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_distrust_evidence
+				WHERE distrust_id=$1 AND distrust_scope=$2 AND source_release_id=$3 AND source_manifest_revision=$4
+				 AND target_release_id IS NOT DISTINCT FROM $5 AND target_manifest_revision IS NOT DISTINCT FROM $6
+				 AND reason=$7 AND evaluator_artifact_digest=$8 AND evidence_digest=$9)`, request.DistrustID,
+				request.Scope, request.SourceReleaseID, request.SourceManifestRevision, targetID, targetRevision,
+				request.Reason, request.EvaluatorArtifactDigest, request.EvidenceDigest).Scan(&identical); err != nil || !identical {
+				return errors.New("release distrust evidence conflict")
+			}
+			return nil
+		}
+		if request.Scope == "MANIFEST" {
+			if _, err := tx.Exec(ctx, `UPDATE kim.release_authority_current SET
+				authority_generation=authority_generation+1,lifecycle_state='PAUSED',updated_at=statement_timestamp()
+				WHERE singleton=true AND release_id=$1 AND manifest_revision=$2`,
+				request.SourceReleaseID, request.SourceManifestRevision); err != nil {
+				return err
+			}
+		}
+		return fenceDistrustedReleaseBindings(ctx, tx, request)
+	})
+}
+
+func fenceDistrustedReleaseBindings(ctx context.Context, tx pgx.Tx, request ReleaseDistrustRequest) error {
+	var authorityID string
+	var authorityRevision, authorityGeneration int64
+	if err := tx.QueryRow(ctx, `SELECT release_id,manifest_revision,authority_generation
+		FROM kim.release_authority_current WHERE singleton=true FOR SHARE`).Scan(&authorityID, &authorityRevision, &authorityGeneration); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `SELECT component_id,release_id,manifest_revision,artifact_digest,
+		supported_work_schema_versions,binding_generation FROM kim.component_release_bindings_current
+		WHERE release_id=$1 AND manifest_revision=$2 AND compatibility_state IN ('VALIDATED','COMPATIBLE')
+		 AND ($3='MANIFEST' OR EXISTS(SELECT 1 FROM kim.compatibility_decision_evidence decision
+			WHERE decision.decision_id=component_release_bindings_current.compatibility_decision_id
+			 AND decision.target_release_id=$4 AND decision.target_manifest_revision=$5)) FOR UPDATE`,
+		request.SourceReleaseID, request.SourceManifestRevision, request.Scope,
+		request.TargetReleaseID, request.TargetManifestRevision)
+	if err != nil {
+		return err
+	}
+	type observedBinding struct {
+		componentID, releaseID, artifact string
+		revision, generation             int64
+		schemas                          []string
+	}
+	var bindings []observedBinding
+	for rows.Next() {
+		var binding observedBinding
+		if err := rows.Scan(&binding.componentID, &binding.releaseID, &binding.revision, &binding.artifact, &binding.schemas, &binding.generation); err != nil {
+			rows.Close()
+			return err
+		}
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, binding := range bindings {
+		input := map[string]any{"subject": binding.componentID, "release": binding.releaseID, "revision": binding.revision,
+			"artifact": binding.artifact, "schemas": binding.schemas, "target": authorityID,
+			"target_revision": authorityRevision, "authority_generation": authorityGeneration,
+			"decision": "INCOMPATIBLE", "reason": request.Reason, "evaluator": request.EvaluatorArtifactDigest,
+			"distrust_id": request.DistrustID}
+		raw, _ := json.Marshal(input)
+		evidenceDigest := digestReleaseBytes(raw)
+		decisionID := "compat:" + evidenceDigest
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.compatibility_decision_evidence(
+			decision_id,subject_id,component_type,observed_release_id,observed_manifest_revision,
+			observed_artifact_digest,supported_work_schema_versions,target_release_id,target_manifest_revision,
+			release_authority_generation,decision,reason,evaluator_artifact_digest,evidence_digest
+		) VALUES($1,$2,'OVN_RUNTIME_WORKER',$3,$4,$5,$6,$7,$8,$9,'INCOMPATIBLE',$10,$11,$12)`,
+			decisionID, binding.componentID, binding.releaseID, binding.revision, binding.artifact, binding.schemas,
+			authorityID, authorityRevision, authorityGeneration, request.Reason, request.EvaluatorArtifactDigest, evidenceDigest); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.component_release_bindings_current SET
+			binding_generation=binding_generation+1,compatibility_decision_id=$3,
+			compatibility_state='INCOMPATIBLE',lifecycle_state='FENCED',updated_at=statement_timestamp()
+			WHERE component_id=$1 AND binding_generation=$2`, binding.componentID, binding.generation, decisionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func SetComponentReleaseLifecycle(ctx context.Context, db TxBeginner, componentID string, generation uint64, state string) error {
 	if componentID == "" || generation == 0 || (state != "DRAINING" && state != "STOPPED") {
 		return errors.New("bounded component lifecycle transition is required")
@@ -294,6 +444,14 @@ func SetComponentReleaseLifecycle(ctx context.Context, db TxBeginner, componentI
 }
 
 func ActivateOVNWorkSchema(ctx context.Context, db TxBeginner, schema string) error {
+	return switchOVNWorkSchema(ctx, db, schema, "ACTIVATE")
+}
+
+func RollbackOVNWorkSchema(ctx context.Context, db TxBeginner, schema string) error {
+	return switchOVNWorkSchema(ctx, db, schema, "ROLLBACK")
+}
+
+func switchOVNWorkSchema(ctx context.Context, db TxBeginner, schema, transitionType string) error {
 	if schema == "" {
 		return ErrReleaseFeatureGateBlocked
 	}
@@ -301,10 +459,15 @@ func ActivateOVNWorkSchema(ctx context.Context, db TxBeginner, schema string) er
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		var releaseID string
-		var revision int64
-		if err := tx.QueryRow(ctx, `SELECT release_id,manifest_revision FROM kim.release_authority_current WHERE singleton=true FOR UPDATE`).Scan(&releaseID, &revision); err != nil {
+		var releaseID, priorSchema string
+		var revision, authorityGeneration, priorSchemaGeneration int64
+		if err := tx.QueryRow(ctx, `SELECT release_id,manifest_revision,authority_generation,
+			write_work_schema_version,write_schema_generation FROM kim.release_authority_current
+			WHERE singleton=true FOR UPDATE`).Scan(&releaseID, &revision, &authorityGeneration, &priorSchema, &priorSchemaGeneration); err != nil {
 			return err
+		}
+		if priorSchema == schema {
+			return nil
 		}
 		var supported, blocked bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.release_manifest_component_evidence
@@ -320,8 +483,22 @@ func ActivateOVNWorkSchema(ctx context.Context, db TxBeginner, schema string) er
 		if blocked {
 			return ErrReleaseFeatureGateBlocked
 		}
+		newGeneration := priorSchemaGeneration + 1
+		input := map[string]any{"release": releaseID, "revision": revision, "authority_generation": authorityGeneration,
+			"prior_schema": priorSchema, "new_schema": schema, "prior_generation": priorSchemaGeneration,
+			"new_generation": newGeneration, "transition_type": transitionType}
+		raw, _ := json.Marshal(input)
+		evidenceDigest := digestReleaseBytes(raw)
+		transitionID := "schema-transition:" + evidenceDigest
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.release_work_schema_transition_evidence(
+			transition_id,release_id,manifest_revision,release_authority_generation,prior_work_schema_version,
+			new_work_schema_version,prior_schema_generation,new_schema_generation,transition_type,evidence_digest
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, transitionID, releaseID, revision, authorityGeneration,
+			priorSchema, schema, priorSchemaGeneration, newGeneration, transitionType, evidenceDigest); err != nil {
+			return err
+		}
 		_, err := tx.Exec(ctx, `UPDATE kim.release_authority_current SET write_work_schema_version=$1,
-			write_schema_generation=write_schema_generation+1,updated_at=statement_timestamp() WHERE singleton=true`, schema)
+			write_schema_generation=$2,updated_at=statement_timestamp() WHERE singleton=true`, schema, newGeneration)
 		return err
 	})
 }

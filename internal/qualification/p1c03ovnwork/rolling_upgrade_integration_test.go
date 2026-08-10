@@ -121,6 +121,55 @@ func TestOVNRuntimeWorkerExplicitNMinusOneRollingUpgrade(t *testing.T) {
 		t.Fatalf("v2 work schema=%s attempt_binding=%d current_binding=%d err=%v", requiredSchema, attemptBindingGeneration, currentBindingGeneration, err)
 	}
 
+	if err := postgres.RevokeReleaseTrust(ctx, pool, postgres.ReleaseDistrustRequest{
+		DistrustID: "distrust-explicit-n-minus-one-edge", Scope: "COMPATIBILITY_EDGE",
+		SourceReleaseID: "kim-n-minus-one", SourceManifestRevision: 1,
+		TargetReleaseID: "kim-n", TargetManifestRevision: 1, Reason: "rolling_edge_revoked",
+		EvaluatorArtifactDigest: digest("rolling-compatibility-evaluator"), EvidenceDigest: digest("edge-revocation-evidence"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revokedEdgeBinding, err := postgres.RegisterOVNWorkerRelease(ctx, pool, postgres.OVNWorkerReleaseRequest{
+		WorkerID: "ovn-worker-n-minus-one", ReleaseID: "kim-n-minus-one", ManifestRevision: 1,
+		ArtifactDigest: oldArtifact, SupportedWorkSchemas: []string{postgres.OVNRuntimeWorkSchemaV1},
+		EvaluatorArtifactDigest: digest("rolling-compatibility-evaluator"),
+	})
+	if err != nil || revokedEdgeBinding.CompatibilityState != "INCOMPATIBLE" || revokedEdgeBinding.LifecycleState != "FENCED" {
+		t.Fatalf("revoked edge binding=%+v err=%v", revokedEdgeBinding, err)
+	}
+	if err := postgres.RevokeReleaseTrust(ctx, pool, postgres.ReleaseDistrustRequest{
+		DistrustID: "distrust-n-minus-one-manifest", Scope: "MANIFEST",
+		SourceReleaseID: "kim-n-minus-one", SourceManifestRevision: 1, Reason: "rolling_manifest_revoked",
+		EvaluatorArtifactDigest: digest("rolling-compatibility-evaluator"), EvidenceDigest: digest("manifest-revocation-evidence"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manifestRevokedBinding, err := postgres.RegisterOVNWorkerRelease(ctx, pool, postgres.OVNWorkerReleaseRequest{
+		WorkerID: "ovn-worker-n-minus-one-restart", ReleaseID: "kim-n-minus-one", ManifestRevision: 1,
+		ArtifactDigest: oldArtifact, SupportedWorkSchemas: []string{postgres.OVNRuntimeWorkSchemaV1},
+		EvaluatorArtifactDigest: digest("rolling-compatibility-evaluator"),
+	})
+	if err != nil || manifestRevokedBinding.CompatibilityState != "INCOMPATIBLE" || manifestRevokedBinding.LifecycleState != "FENCED" {
+		t.Fatalf("revoked manifest binding=%+v err=%v", manifestRevokedBinding, err)
+	}
+
+	if err := postgres.RollbackOVNWorkSchema(ctx, pool, postgres.OVNRuntimeWorkSchemaV1); err != nil {
+		t.Fatal(err)
+	}
+	third := prepareRollingWork(t, ctx, pool, statePath, "n-v1-rollback")
+	eventually(t, 15*time.Second, func() bool {
+		var state string
+		return pool.QueryRow(ctx, `SELECT work_state FROM kim.ovn_runtime_work_current WHERE work_id=$1`, third.workID).Scan(&state) == nil && state == "OBSERVED"
+	}, "N worker did not converge v1 work after FeatureGate rollback")
+	assertDrainConvergence(t, ctx, pool, third, 1, 0, 0, 1)
+	var transitions, distrustEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.release_work_schema_transition_evidence`).Scan(&transitions); err != nil || transitions != 2 {
+		t.Fatalf("schema transition evidence=%d err=%v", transitions, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.release_distrust_evidence`).Scan(&distrustEvents); err != nil || distrustEvents != 2 {
+		t.Fatalf("distrust evidence=%d err=%v", distrustEvents, err)
+	}
+
 	unsupported, err := postgres.RegisterOVNWorkerRelease(ctx, pool, postgres.OVNWorkerReleaseRequest{
 		WorkerID: "ovn-worker-n-minus-two", ReleaseID: "kim-n-minus-two", ManifestRevision: 1,
 		ArtifactDigest: unsupportedArtifact, SupportedWorkSchemas: []string{postgres.OVNRuntimeWorkSchemaV1},
@@ -138,6 +187,27 @@ func TestOVNRuntimeWorkerExplicitNMinusOneRollingUpgrade(t *testing.T) {
 	}
 
 	newWorker.stop()
+	if err := postgres.RevokeReleaseTrust(ctx, pool, postgres.ReleaseDistrustRequest{
+		DistrustID: "distrust-current-n-manifest", Scope: "MANIFEST",
+		SourceReleaseID: "kim-n", SourceManifestRevision: 1, Reason: "current_release_manifest_revoked",
+		EvaluatorArtifactDigest: digest("rolling-compatibility-evaluator"), EvidenceDigest: digest("current-manifest-revocation-evidence"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var releaseLifecycle, newCompatibility, newLifecycle string
+	if err := pool.QueryRow(ctx, `SELECT lifecycle_state FROM kim.release_authority_current WHERE singleton`).Scan(&releaseLifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT compatibility_state,lifecycle_state FROM kim.component_release_bindings_current
+		WHERE component_id='ovn-worker-n'`).Scan(&newCompatibility, &newLifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if releaseLifecycle != "PAUSED" || newCompatibility != "INCOMPATIBLE" || newLifecycle != "FENCED" {
+		t.Fatalf("current manifest revocation release=%s worker=%s/%s", releaseLifecycle, newCompatibility, newLifecycle)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.release_distrust_evidence`).Scan(&distrustEvents); err != nil || distrustEvents != 3 {
+		t.Fatalf("final distrust evidence=%d err=%v", distrustEvents, err)
+	}
 	var decisions, oldAttempts, newAttempts int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.compatibility_decision_evidence`).Scan(&decisions); err != nil {
 		t.Fatal(err)
@@ -148,11 +218,11 @@ func TestOVNRuntimeWorkerExplicitNMinusOneRollingUpgrade(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_attempt_evidence WHERE claim_owner='ovn-worker-n'`).Scan(&newAttempts); err != nil {
 		t.Fatal(err)
 	}
-	if decisions != 3 || oldAttempts != 1 || newAttempts != 1 {
+	if decisions != 7 || oldAttempts != 1 || newAttempts != 2 {
 		t.Fatalf("decisions=%d old_attempts=%d new_attempts=%d", decisions, oldAttempts, newAttempts)
 	}
-	t.Logf("rolling upgrade converged: decisions=%d N-1=%s/%s attempts=%d N=v2 attempts=%d N-2=%s/%s",
-		decisions, oldCompatibility, oldLifecycle, oldAttempts, newAttempts, unsupported.CompatibilityState, unsupported.LifecycleState)
+	t.Logf("rolling upgrade converged: decisions=%d transitions=%d distrust=%d release=%s N-1=%s/%s attempts=%d N=v2+rollback attempts=%d N-2=%s/%s",
+		decisions, transitions, distrustEvents, releaseLifecycle, oldCompatibility, oldLifecycle, oldAttempts, newAttempts, unsupported.CompatibilityState, unsupported.LifecycleState)
 }
 
 func publishRollingManifest(t *testing.T, ctx context.Context, pool *pgxpool.Pool, releaseID, version, artifact string, schemas []string) {

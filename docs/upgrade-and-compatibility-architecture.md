@@ -117,6 +117,8 @@ subject identity + observed artifact digest
 
 cached decisionは入力generation/freshnessが変わればauthorityを失います。Final dispatch、schema switch、feature activation、Host rearmingではcurrent decisionを再評価します。
 
+Manifest または compatibility edge の distrust / revocation は元 evidence の UPDATE ではありません。immutable distrust evidence と新しい `CompatibilityDecision` を追記し、影響する current component binding generation を `INCOMPATIBLE / FENCED` へ進めます。すでに grant 済みの work claim、Attempt、backend side effect は失効だけで不在とせず、expiry 後の successor を read-back-first に限定します。再起動した component が old Manifest / edge を再提示しても、current distrust evidenceを評価して authorityへ戻しません。
+
 ## 6. Upgrade Domain Model
 
 ```text
@@ -143,6 +145,8 @@ UpgradeCampaign
 すべてのtransition、decision、approval、Attempt、Result、Observationはappend-only evidenceを残します。summaryは更新できますが過去の失敗/UNKNOWNを改変しません。
 
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
+
+FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。
 
 ## 7. Upgrade State Machine
 
