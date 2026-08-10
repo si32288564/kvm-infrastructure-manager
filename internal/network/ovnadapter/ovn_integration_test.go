@@ -4,6 +4,8 @@ package ovnadapter
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,6 +66,54 @@ func TestDisposableOVNNBSBChassisConvergence(t *testing.T) {
 	observedChassis = strings.Trim(observedChassis, "\"")
 	if observedChassis != expectedChassis {
 		t.Fatalf("SB chassis=%q want Host system-id=%q", observedChassis, expectedChassis)
+	}
+	datapathUUID := run("ovn-sbctl", "--data=bare", "--no-heading", "--columns=datapath", "find", "Port_Binding", "logical_port="+logicalPort)
+	datapathUUID = strings.Trim(datapathUUID, "[] \"")
+	if datapathUUID == "" {
+		t.Fatal("SB datapath identity is absent")
+	}
+	flowPipelines := run("ovn-sbctl", "--data=bare", "--no-heading", "--columns=pipeline", "find", "Logical_Flow", "logical_datapath="+datapathUUID)
+	flowSet := run("ovn-sbctl", "--data=bare", "--no-heading", "--columns=table_id,pipeline,priority,match,actions", "find", "Logical_Flow", "logical_datapath="+datapathUUID)
+	logicalDPGroups := run("ovn-sbctl", "--data=bare", "--no-heading", "--columns=_uuid", "find", "Logical_DP_Group", "datapaths{>=}"+datapathUUID)
+	for _, groupUUID := range strings.Fields(logicalDPGroups) {
+		flowPipelines += "\n" + run("ovn-sbctl", "--data=bare", "--no-heading", "--columns=pipeline", "find", "Logical_Flow", "logical_dp_group="+groupUUID)
+		flowSet += "\n" + run("ovn-sbctl", "--data=bare", "--no-heading", "--columns=table_id,pipeline,priority,match,actions", "find", "Logical_Flow", "logical_dp_group="+groupUUID)
+	}
+	ingressCount, egressCount := 0, 0
+	for _, pipeline := range strings.Fields(flowPipelines) {
+		switch strings.Trim(pipeline, "\"") {
+		case "ingress":
+			ingressCount++
+		case "egress":
+			egressCount++
+		}
+	}
+	encapUUID := run("ovn-sbctl", "--if-exists", "get", "Chassis", chassisUUID, "encaps")
+	encapUUID = strings.Trim(encapUUID, "[] \"")
+	if encapUUID == "" {
+		t.Fatal("SB Chassis Encap is absent")
+	}
+	encapType := strings.Trim(run("ovn-sbctl", "--if-exists", "get", "Encap", encapUUID, "type"), "\"")
+	encapIP := strings.Trim(run("ovn-sbctl", "--if-exists", "get", "Encap", encapUUID, "ip"), "\"")
+	encapOptions := run("ovn-sbctl", "--if-exists", "get", "Encap", encapUUID, "options")
+	digestString := func(value string) string {
+		digest := sha256.Sum256([]byte(value))
+		return hex.EncodeToString(digest[:])
+	}
+	controlPlane := ControlPlaneObservation{
+		LogicalDatapathPresent: true, ExpectedDatapathMatches: datapathUUID != "",
+		RequiredIngressFlowsPresent:      ingressCount > 0,
+		RequiredEgressFlowsPresent:       egressCount > 0,
+		RequiredPortIdentityFlowsPresent: strings.Contains(flowSet, logicalPort),
+		ExpectedChassisMatches:           digestString(expectedChassis) == digestString(observedChassis),
+		ChassisRegistered:                true, EncapPresent: encapUUID != "",
+		EncapTypeAllowed: encapType == "geneve", TunnelEndpointKnown: encapIP != "",
+	}
+	if flowSet == "" || len(digestString(flowSet)) != 64 || len(digestString(encapOptions)) != 64 ||
+		controlPlane.LogicalFlowState() != "MATCHED" || controlPlane.ChassisEncapState() != "MATCHED" {
+		t.Fatalf("OVN control-plane did not converge: flows=%d/%d encap=%q/%q states=%s/%s",
+			ingressCount, egressCount, encapType, encapIP,
+			controlPlane.LogicalFlowState(), controlPlane.ChassisEncapState())
 	}
 	observation := Observation{OwnershipMarkerMatches: true, ObjectSetDigestMatches: true, LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, PortBindingPresent: true, DatapathPresent: true, ExpectedChassisMatches: true}
 	if observation.NBState() != "MATCHED" || observation.SBState() != "MATCHED" {

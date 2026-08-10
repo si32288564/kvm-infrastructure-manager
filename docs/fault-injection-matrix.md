@@ -156,6 +156,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-NET-019 | SRIOV_DIRECT Final Admission後にVF observation、Qualification Binding、validated operation、policy、exclusive Claimのいずれかを変更してstale hostdev Resultを送信 | PCI/Qualification/Claim generation conflict | Port REALIZEDとBoot READYを停止しstale evidenceを拒否 | VF Claim、PCI observation、Qualification/policy/Binding/Verification generations | unqualified VF attach、別VF identityへの昇格、partial READY | current qualified VF authorityとlibvirt PCI identityの再検証 |
 | FI-NET-020 | OVS Port の pre-boot REALIZED / VM RUNNING 後に、Mapping/Binding generation、active NIC target、OVS bridge または link state を変更して旧 observation を送信 | post-boot dataplane identity/generation conflict | `CONVERGED` 昇格を拒否し current runtime/Port authority を維持 | VM power、pre-boot evidence、Network/Segment/Mapping/Binding generation、libvirt target、OVS Port/bridge/link evidence | RUNNING/pre-boot状態からの暗黙 convergence、stale projection rollback、Guest/E2E READY 誤表示 | current active NIC と OVS Port bridge/link read-back の一致 |
 | FI-NET-021 | OVN NB transaction commit 後に apply response を失い、controller/SB 収束中に Port または Host mapping generation を変更して旧 NB/SB observation を送信 | apply outcome unknown / intent generation conflict | stable ownership marker・generation・digest で NB を read-back し、stale SB evidence の current 昇格を拒否 | immutable intent、NB/SB observations、Port/Segment/Mapping/Binding generations | 反対 create/delete、foreign object adoption、stale SB_REALIZED、Host/E2E convergence 誤表示 | current intent に一致する NB object と SB datapath/chassis observation |
+| FI-NET-022 | current SB Port Binding 後に required egress flow、Chassis registration、Geneve Encap endpoint のいずれかを欠損させ、または Host mapping generation 変更後の旧 flow/chassis evidence を送信 | logical-flow/chassis-encap coverage or generation conflict | control-plane convergence を `UNKNOWN/CONFLICTING` に保ち stale evidence を拒否 | intent/SB/Port/Binding/Mapping generations、flow set/datapath/chassis/Encap digests | SB_REALIZED からの暗黙 convergence、foreign chassis利用、tunnel/E2E reachability 誤表示 | current datapath flow coverage と expected chassis/Encap registration の再観測 |
 | FI-DPDK-001 | active PortのPMD threadを停止/消失させる | PMD/runtime observation | affected Port/Hostへの新規dataplane placement停止 | runtime/Port alarm、generation | ready継続、silent fallback | PMD復旧+RxQ polling verification |
 | FI-DPDK-002 | RxQをunpolledまたは不正PMD coreへdriftさせる | RxQ/PMD assignment mismatch | bindingをdegraded/blocked | desired/observed mapping evidence | compliant/ready誤表示 | policy準拠mappingをobservationで確認 |
 | FI-DPDK-003 | ovs-vswitchd restart適用後にResult responseをdrop | Command timeout/runtime gap | Attempt UNKNOWN、新規disruptive op停止 | journal、runtime generation、Port evidence | blind restart/rollback | full runtime/PMD/Port/RxQ observation |
@@ -262,7 +263,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Workload Resilience Intent | FI-WRI-001..009 |
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
-| Network / NFV Dataplane | FI-NET-001..021, FI-DPDK-001..006 |
+| Network / NFV Dataplane | FI-NET-001..022, FI-DPDK-001..006 |
 | Storage | FI-STORAGE-001..019 |
 | Upgrade / Compatibility | FI-UPG-001..018 |
 | Time / Clock Semantics | FI-TIME-001..019 |

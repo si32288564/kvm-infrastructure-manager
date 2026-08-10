@@ -219,6 +219,8 @@ Port/Networkの表示状態はlayer別に保持します。
 
 `INTENT_COMMITTED`、`NB_APPLIED`、`SB_REALIZED` は独立状態です。`SB_REALIZED` は matching datapath/chassis を観測したことだけを意味し、`HOST_PROGRAMMED` または `DATAPLANE_VERIFIED` の代替ではありません。
 
+SB realization の後段では、current Port datapath に属する individual/shared Logical Flow の required ingress/egress coverage と、expected Host chassis identity、許可された Encap type、endpoint registration を別々の immutable evidence として保持します。両方が current intent/SB generation に一致した状態を `CONTROL_PLANE_CONVERGED` としますが、これは cross-chassis tunnel traffic、Host OVS programming、end-to-end reachability を証明しません。単一 chassis の Encap registration と複数 chassis 間の tunnel datapath verification は別 qualification です。
+
 NB apply成功だけでPortをACTIVEにしません。SB/Host/dataplaneが未収束なら`PROVISIONING/DEGRADED/UNKNOWN`を区別します。timeout、controller reconnect、chassis row消失、heartbeat lossをunbind/release/fencingの証明にしません。
 
 Network-side `UNKNOWN`では次を禁止します。

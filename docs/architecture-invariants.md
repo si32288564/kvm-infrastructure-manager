@@ -178,6 +178,7 @@
 | INV-NET-023 | SRIOV_DIRECT Port は observed VF、current Qualification、`VF_ASSIGN`、allocation policy、exclusive VF Claim の一つでも stale/UNKNOWN/不一致なら REALIZED/READY へ進めない | AT-NET-027, FI-NET-019 |
 | INV-NET-024 | VM RUNNING または pre-boot REALIZED だけで OVS dataplane を `CONVERGED` にせず、current generation と active libvirt NIC target、Agent 管理 Segment mapping、OVS Port bridge/link read-back が一致する immutable evidence を要求する | AT-NET-028, FI-NET-020 |
 | INV-NET-025 | OVN apply response、NB object、SB datapath/chassis、Host OVS dataplane を同一 authority にせず、current Port intent の stable ownership marker、generation、digest に一致する immutable NB/SB evidence だけを current OVN projection へ昇格する | AT-NET-029, FI-NET-021 |
+| INV-NET-026 | current SB Port Binding/datapath に属する required ingress/egress pipeline と Port identity の logical-flow coverage、expected Host chassis identity・許可 Encap profile の immutable evidence が揃うまで OVN control plane を `CONVERGED` にせず、cross-chassis tunnel または reachability を暗黙に証明しない | AT-NET-030, FI-NET-022 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

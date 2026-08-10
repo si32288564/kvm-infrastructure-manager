@@ -60,6 +60,38 @@ type Observation struct {
 	ExpectedChassisMatches                         bool
 }
 
+type ControlPlaneObservation struct {
+	LogicalDatapathPresent, ExpectedDatapathMatches     bool
+	RequiredIngressFlowsPresent                         bool
+	RequiredEgressFlowsPresent                          bool
+	RequiredPortIdentityFlowsPresent                    bool
+	ExpectedChassisMatches, ChassisRegistered           bool
+	EncapPresent, EncapTypeAllowed, TunnelEndpointKnown bool
+}
+
+func (observation ControlPlaneObservation) LogicalFlowState() string {
+	if !observation.ExpectedDatapathMatches {
+		return "CONFLICTING"
+	}
+	if !observation.LogicalDatapathPresent {
+		return "UNKNOWN"
+	}
+	if observation.RequiredIngressFlowsPresent && observation.RequiredEgressFlowsPresent && observation.RequiredPortIdentityFlowsPresent {
+		return "MATCHED"
+	}
+	return "UNKNOWN"
+}
+
+func (observation ControlPlaneObservation) ChassisEncapState() string {
+	if !observation.ExpectedChassisMatches {
+		return "CONFLICTING"
+	}
+	if observation.ChassisRegistered && observation.EncapPresent && observation.EncapTypeAllowed && observation.TunnelEndpointKnown {
+		return "MATCHED"
+	}
+	return "UNKNOWN"
+}
+
 func (observation Observation) NBState() string {
 	if observation.OwnershipMarkerMatches && observation.ObjectSetDigestMatches && observation.LogicalSwitchPresent && observation.LogicalSwitchPortPresent {
 		return "MATCHED"

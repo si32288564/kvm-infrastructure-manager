@@ -28,3 +28,31 @@ func TestClosedTypedPortPlanAndLayerStates(t *testing.T) {
 		t.Fatalf("foreign layers=%s/%s", foreign.NBState(), foreign.SBState())
 	}
 }
+
+func TestLogicalFlowAndChassisEncapStates(t *testing.T) {
+	matched := ControlPlaneObservation{
+		LogicalDatapathPresent: true, ExpectedDatapathMatches: true,
+		RequiredIngressFlowsPresent: true, RequiredEgressFlowsPresent: true,
+		RequiredPortIdentityFlowsPresent: true,
+		ExpectedChassisMatches:           true, ChassisRegistered: true, EncapPresent: true,
+		EncapTypeAllowed: true, TunnelEndpointKnown: true,
+	}
+	if matched.LogicalFlowState() != "MATCHED" || matched.ChassisEncapState() != "MATCHED" {
+		t.Fatalf("matched control-plane=%s/%s", matched.LogicalFlowState(), matched.ChassisEncapState())
+	}
+	missingFlow := matched
+	missingFlow.RequiredEgressFlowsPresent = false
+	if missingFlow.LogicalFlowState() != "UNKNOWN" {
+		t.Fatalf("missing egress flow state=%s", missingFlow.LogicalFlowState())
+	}
+	foreignDatapath := matched
+	foreignDatapath.ExpectedDatapathMatches = false
+	if foreignDatapath.LogicalFlowState() != "CONFLICTING" {
+		t.Fatalf("foreign datapath state=%s", foreignDatapath.LogicalFlowState())
+	}
+	foreignChassis := matched
+	foreignChassis.ExpectedChassisMatches = false
+	if foreignChassis.ChassisEncapState() != "CONFLICTING" {
+		t.Fatalf("foreign chassis state=%s", foreignChassis.ChassisEncapState())
+	}
+}

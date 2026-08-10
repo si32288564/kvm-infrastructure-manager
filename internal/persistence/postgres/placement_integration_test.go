@@ -815,6 +815,56 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT nb_state,sb_state,layer_status FROM kim.network_ovn_state_current WHERE port_id=$1`, ovsPortID).Scan(&nbState, &sbState, &ovnLayerStatus); err != nil || nbState != "MATCHED" || sbState != "MATCHED" || ovnLayerStatus != "SB_REALIZED" {
 		t.Fatalf("OVN layer projection=%s/%s/%s err=%v", nbState, sbState, ovnLayerStatus, err)
 	}
+	controlPlaneObservation := OVNControlPlaneObservation{
+		LogicalFlowObservationID:  "ovn-flow-observation-" + suffix,
+		ChassisEncapObservationID: "ovn-chassis-observation-" + suffix,
+		IntentID:                  ovnIntent.IntentID, IntentGeneration: 1, PortID: ovsPortID, PortGeneration: 1,
+		BindingGeneration: 1, SBObservationID: ovnObservation.SBObservationID, SBObservationGeneration: 1,
+		LogicalFlowObservationGeneration: 1, ChassisObservationGeneration: 1,
+		LogicalFlowObservationDigest:   digestBytes([]byte("ovn-flow-observation-" + suffix)),
+		ChassisObservationDigest:       digestBytes([]byte("ovn-chassis-observation-" + suffix)),
+		ExpectedDatapathIdentityDigest: digestBytes([]byte("ovn-datapath-" + suffix)),
+		ObservedDatapathIdentityDigest: digestBytes([]byte("ovn-datapath-" + suffix)),
+		LogicalFlowSetDigest:           digestBytes([]byte("ovn-flow-set-" + suffix)),
+		ExpectedChassisIdentityDigest:  digestBytes([]byte("ovn-chassis")),
+		ObservedChassisIdentityDigest:  digestBytes([]byte("ovn-chassis")),
+		TunnelEndpointDigest:           digestBytes([]byte("ovn-tunnel-endpoint")),
+		EncapOptionsDigest:             digestBytes([]byte("ovn-encap-options")),
+		EvaluatorArtifactDigest:        digestBytes([]byte("ovn-control-plane-evaluator")),
+		IngressFlowCount:               12, EgressFlowCount: 9, LogicalDatapathPresent: true,
+		RequiredPortIdentityFlowsPresent: true,
+		ChassisRegistered:                true, EncapPresent: true, TunnelEndpointObserved: true, EncapType: "GENEVE",
+	}
+	if err := AcceptOVNControlPlaneObservation(ctx, pool, controlPlaneObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptOVNControlPlaneObservation(ctx, pool, controlPlaneObservation); err != nil {
+		t.Fatalf("idempotent OVN control-plane observation: %v", err)
+	}
+	var controlPlaneStatus, logicalFlowState, chassisEncapState string
+	if err := pool.QueryRow(ctx, `SELECT control_plane_status,logical_flow_state,chassis_encap_state
+		FROM kim.network_ovn_control_plane_state_current WHERE port_id=$1`, ovsPortID).
+		Scan(&controlPlaneStatus, &logicalFlowState, &chassisEncapState); err != nil ||
+		controlPlaneStatus != "CONTROL_PLANE_CONVERGED" || logicalFlowState != "MATCHED" || chassisEncapState != "MATCHED" {
+		t.Fatalf("OVN control-plane projection=%s/%s/%s err=%v", controlPlaneStatus, logicalFlowState, chassisEncapState, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_logical_flow_observation_evidence SET ingress_flow_count=0 WHERE observation_id=$1`, controlPlaneObservation.LogicalFlowObservationID); err == nil {
+		t.Fatal("immutable OVN logical-flow evidence accepted UPDATE")
+	}
+	controlPlaneConflict := controlPlaneObservation
+	controlPlaneConflict.LogicalFlowObservationDigest = digestBytes([]byte("different-ovn-flow-observation"))
+	if err := AcceptOVNControlPlaneObservation(ctx, pool, controlPlaneConflict); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("same OVN control-plane evidence/different digest error=%v", err)
+	}
+	staleControlPlane := controlPlaneObservation
+	staleControlPlane.LogicalFlowObservationID = "stale-ovn-flow-" + suffix
+	staleControlPlane.ChassisEncapObservationID = "stale-ovn-chassis-" + suffix
+	staleControlPlane.LogicalFlowObservationGeneration = 2
+	staleControlPlane.ChassisObservationGeneration = 2
+	staleControlPlane.PortGeneration = 2
+	if err := AcceptOVNControlPlaneObservation(ctx, pool, staleControlPlane); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("stale OVN control-plane generation error=%v", err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_nb_observation_evidence SET nb_state='UNKNOWN' WHERE observation_id=$1`, ovnObservation.NBObservationID); err == nil {
 		t.Fatal("immutable OVN NB evidence accepted UPDATE")
 	}

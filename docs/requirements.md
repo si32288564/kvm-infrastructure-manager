@@ -280,6 +280,7 @@
 | NET-038 | SRIOV_DIRECT pre-boot realization は current exclusive VF Claim、PCI observation、Qualification Binding、validated `VF_ASSIGN` operation、allocation policy と Binding generation を再検証し、typed libvirt PCI identity read-back だけを Port realization evidence へ昇格する | Must |
 | NET-039 | OVS post-boot dataplane convergence は current RUNNING VM、pre-boot Port evidence、Network/Segment/Mapping/Binding generation と、active libvirt NIC target・OVS bridge・link state の typed read-back が一致した場合だけ `CONVERGED` に進め、end-to-end reachability、OVN convergence、Guest readiness を主張しない | Must |
 | NET-040 | OVN Port intent、NB materialization、SB datapath/chassis realization を immutable evidence と独立 current state で管理し、apply response loss は stable KIM ownership marker、intent generation、object digest の read-back で解決する。SB realization を Host dataplane、end-to-end reachability、Guest readiness へ暗黙昇格しない | Must |
+| NET-041 | OVN SB logical-flow pipeline と current Port identity coverage、Chassis/Encap registration を SB Port Binding、Host mapping、intent generation に結び付く独立 immutable evidence として評価する。logical-flow/Encap readiness だけで Host programming、cross-chassis tunnel traffic、end-to-end reachability を主張しない | Must |
 
 ### 2.13 NFV Dataplane
 

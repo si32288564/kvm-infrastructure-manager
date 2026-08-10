@@ -81,4 +81,5 @@ disposable OVN/OVS resource cleanup: PASS
 - Network/Router/DHCP/Security intentのmulti-object transaction
 - controller restart、SB lag、chassis rebindingのlong-running reconcile
 - Port ACTIVE lifecycle、release quarantine、typed cleanup
-- OVN logical flow、Gateway/WIM、end-to-end reachabilityの独立 projection
+- OVN logical-flow/Chassis-Encap projection は後続 validation で実装済み
+- cross-chassis tunnel traffic、Gateway/WIM、end-to-end reachability の独立 projection
