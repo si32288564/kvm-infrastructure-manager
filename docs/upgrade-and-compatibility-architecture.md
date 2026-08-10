@@ -148,6 +148,8 @@ Plan publish時にcomponent graphを閉じたcomponent typeのacyclic graphと�
 
 CoordinatorはCampaignごとのDB claim generationを取得します。claim expiryは将来のcoordinator authorityを終わらせますが、Target side effect不在の証明ではありません。successorはgenerationを進め、同じPlan revision、Target Result、Event evidenceから`RECOVER_FROM_DB`します。old owner/generationのResultとDecisionはcurrent Campaignを進めません。canary DecisionはTarget snapshot全体の`SUCCEEDED / FAILED / UNKNOWN / PENDING`とthresholdをimmutable evidenceへ固定し、全成功時だけ次Waveへ進み、threshold超過時は`PAUSED`、未確定時は`HOLD`を維持します。
 
+実 Coordinator process は local timer ではなく DB authority time で claim を renew し、各 renewal generation、prior/new expiry、fixed maximum expiry を immutable evidence へ残します。renewal response loss、process kill、DB connection loss を Campaign/Target 失敗へ丸めず、maximum lifetime を推測延長しません。同じ Target counts と evaluator digest に対する `HOLD` polling は同じ Decision へ収束させ、poll frequency を append-only evidence amplification へ変えません。同一 Site HA では renewed expiry と Decision を同期複製し、promoted primary で expiry 前 takeover を拒否します。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。

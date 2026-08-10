@@ -89,6 +89,9 @@ test-p1d03-ovn-worker-upgrade-failover:
 test-p1d03-upgrade-campaign:
 	KIM_RUN_DOCKER_POSTGRES_UPGRADE_CAMPAIGN=1 $(GO) test -race -v -count=1 -timeout 180s -run TestProductUpgradeCampaignCoordinatorRecoveryAndCanaryDecision ./internal/qualification/p1c03ovnwork
 
+test-p1d03-upgrade-coordinator-failover:
+	KIM_RUN_DOCKER_POSTGRES_UPGRADE_COORDINATOR_FAILOVER=1 $(GO) test -race -v -count=1 -timeout 240s -run TestUpgradeCoordinatorProcessKillPostgreSQLFailover ./internal/qualification/p1c03ovnwork
+
 test-p1c03-ovn-worker-soak:
 	KIM_RUN_DOCKER_POSTGRES_OVN_SOAK=1 $(GO) test -v -count=1 -timeout 240s -run TestOVNRuntimeBacklogRetryStormMultiWorkerSoak ./internal/qualification/p1c03ovnwork
 

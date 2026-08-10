@@ -52,6 +52,17 @@ type UpgradeCampaignClaim struct {
 	ExpiresAt, MaximumExpiresAt                       time.Time
 }
 
+type UpgradeCampaignRenewRequest struct {
+	CampaignID, Owner string
+	ClaimGeneration   uint64
+	Extension         time.Duration
+}
+
+type UpgradeCampaignRenewal struct {
+	RenewalGeneration uint64
+	ExpiresAt         time.Time
+}
+
 type UpgradeTargetOutcomeRequest struct {
 	CampaignID, TargetID, Owner, Outcome, ResultDigest string
 	ClaimGeneration                                    uint64
@@ -294,7 +305,7 @@ func ClaimUpgradeCampaign(ctx context.Context, db TxBeginner, request UpgradeCam
 		}
 		if _, err := tx.Exec(ctx, `UPDATE kim.upgrade_campaigns_current SET campaign_state=CASE WHEN campaign_state='PREPARED' THEN 'CANARY' ELSE campaign_state END,
 			coordinator_owner=$2,coordinator_claim_generation=$3,coordinator_claim_expires_at=$4,
-			coordinator_maximum_expires_at=$5,updated_at=statement_timestamp() WHERE campaign_id=$1`,
+			coordinator_maximum_expires_at=$5,coordinator_renewal_generation=0,updated_at=statement_timestamp() WHERE campaign_id=$1`,
 			request.CampaignID, request.Owner, generation, expires, maximum); err != nil {
 			return err
 		}
@@ -304,6 +315,58 @@ func ClaimUpgradeCampaign(ctx context.Context, db TxBeginner, request UpgradeCam
 		return nil
 	})
 	return claim, err
+}
+
+func RenewUpgradeCampaignClaim(ctx context.Context, db TxBeginner, request UpgradeCampaignRenewRequest) (UpgradeCampaignRenewal, error) {
+	if request.CampaignID == "" || request.Owner == "" || request.ClaimGeneration == 0 || request.Extension <= 0 {
+		return UpgradeCampaignRenewal{}, ErrStaleUpgradeCampaignClaim
+	}
+	var renewal UpgradeCampaignRenewal
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+			return err
+		}
+		var owner *string
+		var generation, renewalGeneration int64
+		var priorExpiry, maximumExpiry *time.Time
+		if err := tx.QueryRow(ctx, `SELECT coordinator_owner,coordinator_claim_generation,
+			coordinator_renewal_generation,coordinator_claim_expires_at,coordinator_maximum_expires_at
+			FROM kim.upgrade_campaigns_current WHERE campaign_id=$1 FOR UPDATE`, request.CampaignID).Scan(
+			&owner, &generation, &renewalGeneration, &priorExpiry, &maximumExpiry); err != nil {
+			return err
+		}
+		var now time.Time
+		if err := tx.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&now); err != nil {
+			return err
+		}
+		if owner == nil || *owner != request.Owner || uint64(generation) != request.ClaimGeneration ||
+			priorExpiry == nil || maximumExpiry == nil || !priorExpiry.After(now) {
+			return ErrStaleUpgradeCampaignClaim
+		}
+		renewedExpiry := now.Add(request.Extension)
+		if renewedExpiry.After(*maximumExpiry) {
+			renewedExpiry = *maximumExpiry
+		}
+		if !renewedExpiry.After(*priorExpiry) {
+			renewal = UpgradeCampaignRenewal{RenewalGeneration: uint64(renewalGeneration), ExpiresAt: *priorExpiry}
+			return nil
+		}
+		newGeneration := renewalGeneration + 1
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_coordinator_renewal_evidence(
+			campaign_id,claim_generation,renewal_generation,coordinator_owner,prior_expires_at,
+			renewed_expires_at,maximum_expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, request.CampaignID,
+			request.ClaimGeneration, newGeneration, request.Owner, *priorExpiry, renewedExpiry, *maximumExpiry); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.upgrade_campaigns_current SET coordinator_claim_expires_at=$2,
+			coordinator_renewal_generation=$3,updated_at=statement_timestamp() WHERE campaign_id=$1`,
+			request.CampaignID, renewedExpiry, newGeneration); err != nil {
+			return err
+		}
+		renewal = UpgradeCampaignRenewal{RenewalGeneration: uint64(newGeneration), ExpiresAt: renewedExpiry}
+		return nil
+	})
+	return renewal, err
 }
 
 func RecordUpgradeTargetOutcome(ctx context.Context, db TxBeginner, request UpgradeTargetOutcomeRequest) error {
@@ -391,6 +454,24 @@ func EvaluateUpgradeCanary(ctx context.Context, db TxBeginner, request UpgradeCa
 			} else {
 				return nextErr
 			}
+		}
+		var existingID, existingDecision string
+		var existingSucceeded, existingFailed, existingUnknown, existingPending, existingThreshold int
+		existingErr := tx.QueryRow(ctx, `SELECT decision.decision_id,decision.decision,decision.succeeded_targets,
+			decision.failed_targets,decision.unknown_targets,decision.pending_targets,decision.failure_threshold
+			FROM kim.upgrade_campaigns_current campaign JOIN kim.upgrade_canary_decision_evidence decision
+			 ON decision.decision_id=campaign.latest_canary_decision_id
+			WHERE campaign.campaign_id=$1 AND decision.wave_id=$2 AND decision.evaluator_artifact_digest=$3`,
+			request.CampaignID, waveID, request.EvaluatorArtifactDigest).Scan(&existingID, &existingDecision,
+			&existingSucceeded, &existingFailed, &existingUnknown, &existingPending, &existingThreshold)
+		if existingErr == nil && existingDecision == decision && existingSucceeded == succeeded && existingFailed == failed &&
+			existingUnknown == unknown && existingPending == pending && existingThreshold == threshold {
+			result = UpgradeCanaryDecision{DecisionID: existingID, Decision: decision, Succeeded: succeeded,
+				Failed: failed, Unknown: unknown, Pending: pending, FailureThreshold: threshold}
+			return nil
+		}
+		if existingErr != nil && !errors.Is(existingErr, pgx.ErrNoRows) {
+			return existingErr
 		}
 		input := map[string]any{"campaign": request.CampaignID, "plan_revision": planRevision, "wave": waveID,
 			"campaign_generation": campaignGeneration, "decision": decision, "succeeded": succeeded,
