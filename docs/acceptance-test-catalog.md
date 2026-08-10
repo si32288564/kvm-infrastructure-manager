@@ -289,6 +289,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-021 | Ceph health/capability change時にaffected Volumeだけをpauseしsilent backend/access-mode fallbackしない |
 | AT-STO-022 | Storage adapterがstable identity、typed side effect、UNKNOWN/read-back、secret/fencing evidence contractへ適合する |
 | AT-STO-023 | Storage Capacity Poolがreserved/allocated/observed/external usageとthin data/metadata healthを分離しtransactional claim/releaseする |
+| AT-STO-024 | closed typed Local LVM create を実 Host で実行し、Agent kill 後も同じ LV UUID を標準 LVM read-back で確認して immutable evidence と current BOUND Binding へ収束する |
 
 ## 13. NFV Dataplane
 

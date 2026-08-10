@@ -15,6 +15,7 @@ import (
 
 	agentexecution "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtdomain"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/reconnect"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -39,6 +40,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	credentialRevision := set.Int64("credential-binding-revision", 1, "current Credential Binding revision")
 	stateRoot := set.String("state-root", "/var/lib/kvm-infrastructure-manager/agent", "private Agent state root")
 	libvirtURI := set.String("libvirt-uri", os.Getenv("KIM_AGENT_LIBVIRT_URI"), "standard libvirt connection URI; empty disables VM power operations")
+	localLVMVGUUID := set.String("local-lvm-vg-uuid", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_UUID"), "allowed Local LVM VG UUID; empty disables Local LVM realization")
+	localLVMVGName := set.String("local-lvm-vg-name", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_NAME"), "admin-configured Local LVM VG name paired with the allowed UUID")
 	if err := set.Parse(args); err != nil {
 		return 2
 	}
@@ -63,6 +66,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		defer closeBackend()
 		executionBackends = append(executionBackends, backend)
+	}
+	if (*localLVMVGUUID == "") != (*localLVMVGName == "") {
+		fmt.Fprintln(stderr, "kim-host-agent Local LVM error: VG UUID and VG name must be configured together")
+		return 2
+	}
+	if *localLVMVGUUID != "" {
+		client, clientErr := locallvm.NewCLIClient()
+		if clientErr != nil {
+			fmt.Fprintf(stderr, "kim-host-agent Local LVM error: %v\n", clientErr)
+			return 2
+		}
+		executionBackends = append(executionBackends, locallvm.Backend{Client: client, VolumeGroups: map[string]string{*localLVMVGUUID: *localLVMVGName}})
 	}
 	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})
 	if err != nil {

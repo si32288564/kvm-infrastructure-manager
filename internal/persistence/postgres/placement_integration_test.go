@@ -399,6 +399,96 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("atomic Storage Volume/capacity/binding/attachment claims = %d/%d/%d/%d/%d premature-lv=%d", volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs)
 	}
 	winnerVolumeID := winner.request.Storage[0].VolumeID
+	winnerBindingID := "storage-binding:" + winner.request.RequestID + ":" + winnerVolumeID
+	var winnerResourceKey string
+	if err := pool.QueryRow(ctx, `SELECT backend_resource_key FROM kim.volume_backend_binding_intents WHERE binding_id=$1`, winnerBindingID).Scan(&winnerResourceKey); err != nil {
+		t.Fatal(err)
+	}
+	localLVMCommandID := "lvm-command-" + suffix
+	localLVMVerificationID := "lvm-verification-" + suffix
+	localLVMObservationDigest := digestBytes([]byte("lvm-observation-" + suffix))
+	localLVMVerifierDigest := digestBytes([]byte("lvm-verifier"))
+	localLVUUID := "lv-uuid-" + suffix
+	if err := seedLocalLVMVerification(ctx, pool, localLVMVerificationFixture{
+		JobID: "lvm-job-" + suffix, VolumeID: winnerVolumeID, HostID: hostID,
+		CommandID: localLVMCommandID, VerificationID: localLVMVerificationID,
+		ObservationDigest: localLVMObservationDigest, VerifierDigest: localLVMVerifierDigest,
+		VGUUID: vgUUID, LVUUID: localLVUUID, ResourceKey: winnerResourceKey,
+		SizeBytes: winner.request.Storage[0].SizeBytes,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	acceptedBindingObservation := LocalLVMBindingObservation{
+		EvidenceID: "binding-evidence-" + suffix, BindingID: winnerBindingID,
+		VolumeID: winnerVolumeID, BackendID: storageBackendID, HostID: hostID,
+		VGUUID: vgUUID, LVUUID: localLVUUID,
+		BackendResourceKey: winnerResourceKey, BindingGeneration: 1,
+		CommandID: localLVMCommandID, VerificationID: localLVMVerificationID, AttemptIndex: 1,
+		ObservationGeneration: 1, ObservationDigest: localLVMObservationDigest,
+		VerifierDigest: localLVMVerifierDigest, EvidenceState: "MATCHED",
+		ObservedSizeBytes: winner.request.Storage[0].SizeBytes,
+	}
+	if err := AcceptLocalLVMBindingObservation(ctx, pool, acceptedBindingObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptLocalLVMBindingObservation(ctx, pool, acceptedBindingObservation); err != nil {
+		t.Fatalf("idempotent Local LVM binding evidence replay: %v", err)
+	}
+	var bindingState, currentLVUUID string
+	if err := pool.QueryRow(ctx, `
+		SELECT current.binding_state, current.lv_uuid
+		FROM kim.volume_backend_bindings_current current
+		WHERE current.binding_id=$1
+	`, winnerBindingID).Scan(&bindingState, &currentLVUUID); err != nil {
+		t.Fatal(err)
+	}
+	if bindingState != "BOUND" || currentLVUUID != localLVUUID {
+		t.Fatalf("current Local LVM binding = %s/%s", bindingState, currentLVUUID)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.volume_backend_binding_evidence SET lv_uuid='forged' WHERE binding_id=$1`, winnerBindingID); err == nil {
+		t.Fatal("immutable Local LVM binding evidence accepted UPDATE")
+	}
+	digestConflict := acceptedBindingObservation
+	digestConflict.ObservationDigest = digestBytes([]byte("different-observation"))
+	if err := AcceptLocalLVMBindingObservation(ctx, pool, digestConflict); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("same Local LVM evidence identity/different digest error = %v", err)
+	}
+	otherVerificationID := "lvm-verification-other-" + suffix
+	otherObservationDigest := digestBytes([]byte("lvm-observation-other-" + suffix))
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO kim.command_verification_evidence (
+			verification_id, command_id, attempt_index, observation_generation,
+			observation_digest, verification_state, verifier_artifact_digest, evidence_payload
+		) VALUES ($1,$2,1,2,$3,'MATCHED',$4,jsonb_build_object(
+			'vg_uuid',$5::text,'observed_vg_uuid',$5::text,'observed_lv_uuid','different-lv',
+			'backend_resource_key',$6::text,'observed_size_bytes',$7::bigint
+		))
+	`, otherVerificationID, localLVMCommandID, otherObservationDigest,
+		localLVMVerifierDigest, vgUUID, winnerResourceKey,
+		winner.request.Storage[0].SizeBytes); err != nil {
+		t.Fatal(err)
+	}
+	identityConflict := acceptedBindingObservation
+	identityConflict.EvidenceID = "binding-evidence-other-" + suffix
+	identityConflict.VerificationID = otherVerificationID
+	identityConflict.ObservationGeneration = 2
+	identityConflict.ObservationDigest = otherObservationDigest
+	identityConflict.LVUUID = "different-lv"
+	if err := AcceptLocalLVMBindingObservation(ctx, pool, identityConflict); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("same Binding generation/different LV UUID error = %v", err)
+	}
+	mismatched := LocalLVMBindingObservation{
+		EvidenceID: "binding-evidence-conflict-" + suffix, BindingID: winnerBindingID,
+		VolumeID: winnerVolumeID, BackendID: storageBackendID, HostID: hostID,
+		VGUUID: vgUUID, LVUUID: "other-lv", BackendResourceKey: winnerResourceKey,
+		BindingGeneration: 1, CommandID: "lvm-command-conflict-" + suffix, VerificationID: "missing-verification", AttemptIndex: 2,
+		ObservationGeneration: 2, ObservationDigest: digestBytes([]byte("lvm-conflict")),
+		VerifierDigest: digestBytes([]byte("lvm-verifier")), EvidenceState: "MATCHED",
+		ObservedSizeBytes: winner.request.Storage[0].SizeBytes / 2,
+	}
+	if err := AcceptLocalLVMBindingObservation(ctx, pool, mismatched); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("mismatched Local LVM evidence error = %v", err)
+	}
 	secondWriterErr := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		secondAttachmentID := "attachment-second-writer-" + suffix
 		if _, err := tx.Exec(ctx, `
@@ -435,6 +525,59 @@ func cloneStorageRequirements(requirements []placement.StorageRequirement) []pla
 	result := make([]placement.StorageRequirement, len(requirements))
 	copy(result, requirements)
 	return result
+}
+
+type localLVMVerificationFixture struct {
+	JobID, VolumeID, HostID, CommandID, VerificationID string
+	ObservationDigest, VerifierDigest                  string
+	VGUUID, LVUUID, ResourceKey                        string
+	SizeBytes                                          uint64
+}
+
+func seedLocalLVMVerification(ctx context.Context, pool *pgxpool.Pool, fixture localLVMVerificationFixture) error {
+	return pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.execution_jobs (job_id, resource_type, resource_id, desired_revision, job_state) VALUES ($1,'VOLUME',$2,1,'SUCCEEDED')`, fixture.JobID, fixture.VolumeID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.execution_commands (
+				command_id, job_id, host_id, command_type, schema_version,
+				target_resource_id, payload, payload_digest
+			) VALUES ($1,$2,$3,'LOCAL_LVM_VOLUME_ENSURE','kim.command.local-lvm-volume-ensure/v1',$4,'{}'::jsonb,$5)
+		`, fixture.CommandID, fixture.JobID, fixture.HostID, "volume:"+fixture.VolumeID, digestBytes([]byte("local-lvm-command"))); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.execution_commands_current (command_id, command_state, current_attempt_index) VALUES ($1,'SUCCEEDED',1)`, fixture.CommandID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.execution_jobs SET current_command_id=$2 WHERE job_id=$1`, fixture.JobID, fixture.CommandID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.command_lease_grants (
+				command_id, lease_generation, attempt_index, host_id,
+				host_authority_generation, session_generation, token_digest,
+				not_before, expires_at
+			) VALUES ($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')
+		`, fixture.CommandID, fixture.HostID, digestBytes([]byte("local-lvm-lease"))); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.command_attempts (command_id, attempt_index, lease_generation, host_authority_generation, session_generation) VALUES ($1,1,1,1,1)`, fixture.CommandID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO kim.command_verification_evidence (
+				verification_id, command_id, attempt_index, observation_generation,
+				observation_digest, verification_state, verifier_artifact_digest, evidence_payload
+			) VALUES ($1,$2,1,1,$3,'MATCHED',$4,jsonb_build_object(
+				'vg_uuid',$5::text,'observed_vg_uuid',$5::text,'observed_lv_uuid',$6::text,
+				'backend_resource_key',$7::text,'observed_size_bytes',$8::bigint
+			))
+		`, fixture.VerificationID, fixture.CommandID, fixture.ObservationDigest,
+			fixture.VerifierDigest, fixture.VGUUID, fixture.LVUUID,
+			fixture.ResourceKey, fixture.SizeBytes)
+		return err
+	})
 }
 
 func containsReason(reasons []string, expected string) bool {

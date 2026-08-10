@@ -326,6 +326,7 @@
 | STO-025 | backend-only image/LV、unknown watcher/lock、unmatched deviceを自動adopt/delete/detachせず明示Operationを要求する | Must |
 | STO-026 | force detach、client fencing、lock break、backend delete、Adoptionを個別permission/approval/auditで保護する | Must |
 | STO-027 | Storage capacityをPostgreSQL reserved/allocated ledgerとbackend observed/external usageへ分離し、Final Admissionで不可分claimしbackend delete確認まで再利用しない | Must |
+| STO-028 | Local LVM create は closed typed Command と KIM-owned LV key のみを使用し、実 LVM read-back の VG/LV UUID evidence が一致した場合だけ current Backend Binding を BOUND にする | Must |
 
 ### 2.15 Operation、Event、Notification
 

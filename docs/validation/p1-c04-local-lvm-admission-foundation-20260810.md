@@ -59,10 +59,11 @@ make check
 
 ## 5. Remaining P1-C04 work
 
-- typed Local LVM create/delete/read-back adapter と実 Host qualification
-- immutable LV identity evidence と current Backend Binding (`Host + VG UUID + LV UUID`)
+- typed Local LVM delete と create Result loss の full distributed qualification
 - typed libvirt attach/detach、device/holder observation、`ATTACHED` verification
 - disk-full/LVM response-loss/Agent kill に対する `UNKNOWN` / read-back convergence
 - verified detach/fencing、capacity release、quarantine/reuse workflow
 - READ_ONLY_MANY、thin pool metadata policy、encryption/Secret Provider integration
 - Volume/Attachment public API、Quota、Operation/Job/Outbox atomic commit
+
+typed create/read-back、Agent kill、immutable LV identity evidence、current `BOUND` Binding は [P1-C04 Local LVM Kill / Read-back Validation](p1-c04-local-lvm-kill-readback-20260810.md) で検証済みです。
