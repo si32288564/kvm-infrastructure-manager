@@ -186,6 +186,7 @@
 | INV-NET-031 | OVN runtime は caller supplied command/column/DB endpoint を受け取らず、current typed plan と管理者設定の secure endpointだけを標準 OVN CLI へ変換する。apply timeout/response lossを非実行証明にせず、stable object/marker read-backで解決する | AT-NET-035, FI-NET-025 |
 | INV-NET-032 | OVN runtime worker は PostgreSQL の current work claim owner/generation/expiry を持たずに apply または observation acceptance を行わない。expired/uncertain claim の再取得は `READ_BACK_FIRST` とし、旧 worker の遅延結果を current authority へ進めない | AT-NET-036, AT-NET-037, AT-NET-038, FI-NET-026, FI-NET-027, FI-DB-003 |
 | INV-NET-033 | OVN runtime claim renewalはcurrent owner/generation、DB authority time上の未失効、固定maximum lifetimeを不可分に検証し、immutable renewal generationを残す。renewal failure/response loss/DB failoverからexpired claimをreviveせず、曖昧なside effectをread-backなしに再実行しない | AT-NET-039, FI-DB-004 |
+| INV-NET-034 | renewal commit 後の response loss を非 commit または side effect 不在の証明にしない。worker は local operation を停止し、DB authority の renewed expiry 前に別 claim を発行せず、expiry 後の successor を新 generation の `READ_BACK_FIRST` に限定して旧 worker の継続・completion を fence する | AT-NET-040, FI-DB-005 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

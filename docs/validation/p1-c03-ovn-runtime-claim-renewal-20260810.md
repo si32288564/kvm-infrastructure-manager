@@ -2,14 +2,16 @@
 
 - 実施日: 2026-08-10
 - 対象: long-running typed OVN operation の bounded claim renewal
-- Test Contract: `AT-NET-039`, `FI-DB-004`
-- Invariant: `INV-NET-033`, `INV-NET-032`, `INV-HA-001`
+- Test Contract: `AT-NET-039`, `AT-NET-040`, `FI-DB-004`, `FI-DB-005`
+- Invariant: `INV-NET-033`, `INV-NET-034`, `INV-NET-032`, `INV-HA-001`
 
 ## Outcome
 
 OVN runtime claimにclaim開始時のmaximum expiryとrenewal generationを追加し、long-running adapter operation中だけcurrent workerがbounded intervalでrenewできるようにしました。renewalはPostgreSQL transaction内でcurrent owner/generation、DB authority time上の未失効、maximum lifetimeを再検証し、prior/new/maximum expiryをimmutable evidenceへ保存します。
 
 実 PostgreSQL 17 synchronous failover fixtureでは、worker Aが800 msのtyped applyとpost-apply read-backを処理する間、500 ms claimを100 ms intervalで複数回renewしました。renewal evidenceが`remote_apply`された後にprimaryを強制停止し、standbyをpromoteしました。promoted primaryはrenewal evidenceを保持し、expiry後にworker Bへgeneration 2 / `READ_BACK_FIRST`をgrantし、physical apply 1回のまま`OBSERVED`へ収束しました。
+
+別の実 PostgreSQL 17 fixture では、typed OVN side effect の発生後に renewal generation 1 を commit し、その client response だけを決定的に破棄しました。worker A は adapter operation を cancel し、worker B は DB に commit 済みの renewed expiry 前には claim できませんでした。expiry 後に generation 2 / `READ_BACK_FIRST` を取得し、matching observation から physical apply 1 回のまま `OBSERVED` へ収束しました。
 
 ```text
 claim generation 1
@@ -49,14 +51,14 @@ claim generation 1
 fresh PostgreSQL 17 persistence/race integration: PASS
 worker renewal unit test: PASS
 TestOVNRuntimeWorkerPostgreSQLFailoverConvergence: PASS
+TestOVNRuntimeClaimRenewalResponseLossConvergence: PASS
 physical apply count: 1
 ```
 
 ## Remaining Qualification
 
-- renewal commit後のresponseだけを決定的に失うfault injection
 - production HA endpoint/connection pool切替中のrenewal
 - maximum lifetime到達時のlong-running backend containment
 - mass backlog、retry storm、multi-worker soak
 
-renewal response-lossが未検証でも、expired claimのrevivalやmaximum超過を許可しません。outcomeが不明な場合は既存のexpiry/`DISPATCH_UNKNOWN`/`READ_BACK_FIRST`へ収束させます。
+renewal response-loss を含め、outcome が不明な場合は既存の expiry/`DISPATCH_UNKNOWN`/`READ_BACK_FIRST`へ収束させます。expired claim の revival、maximum 超過、old generation completion、blind duplicate apply を許可しません。

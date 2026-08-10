@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-grpc-reconnect-storm test-agent-reconnect-storm test-agent-transport test-linux-host-inventory test-p1b-full-process test-p1c03-ovn-worker-db-failover test-p1c03-ovn-worker-fault test-postgres-integration validate-linux-host-inventory vet
+.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-grpc-reconnect-storm test-agent-reconnect-storm test-agent-transport test-linux-host-inventory test-p1b-full-process test-p1c03-ovn-worker-db-failover test-p1c03-ovn-worker-fault test-p1c03-ovn-worker-renewal-response-loss test-postgres-integration validate-linux-host-inventory vet
 
 PROTOC_GEN_GO_VERSION := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
@@ -64,6 +64,9 @@ test-p1c03-ovn-worker-fault:
 
 test-p1c03-ovn-worker-db-failover:
 	KIM_RUN_DOCKER_POSTGRES_FAILOVER=1 $(GO) test -count=1 -timeout 300s -run TestOVNRuntimeWorkerPostgreSQLFailoverConvergence ./internal/qualification/p1c03ovnwork
+
+test-p1c03-ovn-worker-renewal-response-loss:
+	KIM_RUN_DOCKER_POSTGRES_RENEWAL_RESPONSE_LOSS=1 $(GO) test -count=1 -timeout 180s -run TestOVNRuntimeClaimRenewalResponseLossConvergence ./internal/qualification/p1c03ovnwork
 
 vet:
 	$(GO) vet ./...
