@@ -293,6 +293,7 @@
 | NET-051 | 同一 Site の PostgreSQL HA は primary/standby の役割を繰り返し切り替えても `restore_epoch` と database authority generation を変更せず、各 failover 前に synchronous `remote_apply` された work/renewal evidence を保持する。各 old-primary worker を停止し、renewed expiry 後の successor を新 claim generation の `READ_BACK_FIRST` に限定して duplicate backend mutation を許可しない | Must |
 | NET-052 | OVN runtime worker は PostgreSQL connection pool を明示的に bounded とし、process-local `database-max-connections` を少なくとも `2 × BatchLimit` として claim/renewal/completion 用 headroom を確保する。deployment profile は measured pool wait と OVN endpoint uncertainty に対して claim Lease/renewal interval/maximum lifetime を qualification し、slow endpoint、partial timeout、pool wait を side effect 不在または claim expiry の証明へ昇格させない | Must |
 | NET-053 | OVN runtime worker の scale down は graceful drain を使用し、`DRAINING` 後の新規 claim を停止する一方、current batch は bounded drain deadline 内で renewal、typed apply/read-back、completion を継続する。drain deadline 超過または 2 回目の termination signal だけを hard cancellation とし、残る曖昧な claim は expiry 後の `READ_BACK_FIRST` へ送る | Must |
+| NET-054 | hard drain は process の非正常終了として観測可能にし、current claim の side effect 有無を終了コードから推測しない。deadline 超過または 2 回目の signal 後も current claim を即時再利用せず、DB expiry、immutable `DISPATCH_UNKNOWN`、successor generation の `READ_BACK_FIRST` を経て収束する | Must |
 
 ### 2.13 NFV Dataplane
 

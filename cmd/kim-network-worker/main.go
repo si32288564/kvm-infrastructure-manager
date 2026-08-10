@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -86,6 +87,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}()
 	}
 	drain := make(chan struct{})
+	var hardDrain atomic.Bool
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
@@ -100,8 +102,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		defer timer.Stop()
 		select {
 		case <-signals:
+			hardDrain.Store(true)
 			hardCancel()
 		case <-timer.C:
+			hardDrain.Store(true)
 			hardCancel()
 		case <-ctx.Done():
 		}
@@ -123,6 +127,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := worker.RunWithDrain(ctx, drain, *pollInterval); err != nil {
 		fmt.Fprintf(stderr, "kim-network-worker stopped: %v\n", err)
+		return 1
+	}
+	if hardDrain.Load() {
+		fmt.Fprintln(stderr, "kim-network-worker hard drain interrupted current work; outcome remains unknown until read-back")
 		return 1
 	}
 	return 0

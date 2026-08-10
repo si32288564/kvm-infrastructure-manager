@@ -77,6 +77,9 @@ test-p1c03-ovn-worker-latency-saturation:
 test-p1c03-ovn-worker-drain:
 	KIM_RUN_DOCKER_POSTGRES_OVN_WORKER_DRAIN=1 $(GO) test -race -v -count=1 -timeout 120s -run TestOVNRuntimeWorkerScaleUpDrainDown ./internal/qualification/p1c03ovnwork
 
+test-p1c03-ovn-worker-hard-drain:
+	KIM_RUN_DOCKER_POSTGRES_OVN_WORKER_HARD_DRAIN=1 $(GO) test -race -v -count=1 -timeout 180s -run TestOVNRuntimeWorkerProcessDrainBoundaries ./internal/qualification/p1c03ovnwork
+
 test-p1c03-ovn-worker-soak:
 	KIM_RUN_DOCKER_POSTGRES_OVN_SOAK=1 $(GO) test -v -count=1 -timeout 240s -run TestOVNRuntimeBacklogRetryStormMultiWorkerSoak ./internal/qualification/p1c03ovnwork
 
