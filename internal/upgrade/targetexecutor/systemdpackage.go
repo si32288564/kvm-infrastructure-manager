@@ -54,6 +54,7 @@ type systemdHealth struct {
 }
 
 type systemdObservation struct {
+	PackageStatus     string `json:"package_status"`
 	PackageVersion    string `json:"package_version"`
 	ActiveState       string `json:"active_state"`
 	SubState          string `json:"sub_state"`
@@ -126,10 +127,14 @@ func (backend *SystemdPackageBackend) Observe(ctx context.Context, target Target
 		return observationFromSystemd("UNKNOWN", observed), err
 	}
 	fields := strings.Split(strings.TrimSpace(string(packageOutput)), "\t")
-	if len(fields) != 2 || fields[0] != "install ok installed" {
+	if len(fields) != 2 {
+		return observationFromSystemd("UNKNOWN", observed), nil
+	}
+	observed.PackageStatus = fields[0]
+	observed.PackageVersion = fields[1]
+	if observed.PackageStatus != "install ok installed" {
 		return observationFromSystemd("CONFLICTING", observed), nil
 	}
-	observed.PackageVersion = fields[1]
 	if observed.PackageVersion != artifact.PackageVersion {
 		return observationFromSystemd("ABSENT", observed), nil
 	}

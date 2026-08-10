@@ -158,6 +158,8 @@ Debian/systemd profile では administrator-owned backend profile が Target com
 
 Package install response や service restart response は成功 authority ではありません。read-back は installed package version、systemd `ActiveState=active` / `SubState=running` / `MainPID`、configured binary path と `/proc/<MainPID>/exe` の一致、executable SHA-256、boot ID / process start ticks、typed health schema/version/ready/PID/boot identity を独立に取得します。すべてが current Target profile と一致した場合だけ `MATCHED` とします。restart 後に executor が失われても successor `READ_BACK_FIRST` はこの evidence から収束し、既に一致する package を再 install しません。
 
+Package database lock contention、`dpkg` interruption、response loss は package side effect 不在の証明ではありません。executor は同じ Attempt 内で `dpkg` を推測 retry せず、Lease expiry 後の successor だけが `READ_BACK_FIRST` を行います。current package status/version が source のままなら `ABSENT` として current claim から apply でき、unpacked / half-configured 等の不完全 status は `CONFLICTING` として自動 install、restart、rollback を停止します。package database または status を観測できない場合は `UNKNOWN` を維持します。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。

@@ -23,7 +23,7 @@ import (
 
 const defaultSystemdQualificationHost = "kvm-base-g01-n001-p.core.s01.si1230.com"
 
-func TestUpgradeTargetSystemdDebianPackageKillReadBack(t *testing.T) {
+func TestUpgradeTargetSystemdDebianPackageLockContentionKillReadBack(t *testing.T) {
 	if testing.Short() || os.Getenv("KIM_RUN_REMOTE_SYSTEMD_PACKAGE_UPGRADE") != "1" {
 		t.Skip("KIM_RUN_REMOTE_SYSTEMD_PACKAGE_UPGRADE is not enabled")
 	}
@@ -42,11 +42,14 @@ func TestUpgradeTargetSystemdDebianPackageKillReadBack(t *testing.T) {
 	installLog := "/var/lib/" + packageName + "/install.log"
 	executorUnitA := packageName + "-executor-a.service"
 	executorUnitB := packageName + "-executor-b.service"
-	remoteCleanup := fmt.Sprintf("sudo -n systemctl stop %s %s %s >/dev/null 2>&1 || true; "+
+	executorUnitC := packageName + "-executor-c.service"
+	lockUnit := packageName + "-dpkg-lock.service"
+	remoteCleanup := fmt.Sprintf("sudo -n systemctl stop %s %s %s %s %s >/dev/null 2>&1 || true; "+
 		"sudo -n dpkg --purge %s >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload; "+
-		"sudo -n systemctl reset-failed %s %s >/dev/null 2>&1 || true; "+
+		"sudo -n systemctl reset-failed %s %s %s %s >/dev/null 2>&1 || true; "+
 		"sudo -n rm -rf %s %s %s", shellSafe(serviceName), shellSafe(executorUnitA), shellSafe(executorUnitB),
-		shellSafe(packageName), shellSafe(executorUnitA), shellSafe(executorUnitB), shellSafe(remoteRoot),
+		shellSafe(executorUnitC), shellSafe(lockUnit), shellSafe(packageName), shellSafe(executorUnitA),
+		shellSafe(executorUnitB), shellSafe(executorUnitC), shellSafe(lockUnit), shellSafe(remoteRoot),
 		shellSafe(filepath.Dir(healthPath)), shellSafe(filepath.Dir(installLog)))
 	t.Cleanup(func() { _, _ = remoteCommand(context.Background(), host, remoteCleanup) })
 	remoteMust(t, ctx, host, "mkdir -p "+shellSafe(remoteRoot))
@@ -149,8 +152,30 @@ func TestUpgradeTargetSystemdDebianPackageKillReadBack(t *testing.T) {
 	tunnel := startReverseTunnel(t, ctx, host, remotePort, localPort)
 	defer stopCommand(tunnel)
 	remoteDatabaseURL := fmt.Sprintf("postgres://postgres:kimtest@127.0.0.1:%d/kimtest?sslmode=disable", remotePort)
+	lockMarker := remoteRoot + "/dpkg-lock-held"
+	lockScript := fmt.Sprintf("import fcntl,time,pathlib; f=open('/var/lib/dpkg/lock','r+'); fcntl.lockf(f,fcntl.LOCK_EX); pathlib.Path(%q).write_text('locked\\n'); time.sleep(30)", lockMarker)
+	remoteMust(t, ctx, host, fmt.Sprintf("sudo -n systemd-run --quiet --collect --unit=%s --property=Type=exec -- /usr/bin/python3 -c %s",
+		shellSafe(lockUnit), shellSafe(lockScript)))
+	eventuallyRemote(t, ctx, host, 10*time.Second, func(output string) bool { return strings.Contains(output, "locked") },
+		"cat "+shellSafe(lockMarker), "dpkg lock holder did not acquire the package database lock")
 	startRemoteTargetExecutor(t, ctx, host, executorUnitA, remoteRoot+"/kim-upgrade-target-executor",
-		remoteDatabaseURL, plan.CampaignID, target.TargetID, "systemd-target-a", remoteRoot+"/profile.json", "10s")
+		remoteDatabaseURL, plan.CampaignID, target.TargetID, "systemd-target-a", remoteRoot+"/profile.json", "0s")
+	eventuallyRemote(t, ctx, host, 10*time.Second, func(output string) bool {
+		return strings.Contains(output, "failed") || strings.Contains(output, "inactive")
+	}, fmt.Sprintf("sudo -n systemctl show %s --property=ActiveState --value 2>/dev/null || true", shellSafe(executorUnitA)),
+		"Target executor did not stop after dpkg lock contention")
+	lockFailureLog := remoteMust(t, ctx, host, fmt.Sprintf("sudo -n journalctl --unit=%s --no-pager -n 100", shellSafe(executorUnitA)))
+	if !strings.Contains(lockFailureLog, "dpkg database lock") {
+		t.Fatalf("Target executor did not record the injected dpkg lock contention: %s", lockFailureLog)
+	}
+	if output := remoteMust(t, ctx, host, fmt.Sprintf("dpkg-query -W -f='${Version}' %s; sudo -n awk '$1==\"2.0.0\"{count++} END{print \" installs=\" count+0}' %s",
+		shellSafe(packageName), shellSafe(installLog))); !strings.Contains(output, "1.0.0") || !strings.Contains(output, "installs=0") {
+		t.Fatalf("lock-contended Attempt changed package state: %s", output)
+	}
+	remoteMust(t, ctx, host, "sudo -n systemctl stop "+shellSafe(lockUnit))
+
+	startRemoteTargetExecutor(t, ctx, host, executorUnitB, remoteRoot+"/kim-upgrade-target-executor",
+		remoteDatabaseURL, plan.CampaignID, target.TargetID, "systemd-target-b", remoteRoot+"/profile.json", "10s")
 	eventuallyRemote(t, ctx, host, 30*time.Second, func(output string) bool {
 		return strings.Contains(output, "2.0.0") && strings.Contains(output, `"ready":true`)
 	}, fmt.Sprintf("sudo -n cat %s", shellSafe(healthPath)), "Target package/service side effect did not become healthy")
@@ -158,18 +183,18 @@ func TestUpgradeTargetSystemdDebianPackageKillReadBack(t *testing.T) {
 		var state string
 		var attempt, renewals int
 		return pool.QueryRow(ctx, `SELECT execution_state,attempt_generation FROM kim.upgrade_target_executions_current
-			WHERE target_id=$1`, target.TargetID).Scan(&state, &attempt) == nil && state == "CLAIMED" && attempt == 1 &&
+			WHERE target_id=$1`, target.TargetID).Scan(&state, &attempt) == nil && state == "CLAIMED" && attempt == 2 &&
 			pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_renewal_evidence WHERE target_id=$1`, target.TargetID).Scan(&renewals) == nil && renewals > 0
-	}, "Target executor did not retain Attempt 1 after package restart")
-	remoteMust(t, ctx, host, "sudo -n systemctl kill --kill-whom=all --signal=SIGKILL "+shellSafe(executorUnitA))
+	}, "Target executor did not retain Attempt 2 after package restart")
+	remoteMust(t, ctx, host, "sudo -n systemctl kill --kill-whom=all --signal=SIGKILL "+shellSafe(executorUnitB))
 
-	startRemoteTargetExecutor(t, ctx, host, executorUnitB, remoteRoot+"/kim-upgrade-target-executor",
-		remoteDatabaseURL, plan.CampaignID, target.TargetID, "systemd-target-b", remoteRoot+"/profile.json", "0s")
+	startRemoteTargetExecutor(t, ctx, host, executorUnitC, remoteRoot+"/kim-upgrade-target-executor",
+		remoteDatabaseURL, plan.CampaignID, target.TargetID, "systemd-target-c", remoteRoot+"/profile.json", "0s")
 	eventually(t, 30*time.Second, func() bool {
 		var state string
 		var attempt int
 		return pool.QueryRow(ctx, `SELECT target_state,attempt_generation FROM kim.upgrade_targets_current WHERE target_id=$1`,
-			target.TargetID).Scan(&state, &attempt) == nil && state == "SUCCEEDED" && attempt == 2
+			target.TargetID).Scan(&state, &attempt) == nil && state == "SUCCEEDED" && attempt == 3
 	}, "successor Target executor did not recover installed package from read-back")
 	if err := waitForProcess(t, coordinator, 20*time.Second); err != nil {
 		t.Fatalf("Coordinator did not advance after systemd Target recovery: %v: %s", err, coordinator.output.String())
@@ -200,7 +225,7 @@ func TestUpgradeTargetSystemdDebianPackageKillReadBack(t *testing.T) {
 		plan.CampaignID).Scan(&campaignState, &waveID); err != nil {
 		t.Fatal(err)
 	}
-	if attempts != 2 || readBackAttempts != 1 || unknownEvents != 1 || applyEvents != 1 || results != 1 ||
+	if attempts != 3 || readBackAttempts != 2 || unknownEvents != 2 || applyEvents != 2 || results != 1 ||
 		installEntries != 1 || processDigest != binaryDigestV2 || campaignState != "ROLLING" || waveID != "batch-1" {
 		t.Fatalf("attempts=%d readback=%d unknown=%d apply=%d results=%d installs=%d process=%s campaign=%s/%s",
 			attempts, readBackAttempts, unknownEvents, applyEvents, results, installEntries, processDigest, campaignState, waveID)
