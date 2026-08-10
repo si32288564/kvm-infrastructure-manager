@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/network/ovnadapter"
@@ -104,6 +105,7 @@ type Worker struct {
 	ClaimRenewInterval    time.Duration
 	AdapterArtifactDigest string
 	ErrorHandler          func(error)
+	Metrics               *Metrics
 }
 
 func (worker Worker) RunOnce(ctx context.Context) (int, error) {
@@ -115,7 +117,9 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 	if worker.Store == nil || worker.Adapter == nil || worker.Owner == "" || worker.BatchLimit < 1 || worker.BatchLimit > 100 || worker.ClaimLease <= 0 || maximumLifetime < worker.ClaimLease || maximumLifetime > postgres.MaxOVNRuntimeClaimLifetime || worker.ClaimRenewInterval < 0 || (worker.ClaimRenewInterval > 0 && (worker.ClaimRenewInterval >= worker.ClaimLease || maximumLifetime <= worker.ClaimLease)) || len(worker.AdapterArtifactDigest) != 64 || digestErr != nil {
 		return 0, errors.New("complete bounded OVN runtime worker configuration is required")
 	}
+	claimStarted := time.Now()
 	work, err := worker.Store.Claim(ctx, postgres.OVNRuntimeClaimRequest{Owner: worker.Owner, Limit: worker.BatchLimit, Lease: worker.ClaimLease, MaximumLifetime: maximumLifetime})
+	worker.Metrics.recordClaim(work, time.Since(claimStarted), err)
 	if err != nil {
 		return 0, err
 	}
@@ -131,6 +135,7 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 		item := item
 		go func() {
 			completed, err := worker.processWork(ctx, item)
+			worker.Metrics.recordWork(item.WorkID, completed, err)
 			outcomes <- itemOutcome{completed: completed, err: err}
 		}()
 	}
@@ -235,7 +240,10 @@ func (worker Worker) runAdapterWithRenewal(ctx context.Context, claim postgres.O
 		case result := <-completed:
 			return result.result, result.err
 		case <-ticker.C:
-			if _, err := worker.Store.Renew(ctx, claim, worker.ClaimLease); err != nil {
+			renewalStarted := time.Now()
+			renewal, err := worker.Store.Renew(ctx, claim, worker.ClaimLease)
+			worker.Metrics.recordRenewal(renewal, time.Since(renewalStarted), err)
+			if err != nil {
 				cancel()
 				result := <-completed
 				return result.result, &renewalAuthorityError{err: errors.Join(err, result.err)}
@@ -249,8 +257,52 @@ func (worker Worker) runAdapterWithRenewal(ctx context.Context, claim postgres.O
 }
 
 func (worker Worker) Run(ctx context.Context, pollInterval time.Duration) error {
+	return worker.RunWithDrain(ctx, nil, pollInterval)
+}
+
+// RunWithDrain stops taking new claims after drain is closed while allowing
+// the current claimed batch and its renewals to finish. ctx is reserved for a
+// hard stop when the bounded drain deadline is exceeded.
+func (worker Worker) RunWithDrain(ctx context.Context, drain <-chan struct{}, pollInterval time.Duration) error {
 	if pollInterval <= 0 {
 		return errors.New("OVN runtime worker poll interval must be positive")
+	}
+	worker.Metrics.setState(workerStateActive)
+	defer worker.Metrics.stop()
+	var drainRequested atomic.Bool
+	drainWatcherDone := make(chan struct{})
+	drainWatcherExited := make(chan struct{})
+	if drain != nil {
+		go func() {
+			defer close(drainWatcherExited)
+			select {
+			case <-drain:
+				drainRequested.Store(true)
+				worker.Metrics.startDrain()
+			case <-ctx.Done():
+			case <-drainWatcherDone:
+			}
+		}()
+		defer func() {
+			close(drainWatcherDone)
+			<-drainWatcherExited
+		}()
+	}
+	isDraining := func() bool {
+		if drainRequested.Load() {
+			return true
+		}
+		if drain == nil {
+			return false
+		}
+		select {
+		case <-drain:
+			drainRequested.Store(true)
+			worker.Metrics.startDrain()
+			return true
+		default:
+			return false
+		}
 	}
 	runOnce := func() error {
 		if _, err := worker.RunOnce(ctx); err != nil && ctx.Err() == nil {
@@ -265,16 +317,28 @@ func (worker Worker) Run(ctx context.Context, pollInterval time.Duration) error 
 		}
 		return nil
 	}
+	if isDraining() {
+		return nil
+	}
 	if err := runOnce(); err != nil {
 		return err
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
+		if isDraining() {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-drain:
+			worker.Metrics.startDrain()
+			return nil
 		case <-ticker.C:
+			if isDraining() {
+				return nil
+			}
 			if err := runOnce(); err != nil {
 				return err
 			}

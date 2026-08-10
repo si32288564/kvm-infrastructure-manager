@@ -290,6 +290,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-041 | fresh PostgreSQL に 512 work を backlog として投入し、16 worker、process batch 2、DB pool 64 で normal、long-running renewal、pre-apply failure、post-apply response-loss を混在させる。item-local adapter error を報告して long-lived reconciliation を継続し、DB authority error は process stop として分離する。全 work が bounded time 内に `OBSERVED` となり、全 worker が work を取得し、physical apply は object ごとに 1 回、attempt は initial 512 + 意図的 failure 104、最大 attempt 2、p99 batch completion は maximum claim lifetime 未満、worker/DB goroutine は bounded baseline へ戻る |
 | AT-NET-042 | PostgreSQL primary A から synchronous standby B への failover 後、旧 A を B の新しい base backup から synchronous standby として再参加させ、B から A へ再度 failover する。両方向で long-running OVN apply の claim renewal を `remote_apply` 後に primary を hard stop し、old worker stop、committed LSN、同一 restore epoch/database authority generation、generation 2 `READ_BACK_FIRST`、attempt 2、physical apply 1 回を検証する |
 | AT-NET-043 | fresh PostgreSQL に 96 work を投入し、8 workers / batch 2 / pool 16 のうち 8 connections を継続占有する。全 OVN observe/apply に 2 s latency、各 8 work 中 1 件ずつ pre-apply timeout と post-apply response-loss を注入し、Lease 1.5 s / renewal 300 ms / maximum 8 s で処理する。pool acquire wait が発生しても 96 work が 60 s 以内に `OBSERVED`、attempts 120、maximum attempt 2、全 worker 参加、physical apply 1 回、p99 が maximum lifetime 未満となることを 3 回連続で検証する |
+| AT-NET-044 | 64 work を 2 workers で開始し、current claim 処理中に 4 workers を追加する。全 scale-up worker の claim participation 後、current batch を持つ 1 worker を `DRAINING` にし、new claim count を固定したまま renewal/completion 後に `STOPPED` へ進める。残り workers で 64/64 `OBSERVED`、owners 6、attempts 64、`DISPATCH_UNKNOWN` 0、physical apply 1 回へ収束し、全 metrics の in-flight が 0 になる |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |
@@ -348,6 +349,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AUD-001 | 認証・認可・mutationにactor/scope/resource/decision/result/correlation監査がある |
 | AT-AUD-002 | 診断bundleが必要evidenceを含み、secretと非許可identityを除外する |
 | AT-O11Y-001 | metrics/alarm/trace correlationを公開し、high-cardinality identityやsecretを含めない |
+| AT-O11Y-002 | OVN worker の Prometheus endpoint が bounded lifecycle/execution/renewal/pool/backlog metrics を公開し、Host/Port/Work identity を含めず、metrics scrape failure を authority decision または worker failureへ昇格させない |
 | AT-DOC-001 | 矛盾するRequirement/Accepted ADR/ArchitectureをCIが検出して失敗する |
 | AT-DOC-002 | 重要ADR変更時にRequirement/Architecture/Invariant/Test trace未更新をCIが拒否する |
 | AT-DOC-003 | 日本語spacing lintがproseの違反候補を検出し、code fence/inline code/URL/link destination/identifier/API path/約物を変更対象にしない |

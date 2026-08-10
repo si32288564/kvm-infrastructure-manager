@@ -292,6 +292,7 @@
 | NET-050 | OVN runtime worker は一括取得した claim を未更新の local serial queue に滞留させず、`BatchLimit` を process 内の同時実行上限として各 work の authority check と renewal loop を直ちに開始する。item-local adapter error は観測可能に報告して bounded poll を継続するが、DB claim/renewal authority error は process を停止する。deployment profile は全 replica の aggregate in-flight claim 数を PostgreSQL/backend capacity 以下に制限し、意図的 failure 数を超える retry amplification を qualification で拒否する | Must |
 | NET-051 | 同一 Site の PostgreSQL HA は primary/standby の役割を繰り返し切り替えても `restore_epoch` と database authority generation を変更せず、各 failover 前に synchronous `remote_apply` された work/renewal evidence を保持する。各 old-primary worker を停止し、renewed expiry 後の successor を新 claim generation の `READ_BACK_FIRST` に限定して duplicate backend mutation を許可しない | Must |
 | NET-052 | OVN runtime worker は PostgreSQL connection pool を明示的に bounded とし、process-local `database-max-connections` を少なくとも `2 × BatchLimit` として claim/renewal/completion 用 headroom を確保する。deployment profile は measured pool wait と OVN endpoint uncertainty に対して claim Lease/renewal interval/maximum lifetime を qualification し、slow endpoint、partial timeout、pool wait を side effect 不在または claim expiry の証明へ昇格させない | Must |
+| NET-053 | OVN runtime worker の scale down は graceful drain を使用し、`DRAINING` 後の新規 claim を停止する一方、current batch は bounded drain deadline 内で renewal、typed apply/read-back、completion を継続する。drain deadline 超過または 2 回目の termination signal だけを hard cancellation とし、残る曖昧な claim は expiry 後の `READ_BACK_FIRST` へ送る | Must |
 
 ### 2.13 NFV Dataplane
 
@@ -391,6 +392,7 @@
 | O11Y-001 | Prometheus 形式で製品メトリクスを公開できる | Must |
 | O11Y-002 | Host、VM、Control Plane のアラームを管理できる | Must |
 | O11Y-003 | OpenTelemetry trace context をサービス間で伝播する | Should |
+| O11Y-004 | OVN runtime worker は bounded Prometheus metrics として lifecycle state、claim/in-flight/completion、claim age、renewal latency/headroom/error、drain duration、PostgreSQL pool pressure、`PENDING/CLAIMED/DISPATCH_UNKNOWN/OBSERVED` backlog を公開し、Host/Port/Work ID、secret、生 backend error を label または value に含めない | Must |
 | AUD-001 | すべての認証、認可、変更操作を改ざん検知可能な監査ログへ記録する | Must |
 | AUD-002 | 秘密情報を除外した診断バンドルを生成できる | Must |
 

@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/componentmain"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/network/ovnadapter"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/network/ovnruntime"
@@ -39,6 +42,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	claimMaximumLifetime := set.Duration("claim-maximum-lifetime", 2*time.Minute, "maximum lifetime of one claim generation")
 	claimRenewInterval := set.Duration("claim-renew-interval", 10*time.Second, "renewal interval during a long-running typed adapter operation; zero disables renewal")
 	commandTimeout := set.Duration("command-timeout", 15*time.Second, "bounded OVN CLI timeout")
+	drainTimeout := set.Duration("drain-timeout", 2*time.Minute, "maximum graceful drain duration before hard cancellation")
+	metricsListenAddress := set.String("metrics-listen-address", "", "optional Prometheus metrics listen address")
 	if err := set.Parse(args); err != nil {
 		return 2
 	}
@@ -54,14 +59,53 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "kim-network-worker configuration error: database-max-connections must be bounded and at least twice batch-limit")
 		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	if *drainTimeout < *claimMaximumLifetime {
+		fmt.Fprintln(stderr, "kim-network-worker configuration error: drain-timeout must be at least claim-maximum-lifetime")
+		return 2
+	}
+	ctx, hardCancel := context.WithCancel(context.Background())
+	defer hardCancel()
 	pool, err := postgres.OpenWithMaxConnections(ctx, *databaseURL, int32(*databaseMaxConnections))
 	if err != nil {
 		fmt.Fprintf(stderr, "kim-network-worker PostgreSQL error: %v\n", err)
 		return 1
 	}
 	defer pool.Close()
+	metrics := ovnruntime.NewMetrics()
+	metricsServer, metricsListener, err := startMetricsServer(*metricsListenAddress, metrics, pool)
+	if err != nil {
+		fmt.Fprintf(stderr, "kim-network-worker metrics error: %v\n", err)
+		return 1
+	}
+	if metricsServer != nil {
+		defer func() {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = metricsServer.Shutdown(shutdownContext)
+			_ = metricsListener.Close()
+		}()
+	}
+	drain := make(chan struct{})
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		select {
+		case <-signals:
+			close(drain)
+		case <-ctx.Done():
+			return
+		}
+		timer := time.NewTimer(*drainTimeout)
+		defer timer.Stop()
+		select {
+		case <-signals:
+			hardCancel()
+		case <-timer.C:
+			hardCancel()
+		case <-ctx.Done():
+		}
+	}()
 	worker := ovnruntime.Worker{
 		Store: ovnruntime.PostgresWorkStore{DB: pool},
 		Adapter: ovnadapter.Runtime{Config: ovnadapter.RuntimeConfig{
@@ -72,13 +116,27 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Owner: *owner, BatchLimit: *batchLimit, ClaimLease: *claimLease,
 		ClaimMaximumLifetime: *claimMaximumLifetime, ClaimRenewInterval: *claimRenewInterval,
 		AdapterArtifactDigest: *adapterDigest,
+		Metrics:               metrics,
 		ErrorHandler: func(err error) {
 			fmt.Fprintf(stderr, "kim-network-worker reconcile error; retrying: %v\n", err)
 		},
 	}
-	if err := worker.Run(ctx, *pollInterval); err != nil {
+	if err := worker.RunWithDrain(ctx, drain, *pollInterval); err != nil {
 		fmt.Fprintf(stderr, "kim-network-worker stopped: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func startMetricsServer(address string, metrics *ovnruntime.Metrics, pool *pgxpool.Pool) (*http.Server, net.Listener, error) {
+	if address == "" {
+		return nil, nil, nil
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return nil, nil, err
+	}
+	server := &http.Server{Handler: newMetricsHandler(metrics, pool), ReadHeaderTimeout: 5 * time.Second}
+	go func() { _ = server.Serve(listener) }()
+	return server, listener, nil
 }

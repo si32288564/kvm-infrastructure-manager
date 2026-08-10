@@ -22,6 +22,7 @@ type fakeWorkStore struct {
 	mu             sync.Mutex
 	work           []postgres.OVNRuntimeWork
 	claimErr       error
+	claimCount     atomic.Int32
 	sequence       []string
 	completed      postgres.OVNPortObservation
 	claim          postgres.OVNRuntimeClaim
@@ -36,8 +37,53 @@ func (store *fakeWorkStore) appendSequence(value string) {
 }
 
 func (store *fakeWorkStore) Claim(context.Context, postgres.OVNRuntimeClaimRequest) ([]postgres.OVNRuntimeWork, error) {
+	store.claimCount.Add(1)
 	store.appendSequence("claim")
 	return store.work, store.claimErr
+}
+
+func TestWorkerDrainStopsNewClaimsAndCompletesCurrentBatch(t *testing.T) {
+	store := &fakeWorkStore{work: []postgres.OVNRuntimeWork{{
+		WorkID: "work-drain", IntentID: "intent-drain", IntentGeneration: 1, PortID: "port-drain",
+		PortGeneration: 1, BindingGeneration: 1, ObjectSetDigest: digest("plan-drain"),
+		ClaimMode: "APPLY_ALLOWED", ClaimGeneration: 1, CanonicalObjectSet: []byte(`{}`),
+	}}}
+	matched := ovnadapter.RuntimeResult{ApplyResponseState: "RECEIVED", NBObservationDigest: digest("nb"), SBObservationDigest: digest("sb"), ChassisIdentityDigest: digest("chassis"), Observation: ovnadapter.Observation{
+		OwnershipMarkerMatches: true, ObjectSetDigestMatches: true, LogicalSwitchPresent: true,
+		LogicalSwitchPortPresent: true, PortBindingPresent: true, DatapathPresent: true, ExpectedChassisMatches: true,
+	}}
+	adapter := &fakeWorkAdapter{reconcileResult: matched, reconcileDelay: 150 * time.Millisecond}
+	metrics := NewMetrics()
+	drain := make(chan struct{})
+	worker := Worker{Store: store, Adapter: adapter, Owner: "worker-drain", BatchLimit: 1,
+		ClaimLease: 80 * time.Millisecond, ClaimMaximumLifetime: time.Second, ClaimRenewInterval: 20 * time.Millisecond,
+		AdapterArtifactDigest: digest("adapter"), Metrics: metrics}
+	done := make(chan error, 1)
+	go func() { done <- worker.RunWithDrain(t.Context(), drain, time.Millisecond) }()
+	for store.renewals.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	close(drain)
+	eventuallyTest(t, time.Second, func() bool { return metrics.Snapshot().State == "DRAINING" })
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	snapshot := metrics.Snapshot()
+	if store.claimCount.Load() != 1 || store.completedCount.Load() != 1 || snapshot.State != "STOPPED" || snapshot.InFlight != 0 || snapshot.CompletedTotal != 1 || snapshot.Renewals == 0 || snapshot.DrainDuration <= 0 {
+		t.Fatalf("claims=%d completed=%d snapshot=%+v", store.claimCount.Load(), store.completedCount.Load(), snapshot)
+	}
+}
+
+func eventuallyTest(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("condition did not converge")
 }
 
 func (store *fakeWorkStore) Renew(_ context.Context, claim postgres.OVNRuntimeClaim, _ time.Duration) (postgres.OVNRuntimeRenewal, error) {
