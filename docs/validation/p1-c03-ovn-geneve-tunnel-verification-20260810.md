@@ -1,7 +1,7 @@
 # P1-C03 OVN Geneve Tunnel Verification
 
 日付: 2026-08-10  
-状態: Foundation PASS / 実 2 Host kernel Geneve qualification PASS / OVN-generated Port path pending / P1-C03 In Progress
+状態: Foundation PASS / 実 2 Host kernel Geneve qualification PASS / 隔離 OVN-generated Port path PASS / P1-C03 In Progress
 
 ## Scope
 
@@ -82,6 +82,65 @@ VERIFIED / DEGRADED / CONFLICTING / UNKNOWN
 
 ただし、両 Host の既存 `ovn-encap-ip` は `127.0.0.1` であり、今回の専用 interface は OVN controller が生成したものではありません。したがって、current KIM Port/Chassis authority に結び付く OVN-generated cross-chassis tunnel、production uplink profile、tenant end-to-end reachability は引き続き未証明です。
 
+## 実 2 物理 Host の隔離 OVN-generated qualification
+
+前節の kernel Geneve qualification に続き、同じ 2 Host の management underlay を使用し、production OVSDB / OVN DB / VM / NIC 設定から分離した一時 OVN/OVS stack で、OVN controller が生成した Port-bound Geneve tunnel の実 packet path を検証しました。
+
+物理 transport:
+
+- g01 management endpoint: `172.17.0.31/24` (`enp2s0`)
+- g02 management endpoint: `172.17.0.37/24` (`eno1`)
+- management endpoint 間を next hop とする試験専用 `/32` route だけを追加
+- 隔離 namespace endpoint: `169.254.231.2` / `169.254.232.2`
+- production address、default route、OVS external IDs、bridge、Port、OVN DB は変更しない
+
+隔離 OVN/OVS topology:
+
+```text
+private NB/SB DB + ovn-northd
+        ├─ Chassis kim-g01-260810
+        │    └─ Port kimport31 (198.18.253.1/30)
+        └─ Chassis kim-g02-260810
+             └─ Port kimport37 (198.18.253.2/30)
+
+private kernel OVS datapath
+        └─ OVN-generated Geneve Interface
+             local_ip / remote_ip = isolated endpoint pair
+```
+
+両 Port Binding は別 Chassis に bind され、`up=true` へ収束しました。両 Host の private OVSDB で、`ovn-controller` が次の Geneve Interface を生成したことを read-backしました。
+
+| Host | local_ip | remote_ip | type |
+|---|---|---|---|
+| g01 | `169.254.231.2` | `169.254.232.2` | `geneve` |
+| g02 | `169.254.232.2` | `169.254.231.2` | `geneve` |
+
+packet-path result:
+
+| Direction | Probe | Result |
+|---|---|---|
+| g01 → g02 | ICMP 56-byte payload | 5 sent / 5 received / 0% loss |
+| g02 → g01 | ICMP 56-byte payload | 5 sent / 5 received / 0% loss |
+| g01 → g02 | DF、1372-byte payload、1400-byte inner packet | 3 sent / 3 received / 0% loss |
+| g02 → g01 | DF、1372-byte payload、1400-byte inner packet | 3 sent / 3 received / 0% loss |
+
+両 production management Interface 上の `tcpdump udp port 6081` で、OVN-generated VNI `0x1`、inner source/destination Port IP、request/reply packet を確認しました。capture は両端とも kernel drop 0 でした。
+
+この試験により、次を一続きで確認しました。
+
+```text
+isolated OVN Logical Port / Port Binding
+→ separate Chassis
+→ ovn-controller generated Geneve Interface
+→ management underlay transport
+→ remote Geneve decapsulation
+→ destination Logical Port
+```
+
+この PASS は隔離 OVN profile の 2 物理 Host packet-path qualification です。production OVN DB の変更、production Port Binding、tenant L3 reachability、Guest readiness、application health の証明には昇格しません。
+
+cleanup 後、両 Host で試験 namespace、veth、route、private DB/process/socket、test bridge/Port/Geneve Interface が存在しないことを確認しました。production `ovn-encap-ip=127.0.0.1`、`ovn-remote`、OVS external IDs、kernel datapath、management IP/route は試験前の状態を維持しています。
+
 ## Validation result
 
 - `go test ./internal/network/ovnadapter ./internal/persistence/postgres`: PASS
@@ -89,5 +148,6 @@ VERIFIED / DEGRADED / CONFLICTING / UNKNOWN
 - `kvm-base-g01-n001-p.core.s01.si1230.com`、Linux kernel 7.0.0-28-generic、isolated Geneve fixture: PASS
 - network namespace / temporary fixture: test cleanup により削除
 - 実 2 Host kernel Geneve cross-chassis qualification: PASS
+- 実 2 Host の隔離 OVN-generated Port-bound Geneve / MTU 1400 qualification: PASS
 - cleanup / OVS configuration non-interference verification: PASS
-- OVN-generated current Port-bound cross-chassis qualification: 未実施、残 gate
+- production OVN runtime と current KIM Port authority を結合した qualification: 未実施。隔離 qualification の PASS へ暗黙昇格しない
