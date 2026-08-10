@@ -14,7 +14,8 @@ type OVNPortIntentRequest struct {
 
 type OVNPortIntentDecision struct {
 	IntentID, PortID, ObjectSetDigest string
-	IntentGeneration                  uint64
+	IntentGeneration, PortGeneration  uint64
+	BindingGeneration                 uint64
 	CanonicalObjectSet                []byte
 }
 
@@ -27,11 +28,11 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		var projectID, networkID, segmentID, hostID, mac, ip string
+		var projectID, networkID, segmentID, hostID, ovnChassisName, mac, ip string
 		var networkGeneration, portGeneration, segmentGeneration, mappingGeneration, bindingGeneration int64
 		if err := tx.QueryRow(ctx, `
 			SELECT port.project_id,port.network_id,network.network_generation,port.port_generation,
-			 binding.segment_claim_id,segment.segment_generation,mapping.mapping_generation,binding.binding_generation,binding.host_id,
+			 binding.segment_claim_id,segment.segment_generation,mapping.mapping_generation,binding.binding_generation,binding.host_id,mapping.ovn_chassis_name,
 			 mac.mac_address::text,host(ip.ip_address)::text
 			FROM kim.network_ports_current port
 			JOIN kim.networks_current network ON network.network_id=port.network_id AND network.lifecycle_state='ACTIVE'
@@ -46,7 +47,7 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 			 AND ip.claim_state IN ('RESERVED','ACTIVE')
 			WHERE port.port_id=$1 AND port.desired_state IN ('RESERVED','BINDING','ACTIVE')
 			FOR UPDATE OF port,binding
-		`, request.PortID).Scan(&projectID, &networkID, &networkGeneration, &portGeneration, &segmentID, &segmentGeneration, &mappingGeneration, &bindingGeneration, &hostID, &mac, &ip); err != nil {
+		`, request.PortID).Scan(&projectID, &networkID, &networkGeneration, &portGeneration, &segmentID, &segmentGeneration, &mappingGeneration, &bindingGeneration, &hostID, &ovnChassisName, &mac, &ip); err != nil {
 			return ErrPlacementConflict
 		}
 		plan, digest, err := ovnadapter.PlanPort(ovnadapter.PortIntentInput{
@@ -55,7 +56,7 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 			PortID: request.PortID, PortGeneration: uint64(portGeneration),
 			SegmentClaimID: segmentID, SegmentGeneration: uint64(segmentGeneration),
 			HostMappingGeneration: uint64(mappingGeneration), BindingGeneration: uint64(bindingGeneration),
-			HostID: hostID, MACAddress: mac, IPAddress: ip,
+			HostID: hostID, OVNChassisName: ovnChassisName, MACAddress: mac, IPAddress: ip,
 		})
 		if err != nil {
 			return ErrPlacementConflict
@@ -97,7 +98,8 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 		if err != nil {
 			return err
 		}
-		decision = OVNPortIntentDecision{IntentID: request.IntentID, PortID: request.PortID, ObjectSetDigest: digest, IntentGeneration: request.IntentGeneration, CanonicalObjectSet: plan}
+		decision = OVNPortIntentDecision{IntentID: request.IntentID, PortID: request.PortID, ObjectSetDigest: digest,
+			IntentGeneration: request.IntentGeneration, PortGeneration: uint64(portGeneration), BindingGeneration: uint64(bindingGeneration), CanonicalObjectSet: plan}
 		return nil
 	})
 	return decision, err

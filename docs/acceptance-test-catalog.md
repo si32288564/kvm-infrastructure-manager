@@ -280,6 +280,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-031 | 異なる current Host の source/destination Port、両端 control-plane/chassis/mapping authority、Geneve interface identity を再検証し、方向付き probe の送信 packet が全て受信された immutable evidence だけを directed tunnel projection の `VERIFIED` へ昇格する。単一 Host 上の隔離 2 endpoint fixture は parser/kernel packet-path validation に限定し、実 2 Host qualification として記録しない |
 | AT-NET-032 | Automatic IPAM の dry evaluation が authority row を変更せず、Final Admission が bounded IPv4 pool から excluded/protected identity を避けた concrete IP/MAC を Port/Binding/他 resource Claim と同一 transaction で確保する。stable request replay は同じ Admission/identity に収束する |
 | AT-NET-033 | Port release 後の UNKNOWN、同一/旧 observation generation、最初の clean absence evidence では identity を `QUARANTINED` に維持し、二つ目の独立した current clean evidence 後だけ `RELEASED` にする。quarantine 中の explicit reuse は拒否し、release 後の reuse は一意に成功する |
+| AT-NET-034 | 同一 Network generation の二つの Port intent が同じ deterministic Logical Switch identity/Network marker と、別々の Logical Switch Port identity/Port intent markerを生成し、順次 reconcile 後も共有 Logical Switch に Port intent markerを残さない |
+| AT-NET-035 | production-shape OVN runtime が current Host mapping の Chassis reference、v2 typed plan、object-set digest を検証し、standard OVN CLI の単一 NB transactionで applyした後に NB/SB/chassisをread-backする。apply response lossでも同じ objectsへ収束し、foreign marker、plain TCP、非標準 executableをmutation前に拒否する |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |

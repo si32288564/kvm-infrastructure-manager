@@ -202,6 +202,10 @@ Network Controller Adapterは`plan -> apply -> observe`のtyped contractを実�
 - observeはNB object、SB binding/logical flow、chassis/datapath、Host observationを別generation/freshnessで返します。
 - adapterはCore DB/Allocationへwriteせず、任意OVN command/object/columnを受け取りません。
 
+共有 object と Port object の ownership は分離します。Logical Switch は Network ID/generation の stable markerだけを持ち、Logical Switch Port は Port intent ID/generation/object-set digest を持ちます。同一 Network の二つの Port intent が同じ Logical Switchを参照しても、後から適用した Port が共有 Logical Switchを自分の Port intentとして上書きしてはなりません。
+
+Production runtime は current `HostNetworkMapping` に bind された OVN Chassis nameをtyped planへ固定します。adapter設定は管理者管理の `unix:` またはcredential付き `ssl:` NB/SB endpoint、standard `ovn-nbctl`/`ovn-sbctl` path、bounded command timeoutだけを許可します。Port/API payloadからDB endpoint、CLI path、OVN table/column、argvを受け取りません。apply前にdeterministic object nameのownership markerをread-backし、foreign/conflicting objectを上書きしません。apply responseがtimeout/lostでも別objectまたは反対operationへ進まず、同じNetwork/LSP marker、object digest、SB Port Binding/datapath/chassisを再読込します。
+
 Port intent、NB observation、SB observation はそれぞれ immutable evidence として保持し、current OVN projection は current Network/Port/Segment/Host mapping/Binding generation との一致から再構築します。apply response を失っても stable KIM ownership marker、intent generation、object digest を使って同じ NB object を read-back し、反対 operation を発行しません。NB/SB 収束は Host-side OVS dataplane、end-to-end reachability、Guest readiness を暗黙に進めません。
 
 KIM所有markerのないobject、unknown generation、外部管理objectを自動adopt/deleteしません。intent driftはowned objectだけをtyped reconcileし、ownership conflictは`CONFLICTING/QUARANTINED`にします。

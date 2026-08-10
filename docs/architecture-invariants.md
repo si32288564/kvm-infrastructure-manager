@@ -182,6 +182,8 @@
 | INV-NET-027 | directed Geneve tunnel を `VERIFIED` にするには、異なる current Host に bind された source/destination Port、両端の `CONTROL_PLANE_CONVERGED`、current mapping/chassis evidence、tunnel interface identity、送受信 packet evidence を同一 generation scope で再検証しなければならない。単一 Host fixture または Encap registration を実 2 Host qualification に昇格させてはならない | AT-NET-031, FI-NET-023 |
 | INV-NET-028 | Automatic IPAM の dry evaluation は Claim を作らず、Final Admission だけが Subnet/Network scope を直列化して protected identity state を除外し、Port/IP/MAC/Binding と不可分に concrete identity を確保する | AT-NET-032, FI-NET-024 |
 | INV-NET-029 | `RELEASE_PENDING`、`QUARANTINED`、`UNKNOWN` の Network identity を再利用せず、current generation に対する二つの独立した完全 absence observation が単調増加するまで `RELEASED` にしない。`RELEASED` は stale/new evidence で逆戻りさせない | AT-NET-033, FI-NET-024 |
+| INV-NET-030 | 共有 OVN Logical Switch は Network generation の stable ownership marker だけを持ち、Port 固有 intent/digest marker は Logical Switch Port に限定する。同一 Network の別 Port が共有 object ownership を変更してはならない | AT-NET-034, FI-NET-025 |
+| INV-NET-031 | OVN runtime は caller supplied command/column/DB endpoint を受け取らず、current typed plan と管理者設定の secure endpointだけを標準 OVN CLI へ変換する。apply timeout/response lossを非実行証明にせず、stable object/marker read-backで解決する | AT-NET-035, FI-NET-025 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

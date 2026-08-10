@@ -65,6 +65,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := UpsertHostNetworkMapping(ctx, pool, HostNetworkMapping{
 		HostID: hostID, SegmentClaimID: segmentClaimID, Generation: 1,
 		State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS", "SRIOV_DIRECT"},
+		OVNChassisName: "ovn-chassis-" + suffix,
 	}); err != nil {
 		t.Fatal(err)
 	}

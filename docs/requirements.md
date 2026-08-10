@@ -284,6 +284,8 @@
 | NET-042 | cross-chassis Geneve packet path は、異なる current Host/Port/chassis authority、current mapping generation、両端 tunnel interface identity、方向付き packet probe の immutable evidence から評価する。Encap registration または control-plane convergence だけで tunnel traffic を証明せず、tunnel verification から tenant L3 reachability、Guest readiness、application health を主張しない | Must |
 | NET-043 | Automatic IPAM は dry Eligibility で候補の存在だけを無副作用に評価し、Final Admission の同一 PostgreSQL transaction 内で current Subnet generation、除外範囲、競合 Claim を再検証して具体的な IP/MAC Claim を確定する | Must |
 | NET-044 | Network identity の release request、timeout、単一 observation を absence の証明にせず、current Port/Binding/OVN NB/SB/Host absence の独立した連続 evidence が揃うまで `RELEASE_PENDING` または `QUARANTINED` として再利用を禁止する | Must |
+| NET-045 | OVN Logical Switch の ownership を Network ID/generation、Logical Switch Port の ownership を Port intent ID/generation/digest に分離し、同一 Network の複数 Port realization が共有 Logical Switch marker を上書きしない | Must |
+| NET-046 | Production OVN adapter は current Host mapping の OVN Chassis reference と immutable typed plan だけを受け取り、標準 `ovn-nbctl`/`ovn-sbctl`、`unix:` または authenticated `ssl:` DB endpoint、bounded timeout、ownership pre-read、apply後 read-back を強制する | Must |
 
 ### 2.13 NFV Dataplane
 

@@ -22,6 +22,7 @@ type NetworkFoundation struct {
 
 type HostNetworkMapping struct {
 	HostID, SegmentClaimID, State string
+	OVNChassisName                string
 	Generation                    uint64
 	MaximumMTU                    uint32
 	SupportedBindingTypes         []string
@@ -122,6 +123,9 @@ func UpsertHostNetworkMapping(ctx context.Context, db TxBeginner, mapping HostNe
 		if bindingType != "OVS" && bindingType != "SRIOV_DIRECT" {
 			return errors.New("unsupported Host Network binding type")
 		}
+		if bindingType == "OVS" && mapping.OVNChassisName == "" {
+			return errors.New("OVS Host Network mapping requires an OVN Chassis name")
+		}
 	}
 	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
@@ -133,17 +137,18 @@ func UpsertHostNetworkMapping(ctx context.Context, db TxBeginner, mapping HostNe
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO kim.host_network_mappings_current (
 				host_id, segment_claim_id, mapping_generation, mapping_state, maximum_mtu,
-				supported_binding_types
-			) VALUES ($1,$2,$3,$4,$5,$6)
+				supported_binding_types, ovn_chassis_name
+			) VALUES ($1,$2,$3,$4,$5,$6,$7)
 			ON CONFLICT (host_id, segment_claim_id) DO UPDATE SET
 				mapping_generation=EXCLUDED.mapping_generation,
 				mapping_state=EXCLUDED.mapping_state,
 				maximum_mtu=EXCLUDED.maximum_mtu,
 				supported_binding_types=EXCLUDED.supported_binding_types,
+				ovn_chassis_name=EXCLUDED.ovn_chassis_name,
 				updated_at=statement_timestamp()
 			WHERE kim.host_network_mappings_current.mapping_generation < EXCLUDED.mapping_generation
 		`, mapping.HostID, mapping.SegmentClaimID, mapping.Generation, mapping.State,
-			mapping.MaximumMTU, mapping.SupportedBindingTypes)
+			mapping.MaximumMTU, mapping.SupportedBindingTypes, mapping.OVNChassisName)
 		if err != nil {
 			return err
 		}

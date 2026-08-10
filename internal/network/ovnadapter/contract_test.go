@@ -2,11 +2,12 @@ package ovnadapter
 
 import (
 	"bytes"
+	"maps"
 	"testing"
 )
 
 func TestClosedTypedPortPlanAndLayerStates(t *testing.T) {
-	input := PortIntentInput{IntentID: "intent-1", IntentGeneration: 1, ProjectID: "project", NetworkID: "network-1", NetworkGeneration: 1, PortID: "port-1", PortGeneration: 1, SegmentClaimID: "segment-1", SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, HostID: "host-1", MACAddress: "02:00:00:00:00:10", IPAddress: "192.0.2.10"}
+	input := PortIntentInput{IntentID: "intent-1", IntentGeneration: 1, ProjectID: "project", NetworkID: "network-1", NetworkGeneration: 1, PortID: "port-1", PortGeneration: 1, SegmentClaimID: "segment-1", SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, HostID: "host-1", OVNChassisName: "chassis-1", MACAddress: "02:00:00:00:00:10", IPAddress: "192.0.2.10"}
 	first, firstDigest, err := PlanPort(input)
 	if err != nil || len(firstDigest) != 64 {
 		t.Fatalf("plan=%s digest=%s err=%v", first, firstDigest, err)
@@ -17,6 +18,23 @@ func TestClosedTypedPortPlanAndLayerStates(t *testing.T) {
 	}
 	if bytes.Contains(first, []byte("ovn-nbctl")) || bytes.Contains(first, []byte("argv")) || bytes.Contains(first, []byte("raw_column")) {
 		t.Fatalf("typed plan exposed arbitrary OVN control: %s", first)
+	}
+	firstPlan, err := DecodePortPlan(first, firstDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPort := input
+	secondPort.IntentID, secondPort.PortID, secondPort.MACAddress, secondPort.IPAddress = "intent-2", "port-2", "02:00:00:00:00:11", "192.0.2.11"
+	secondPortRaw, secondPortDigest, err := PlanPort(secondPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPortPlan, err := DecodePortPlan(secondPortRaw, secondPortDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstPlan.LogicalSwitch != secondPortPlan.LogicalSwitch || !maps.Equal(firstPlan.NetworkExternalIDs, secondPortPlan.NetworkExternalIDs) || firstPlan.LogicalPort.Name == secondPortPlan.LogicalPort.Name || maps.Equal(firstPlan.PortExternalIDs, secondPortPlan.PortExternalIDs) {
+		t.Fatalf("shared Network/object-specific Port ownership is not separated: first=%#v second=%#v", firstPlan, secondPortPlan)
 	}
 	matched := Observation{OwnershipMarkerMatches: true, ObjectSetDigestMatches: true, LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, PortBindingPresent: true, DatapathPresent: true, ExpectedChassisMatches: true}
 	if matched.NBState() != "MATCHED" || matched.SBState() != "MATCHED" {
