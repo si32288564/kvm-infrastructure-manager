@@ -82,6 +82,7 @@
 | INV-CMP-001 | VM define plan は accepted Final Admission と current resource authority からのみ生成し、Image/Network 未実現を READY/RUNNING へ昇格せず、caller supplied XML/path/libvirt method/flagを受け入れない | AT-CMP-009 |
 | INV-CMP-002 | Domain `DEFINED` はboot readinessではなく、current generationのDomain/Image/Network/Storage evidenceがすべて収束するまでpower-on authorityを発行せず、stale component evidenceでreadinessを進めない | AT-CMP-010 |
 | INV-CMP-003 | Image `REALIZED` は Network realization または boot authority を暗黙に進めず、Network `PENDING` 中は boot readiness を `BLOCKED` に保つ | AT-CMP-011 |
+| INV-CMP-004 | READY 判定は current Domain/Storage/Image と required Port 全件の current evidence を再検証する transaction とし、その transaction からだけ typed RUNNING Command authority を発行する | AT-CMP-012 |
 
 ## 6. Execution
 
@@ -171,6 +172,8 @@
 | INV-NET-018 | backend-only/foreign OVN object、unknown interface/chassisを自動adopt/delete/unbindしない | FI-NET-016 |
 | INV-NET-019 | Provider mappingはphysical/WIM capability referenceでありswitch/WAN authorityをKIMへ移さない | AT-NET-015 |
 | INV-NET-020 | provider pool/gateway/force operation/Adoptionは個別permission/approval/auditを要求しraw topology/credentialをredactする | FI-NET-017 |
+| INV-NET-021 | Network Authority、pre-boot realization、post-boot dataplane convergence を相互に昇格させず、Boot READY は通信可能性ではなく power-on 発行可能性だけを意味する | AT-NET-026 |
+| INV-NET-022 | OVS Command は stable KIM identity/generation のみを含み、Agent 管理 provider mapping と standard OVS/libvirt read-backが一致するまでPortをpre-boot REALIZEDにしない | AT-NET-026 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

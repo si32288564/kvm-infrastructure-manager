@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/localimage"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/reconnect"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -46,6 +48,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	localLVMVGUUID := set.String("local-lvm-vg-uuid", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_UUID"), "allowed Local LVM VG UUID; empty disables Local LVM realization")
 	localLVMVGName := set.String("local-lvm-vg-name", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_NAME"), "admin-configured Local LVM VG name paired with the allowed UUID")
 	imageCacheRoot := set.String("image-cache-root", os.Getenv("KIM_AGENT_IMAGE_CACHE_ROOT"), "admin-configured digest-addressed verified Image cache root")
+	ovsMappings := set.String("ovs-segment-mappings", os.Getenv("KIM_AGENT_OVS_SEGMENT_MAPPINGS"), "comma-separated Segment Claim ID=OVS bridge mappings")
 	if err := set.Parse(args); err != nil {
 		return 2
 	}
@@ -107,12 +110,45 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "kim-host-agent Image cache error: Local LVM identity mapping is required")
 		return 2
 	}
+	if *ovsMappings != "" {
+		if *libvirtURI == "" {
+			fmt.Fprintln(stderr, "kim-host-agent OVS Network error: libvirt URI is required")
+			return 2
+		}
+		mappings, mappingErr := parseMappings(*ovsMappings)
+		if mappingErr != nil {
+			fmt.Fprintf(stderr, "kim-host-agent OVS Network error: %v\n", mappingErr)
+			return 2
+		}
+		backend, closeBackend, backendErr := ovsnetwork.New(*libvirtURI, mappings)
+		if backendErr != nil {
+			fmt.Fprintf(stderr, "kim-host-agent OVS Network error: %v\n", backendErr)
+			return 2
+		}
+		defer closeBackend()
+		executionBackends = append(executionBackends, backend)
+	}
 	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})
 	if err != nil {
 		fmt.Fprintf(stderr, "kim-host-agent stopped: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+func parseMappings(value string) (map[string]string, error) {
+	result := map[string]string{}
+	for _, entry := range strings.Split(value, ",") {
+		parts := strings.Split(entry, "=")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.ContainsAny(parts[1], "/ \t\n") {
+			return nil, fmt.Errorf("invalid Segment Claim mapping")
+		}
+		if _, exists := result[parts[0]]; exists {
+			return nil, fmt.Errorf("duplicate Segment Claim mapping")
+		}
+		result[parts[0]] = parts[1]
+	}
+	return result, nil
 }
 
 func loadTLS(caPath, certPath, keyPath, serverName string) (*tls.Config, error) {

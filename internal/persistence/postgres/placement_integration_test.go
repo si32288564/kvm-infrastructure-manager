@@ -81,6 +81,13 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: hostID, CapabilityGeneration: 1, BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED", ComplianceGeneration: 1, ComplianceState: "COMPLIANT"}); err != nil {
 		t.Fatal(err)
 	}
+	authority, err := ArmHostOperationAuthority(ctx, pool, HostAuthorityArmRequest{HostID: hostID, PolicyID: "placement-integration", PolicyGeneration: 1, ActorID: "placement-integration", ReasonCode: "placement_fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authority.AuthorityGeneration != 1 {
+		t.Fatalf("expected Host authority generation 1, got %d", authority.AuthorityGeneration)
+	}
 	if err := UpsertPlacementPool(ctx, pool, PlacementPoolBinding{PoolID: poolID, PoolGeneration: 1, LifecycleState: "ACTIVE", PolicyID: "default", PolicyGeneration: 1}); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +117,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			SubnetID: subnetID, SubnetGeneration: 1,
 			SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
 			IPAddress: "192.0.2.10", MACAddress: "02:00:00:00:00:10",
-			BindingType: "SRIOV_DIRECT", DeviceAddress: "0000:03:00.1", RequiredMTU: 1500,
+			BindingType: "OVS", RequiredMTU: 1500,
 		}},
 		Storage: []placement.StorageRequirement{{
 			VolumeID: "volume-" + suffix, AttachmentID: "attachment-" + suffix,
@@ -614,6 +621,40 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}
 	if imageState != "REALIZED" || networkState != "PENDING" || bootReadiness != "BLOCKED" || len(blockingReasons) != 1 || blockingReasons[0] != "network_pending" {
 		t.Fatalf("post-Image VM readiness = %s/%s/%s/%v", imageState, networkState, bootReadiness, blockingReasons)
+	}
+	ovsRequest := OVSPortRealizationRequest{VMID: vmMaterialization.VMID, PlanID: vmMaterialization.PlanID, PortID: winner.request.Network[0].PortID, JobID: "ovs-job-" + suffix, CommandID: "ovs-command-" + suffix}
+	ovsDecision, err := PrepareOVSPortRealization(ctx, pool, ovsRequest)
+	if err != nil || ovsDecision.HostID != hostID || len(ovsDecision.PayloadDigest) != 64 {
+		t.Fatalf("OVS decision=%#v err=%v", ovsDecision, err)
+	}
+	ovsObservationDigest := digestBytes([]byte("ovs-observation-" + suffix))
+	ovsVerifierDigest := digestBytes([]byte("ovs-verifier"))
+	ovsVerificationID := "ovs-verification-" + suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, ovsRequest.CommandID, hostID, digestBytes([]byte("ovs-lease"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, ovsRequest.CommandID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($1,$2,1,1,$3,'MATCHED',$4,jsonb_build_object('domain_uuid',$5::text,'vm_generation',1,'port_id',$6::text,'port_generation',1,'network_id',$7::text,'network_generation',1,'segment_claim_id',$8::text,'segment_generation',1,'host_mapping_generation',1,'binding_generation',1,'binding_type','OVS','mac_address',$9::text,'mtu',1500,'bridge_observed',true,'domain_nic_present',true,'domain_nic_identity_matches',true))`, ovsVerificationID, ovsRequest.CommandID, ovsObservationDigest, ovsVerifierDigest, vmMaterialization.VMID, winner.request.Network[0].PortID, networkID, segmentClaimID, winner.request.Network[0].MACAddress); err != nil {
+		t.Fatal(err)
+	}
+	ovsObservation := OVSPortRealizationObservation{EvidenceID: "ovs-evidence-" + suffix, VMID: vmMaterialization.VMID, VMGeneration: 1, PlanID: vmMaterialization.PlanID, HostID: hostID, PortID: winner.request.Network[0].PortID, PortGeneration: 1, NetworkID: networkID, NetworkGeneration: 1, SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, CommandID: ovsRequest.CommandID, AttemptIndex: 1, VerificationID: ovsVerificationID, ObservationGeneration: 1, ObservationDigest: ovsObservationDigest, VerifierDigest: ovsVerifierDigest, PowerJobID: "power-job-" + suffix, PowerCommandID: "power-command-" + suffix}
+	if err := AcceptOVSPortRealizationAndMaybeArmPower(ctx, pool, ovsObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptOVSPortRealizationAndMaybeArmPower(ctx, pool, ovsObservation); err != nil {
+		t.Fatalf("idempotent OVS realization/power authority replay: %v", err)
+	}
+	var desiredPower, powerType string
+	if err := pool.QueryRow(ctx, `SELECT ready.network_state,ready.boot_readiness,vm.desired_power_state,command.command_type FROM kim.vm_materialization_readiness_current ready JOIN kim.virtual_machines_current vm USING(vm_id) JOIN kim.execution_jobs job ON job.job_id=$2 JOIN kim.execution_commands command ON command.job_id=job.job_id WHERE ready.vm_id=$1`, vmMaterialization.VMID, ovsObservation.PowerJobID).Scan(&networkState, &bootReadiness, &desiredPower, &powerType); err != nil {
+		t.Fatal(err)
+	}
+	if networkState != "REALIZED" || bootReadiness != "READY" || desiredPower != "RUNNING" || powerType != "VIRTUAL_MACHINE_POWER_STATE_ENSURE" {
+		t.Fatalf("READY/power=%s/%s/%s/%s", networkState, bootReadiness, desiredPower, powerType)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.vm_network_port_realization_evidence SET preboot_state='UNKNOWN' WHERE evidence_id=$1`, ovsObservation.EvidenceID); err == nil {
+		t.Fatal("immutable OVS realization evidence accepted UPDATE")
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_image_realization_evidence SET observed_content_digest=$2 WHERE evidence_id=$1`, imageObservation.EvidenceID, digestBytes([]byte("forged-image"))); err == nil {
 		t.Fatal("immutable VM Image evidence accepted UPDATE")

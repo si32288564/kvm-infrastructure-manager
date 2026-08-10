@@ -1,0 +1,33 @@
+package ovsnetwork
+
+import (
+	"context"
+	"encoding/json"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
+	"testing"
+)
+
+type fakeClient struct{ nic NICObservation }
+
+func (*fakeClient) Bridge(context.Context, string) (string, bool, error)          { return "br-int", true, nil }
+func (c *fakeClient) NIC(context.Context, string, string) (NICObservation, error) { return c.nic, nil }
+func (c *fakeClient) AttachNIC(_ context.Context, _ string, n NICObservation) error {
+	c.nic = n
+	return nil
+}
+func TestClosedTypedOVSRealization(t *testing.T) {
+	client := &fakeClient{}
+	backend := Backend{client}
+	payload, _ := json.Marshal(map[string]any{"domain_uuid": "55555555-5555-4555-8555-555555555555", "vm_generation": 1, "port_id": "port-1", "port_generation": 1, "network_id": "network-1", "network_generation": 1, "segment_claim_id": "segment-1", "segment_generation": 1, "host_mapping_generation": 1, "binding_generation": 1, "mac_address": "02:00:00:00:00:10", "mtu": 1500, "binding_type": "OVS", "desired_state": "REALIZED"})
+	result, err := backend.Execute(context.Background(), contract.CommandLease{TargetResourceID: "port:port-1", CommandPayload: payload, AttemptIndex: 1})
+	if err != nil || result.Outcome != "SUCCEEDED" {
+		t.Fatalf("%#v %v", result, err)
+	}
+	var unsafe map[string]any
+	_ = json.Unmarshal(payload, &unsafe)
+	unsafe["bridge"] = "br-any"
+	payload, _ = json.Marshal(unsafe)
+	if _, err = backend.Execute(context.Background(), contract.CommandLease{TargetResourceID: "port:port-1", CommandPayload: payload}); err == nil {
+		t.Fatal("caller bridge accepted")
+	}
+}

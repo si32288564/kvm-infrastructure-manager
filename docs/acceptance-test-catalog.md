@@ -241,6 +241,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-CMP-009 | accepted Final Admission と current BOUND root Volume/RESERVED Attachment Claim から immutable VM plan と typed define Job/Command を不可分生成し、標準 libvirt inactive Domain XML read-backで同一plan/compute/root identityへ収束する |
 | AT-CMP-010 | typed Domain Verificationをimmutable evidenceとして受理してもImage/NetworkがPENDINGならDomain=DEFINED、Storage=BOUND、boot readiness=BLOCKEDを維持し、power-on authorityへ昇格しない |
 | AT-CMP-011 | current VM/Plan/Image/BOUND root Binding/RESERVED Attachment Claim と MATCHED Image Verification を同一 transaction で再検証し、Image を REALIZED に進めても Network PENDING なら boot readiness を BLOCKED に維持する |
+| AT-CMP-012 | required Port 全件の current pre-boot evidenceを集約し、Domain/Storage/Image/Host/Binding generationと同一transactionで再検証した場合だけREADYとtyped RUNNING Job/Commandを不可分生成する |
 | AT-IMG-001 | qcow2/raw image lifecycle、visibility、Project accessを検証する |
 | AT-IMG-002 | checksum/signature不一致imageをcache/boot前に拒否する |
 | AT-IMG-003 | caller supplied URI/path/argv を拒否し、digest-addressed verified RAW cache artifact を identity-verified Local LVM root Volume へ bounded copy/fsync した後、target から再計算した SHA-256、VG/LV UUID、holder absence が一致する場合だけ immutable realization evidence を受理する。QCOW2 direct-copy は拒否する |
@@ -270,6 +271,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-023 | provider pool/gateway/force operation/Adoptionを個別permission/approval/auditで保護する |
 | AT-NET-024 | Network Event/APIがlayer/binding/intent generationを保持しraw OVN/Host/physical identityをredactする |
 | AT-NET-025 | Network adapterがtyped intent、UNKNOWN/read-back、ownership、secret/redaction contractへ適合する |
+| AT-NET-026 | OVS Port Commandがbridge/XML/path/argvを受け付けず、Agent管理mappingのstandard OVS bridgeとinactive libvirt NIC identityをread-backしてimmutable pre-boot evidenceへ収束し、dataplane convergenceを主張しない |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |

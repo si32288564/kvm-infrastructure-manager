@@ -221,6 +221,7 @@
 | CMP-011 | VM materialization は accepted Final Admission と current Compute/Volume Binding/Attachment Claim から immutable plan と Job/Command を不可分生成し、closed typed libvirt define と inactive Domain read-back で収束する | Must |
 | CMP-012 | VM materialization readiness は Domain、Image、Network、Storage を独立状態として評価し、全required componentのcurrent typed evidenceが揃うまでboot/power-on authorityをfail closedにする | Must |
 | CMP-013 | Image materialization 成功だけでは VM を boot ready にせず、current Network realization evidence が未確定なら `BLOCKED` を維持する | Must |
+| CMP-014 | current VM/Plan と全 required component/Port evidence を同一 PostgreSQL transaction で再検証し、Boot Readiness `READY` と typed power-on Job/Command authority を不可分に生成する | Must |
 
 ### 2.11 Scheduler
 
@@ -273,6 +274,8 @@
 | NET-033 | backend-only/foreign OVN object、unknown Host interface/chassis bindingを自動adopt/delete/unbindしない | Must |
 | NET-034 | Network adapter credential、raw topologyを秘匿し、provider pool/gateway/force operation/Adoptionを個別permission/approvalで保護する | Must |
 | NET-035 | Network Event/APIでintent/binding/layer generationとbounded reasonを公開しraw OVN/Host/physical identityをredactする | Must |
+| NET-036 | Network Authority、pre-boot realization、post-boot dataplane convergence を独立状態として保持し、Port RESERVED や NIC realization を dataplane convergence とみなさない | Must |
+| NET-037 | OVS pre-boot realization は Agent 管理の Segment-to-Bridge mapping、standard OVS bridge observation、inactive libvirt NIC identity の typed read-back で確定し、Command から bridge 名/XML/path/argv を受け取らない | Must |
 
 ### 2.13 NFV Dataplane
 
