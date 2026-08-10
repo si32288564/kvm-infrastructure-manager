@@ -238,6 +238,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 |---|---|
 | AT-CMP-001 | VM create/start/stop/reboot/deleteがdesired→execution→observationで収束する |
 | AT-CMP-008 | console accessが短寿命、一回用途、Project scope、監査付きである |
+| AT-CMP-009 | accepted Final Admission と current BOUND root Volume/RESERVED Attachment Claim から immutable VM plan と typed define Job/Command を不可分生成し、標準 libvirt inactive Domain XML read-backで同一plan/compute/root identityへ収束する |
 | AT-IMG-001 | qcow2/raw image lifecycle、visibility、Project accessを検証する |
 | AT-IMG-002 | checksum/signature不一致imageをcache/boot前に拒否する |
 | AT-FLV-001 | FlavorのCPU/RAM/disk/NUMA/HugePages/pinning要求をplacementへ完全伝播する |

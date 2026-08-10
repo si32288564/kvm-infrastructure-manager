@@ -117,7 +117,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 			BackendID: storageBackendID, BackendGeneration: 1, VGUUID: vgUUID,
 			StorageClassID: storageClassID, StorageClassRevision: 1,
 			CapacityGeneration: 1, AttachmentGeneration: 1, FencingPolicyRevision: 1,
-			SizeBytes: 8 << 30, AccessMode: "SINGLE_WRITER",
+			SizeBytes: 8 << 30, AccessMode: "SINGLE_WRITER", Bootable: true,
 		}},
 	}
 	excludedRequest := request
@@ -444,6 +444,43 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}
 	if bindingState != "BOUND" || currentLVUUID != localLVUUID {
 		t.Fatalf("current Local LVM binding = %s/%s", bindingState, currentLVUUID)
+	}
+	vmMaterialization := VMMaterializationRequest{
+		VMID: "55555555-5555-4555-8555-555555555555", AdmissionID: winner.admission.AdmissionID,
+		PlanID: "vm-plan-" + suffix, JobID: "vm-define-job-" + suffix,
+		CommandID: "vm-define-command-" + suffix,
+	}
+	vmDecision, err := PrepareVMMaterialization(ctx, pool, vmMaterialization)
+	if err != nil || vmDecision.HostID != hostID || len(vmDecision.PlanDigest) != 64 {
+		t.Fatalf("VM materialization decision/error = %#v/%v", vmDecision, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.compute_allocation_claims SET claim_state='ALLOCATED' WHERE admission_id=$1`, winner.admission.AdmissionID); err != nil {
+		t.Fatal(err)
+	}
+	replayedVMDecision, err := PrepareVMMaterialization(ctx, pool, vmMaterialization)
+	if err != nil || replayedVMDecision != vmDecision {
+		t.Fatalf("idempotent VM materialization = %#v/%v, want %#v", replayedVMDecision, err, vmDecision)
+	}
+	var vmLifecycle, commandType, commandState, imageMaterialization, networkRealization string
+	if err := pool.QueryRow(ctx, `
+		SELECT vm.lifecycle_state, command.command_type, current.command_state,
+		       plan.plan_payload->>'image_materialization_state',
+		       plan.plan_payload->>'network_realization_state'
+		FROM kim.virtual_machines_current vm
+		JOIN kim.vm_materialization_plan_evidence plan ON plan.plan_id=vm.current_plan_id
+		JOIN kim.execution_jobs job ON job.resource_id=vm.vm_id::text
+		JOIN kim.execution_commands command ON command.job_id=job.job_id
+		JOIN kim.execution_commands_current current USING (command_id)
+		WHERE vm.vm_id=$1
+	`, vmMaterialization.VMID).Scan(&vmLifecycle, &commandType, &commandState,
+		&imageMaterialization, &networkRealization); err != nil {
+		t.Fatal(err)
+	}
+	if vmLifecycle != "MATERIALIZATION_PENDING" || commandType != "VIRTUAL_MACHINE_DEFINE" || commandState != "PENDING" || imageMaterialization != "PENDING" || networkRealization != "PENDING" {
+		t.Fatalf("VM materialization authority = %s/%s/%s/%s/%s", vmLifecycle, commandType, commandState, imageMaterialization, networkRealization)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.vm_materialization_plan_evidence SET plan_digest=$2 WHERE plan_id=$1`, vmMaterialization.PlanID, digestBytes([]byte("forged-plan"))); err == nil {
+		t.Fatal("immutable VM materialization plan accepted UPDATE")
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.volume_backend_binding_evidence SET lv_uuid='forged' WHERE binding_id=$1`, winnerBindingID); err == nil {
 		t.Fatal("immutable Local LVM binding evidence accepted UPDATE")

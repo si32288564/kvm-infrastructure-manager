@@ -15,6 +15,7 @@ import (
 
 	agentexecution "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtdomain"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
@@ -88,6 +89,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			defer closeAttachmentBackend()
 			executionBackends = append(executionBackends, attachmentBackend)
+			vmBackend, closeVMBackend, vmErr := libvirtvm.New(*libvirtURI, libvirtvolume.LocalLVMResolver{Client: client, VolumeGroups: volumeGroups})
+			if vmErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent libvirt VM error: %v\n", vmErr)
+				return 2
+			}
+			defer closeVMBackend()
+			executionBackends = append(executionBackends, vmBackend)
 		}
 	}
 	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})

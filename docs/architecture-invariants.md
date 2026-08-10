@@ -74,6 +74,12 @@
 | INV-FLV-001 | Flavor revision は immutable canonical shape とし、vCPU、memory、root disk、NUMA、HugePages、CPU allocation/pinning、extra specs を欠落なく Placement Request へ伝播する | AT-FLV-001 |
 | INV-FLV-002 | Image/Flavor catalog mutation は `ACTIVE` database authority でのみ行い、`RECOVERY_READ_ONLY` では fail closed とする | FI-DATA-015 |
 
+### VM Materialization
+
+| ID | Invariant | 主な検証 |
+|---|---|---|
+| INV-CMP-001 | VM define plan は accepted Final Admission と current resource authority からのみ生成し、Image/Network 未実現を READY/RUNNING へ昇格せず、caller supplied XML/path/libvirt method/flagを受け入れない | AT-CMP-009 |
+
 ## 6. Execution
 
 | ID | Invariant | 主な検証 |

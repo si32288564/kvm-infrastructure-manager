@@ -66,6 +66,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"volume_backend_bindings_current",
 		"volume_attachment_observation_evidence",
 		"volume_attachment_observations_current",
+		"virtual_machines_current",
+		"vm_materialization_plan_evidence",
 	}
 	for _, table := range requiredTables {
 		var exists bool

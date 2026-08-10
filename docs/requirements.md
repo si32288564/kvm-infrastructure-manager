@@ -217,6 +217,7 @@
 | CMP-008 | VM コンソールへ期限付きでアクセスできる | Should |
 | CMP-009 | VM ごとに cold、live、restart-on-other-host、none の migration capability と不適格理由を評価できる | Should |
 | CMP-010 | VM power-state mutation を closed typed Command と標準 libvirt API に限定し、Agent process lossで Result が不明な場合は Domain UUID/state の read-back evidence で解決する | Must |
+| CMP-011 | VM materialization は accepted Final Admission と current Compute/Volume Binding/Attachment Claim から immutable plan と Job/Command を不可分生成し、closed typed libvirt define と inactive Domain read-back で収束する | Must |
 
 ### 2.11 Scheduler
 
