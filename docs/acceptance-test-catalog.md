@@ -390,6 +390,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-028 | Feature Gate DAGのcycle/conflictを拒否しtopological activationとdependency closure逆順rollbackを行う |
 | AT-UPG-029 | 実 `kim-network-worker` の N-1/N mixed-version を明示 compatibility edge と immutable artifact/schema evidence で許可する。N-1 drain 中は v2 work schema activation を拒否し、N-1 `STOPPED` 後だけ gate を開く。N worker だけが v2 work を release binding generation 付きで claim し、edge のない N-2 を `INCOMPATIBLE/FENCED` として claim pool から除外する |
 | AT-UPG-030 | N-1 hard drain と同期 PostgreSQL primary kill を rolling upgrade 中に重ね、promoted primary 上の N worker が expired Attempt を `DISPATCH_UNKNOWN`、successor claim を `READ_BACK_FIRST` として single physical apply に収束する。edge/Manifest distrust 後は old binding generation を fence し、v2 activation と v1 rollback の両方を immutable schema transition evidence と current participant check 付きで実行する |
+| AT-UPG-031 | product-wide Campaign / immutable Plan / ordered Wave / Target snapshotを component DAG、verified provenance、SBOM digestへ bindする。Coordinator claim generation 1 の expiry後、generation 2 が `RECOVER_FROM_DB` で accepted target evidenceを継承し、stale Resultを拒否する。canary全成功は次 Waveへ`ROLLING`、failure threshold超過は`PAUSED`とする |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 | AT-DEPLOY-001 | Control Plane の署名済み containerized artifact を manifest と support profile に従って導入できる |
 | AT-DEPLOY-002 | Kubernetes を使用しない supported deployment でも同一 Control Plane binary、schema、authority semantics を維持する |

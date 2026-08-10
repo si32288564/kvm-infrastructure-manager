@@ -144,6 +144,10 @@ UpgradeCampaign
 
 すべてのtransition、decision、approval、Attempt、Result、Observationはappend-only evidenceを残します。summaryは更新できますが過去の失敗/UNKNOWNを改変しません。
 
+Plan publish時にcomponent graphを閉じたcomponent typeのacyclic graphとして検証し、各Targetがgraph node、target Manifest revision、verified provenance snapshot内artifact digestへ一致することを要求します。provenance snapshotはbuilder、bundle digest、signature verificationを持ち、SBOM snapshot digestとともにPlan digestへbindします。Waveはordinal、type、`max_unavailable`、failure threshold、immutable Target snapshotを持ち、dryな候補集合やprocess-local queueをrollout authorityにしません。
+
+CoordinatorはCampaignごとのDB claim generationを取得します。claim expiryは将来のcoordinator authorityを終わらせますが、Target side effect不在の証明ではありません。successorはgenerationを進め、同じPlan revision、Target Result、Event evidenceから`RECOVER_FROM_DB`します。old owner/generationのResultとDecisionはcurrent Campaignを進めません。canary DecisionはTarget snapshot全体の`SUCCEEDED / FAILED / UNKNOWN / PENDING`とthresholdをimmutable evidenceへ固定し、全成功時だけ次Waveへ進み、threshold超過時は`PAUSED`、未確定時は`HOLD`を維持します。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。
@@ -306,7 +310,7 @@ abortは未開始waveを止め、active targetを安全な境界まで収束さ�
 | protocol/Command schema mismatch | session/Command拒否、down-convert/silent fallback禁止 |
 | extension/backend incompatibility | affected capability scopeをineligible、Core authority維持 |
 | verification threshold超過 | later wave停止、current evidenceに基づきrollback/forward repair判断 |
-| coordinator failover | durable Campaign/Lease/Receiptから再開、in-memory progress不使用 |
+| coordinator failover / claim expiry | old generationをfenceし、durable Plan/Target Result/Eventから`RECOVER_FROM_DB`。expiryをside effect不在としない |
 | rollback outcome unknown | target隔離、read-back、反対方向の再適用禁止 |
 
 既存VMの稼働継続はControl Plane upgrade成功の証拠ではありません。一方、Control Plane/Agent upgrade failureを理由に既存VMを停止、再作成、別Hostへ移動しません。

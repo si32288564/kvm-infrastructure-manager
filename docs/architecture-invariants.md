@@ -394,6 +394,7 @@
 | INV-UPG-021 | Feature Gate dependency graphのcycle/未充足/conflictを拒否しdependency-aware orderを迂回しない | FI-UPG-018 |
 | INV-UPG-022 | OVN runtime work claim は current `ReleaseManifest`、明示 N/N-1 edge、artifact digest、supported work schema、immutable `CompatibilityDecision` と current component binding generation を要求する。`DRAINING` は new claim を停止して current claim を revoke せず、active/draining participant が理解できない schema の FeatureGate activation と、edge のない N-2 component の claim を拒否する | AT-UPG-029, FI-UPG-019 |
 | INV-UPG-023 | Manifest または compatibility edge の distrust は immutable evidence と new `CompatibilityDecision` を追記して current binding generation を `INCOMPATIBLE/FENCED` へ進める。過去の Manifest、edge、Decision、Attempt を改変せず、既 grant claim の非実行を推測しない。FeatureGate rollback も current participant compatibility を再検証し immutable schema transition evidence を残す。同一 Site PostgreSQL HA failover はこの authority generation と evidence を RPO 0 で維持する | AT-UPG-030, FI-UPG-020 |
+| INV-UPG-024 | product-wide Upgrade Campaign は immutable Plan revision、acyclic component graph、verified artifact provenance / SBOM、ordered Wave、Target snapshot、canary threshold を PostgreSQL authority として保持する。Coordinator claim expiry / restart は target side effect 不在を意味せず、successor は同じ Plan と accepted target evidence から `RECOVER_FROM_DB` する。stale coordinator は Result / canary decisionを進めず、threshold 超過は `PAUSED`、全 canary 成功だけが次 Wave へ進む | AT-UPG-031, FI-UPG-021 |
 
 ## 18. Time and Clock Semantics
 
