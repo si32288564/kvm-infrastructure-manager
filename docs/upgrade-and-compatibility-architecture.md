@@ -150,6 +150,10 @@ CoordinatorはCampaignごとのDB claim generationを取得します。claim exp
 
 実 Coordinator process は local timer ではなく DB authority time で claim を renew し、各 renewal generation、prior/new expiry、fixed maximum expiry を immutable evidence へ残します。renewal response loss、process kill、DB connection loss を Campaign/Target 失敗へ丸めず、maximum lifetime を推測延長しません。同じ Target counts と evaluator digest に対する `HOLD` polling は同じ Decision へ収束させ、poll frequency を append-only evidence amplification へ変えません。同一 Site HA では renewed expiry と Decision を同期複製し、promoted primary で expiry 前 takeover を拒否します。
 
+Target execution は Coordinator process 内の関数呼び出しではありません。`kim-upgrade-target-executor` は current Campaign / Wave と current Coordinator claim generation に bind された Target Attempt を DB-time Lease 付きで取得します。Attempt 1 は `APPLY_ALLOWED`、曖昧な prior Attempt を持つ successor は `READ_BACK_FIRST` です。process kill、Lease expiry、Result response loss は component side effect 不在を意味しません。successor は typed backend の current state を read-back し、`MATCHED` の場合は再 apply せず immutable Observation / Result evidence から収束します。`ABSENT` の場合だけ current claim transaction が apply authority を発行します。
+
+Developer Preview の最初の closed backend は KIM-owned state marker です。Target ID から path を導出し、Target payload から path、argv、package manager command、service name を受け取りません。これは Target execution authority と fault semantics の qualification backend であり、実 component package/service replacement の certification ではありません。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。

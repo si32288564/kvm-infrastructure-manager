@@ -223,6 +223,10 @@ func PublishUpgradeCampaignPlan(ctx context.Context, db TxBeginner, request Upgr
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_targets_current(target_id,target_state) VALUES($1,'PENDING')`, target.TargetID); err != nil {
 				return err
 			}
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_target_executions_current(target_id,execution_state)
+				VALUES($1,'PENDING')`, target.TargetID); err != nil {
+				return err
+			}
 		}
 		command, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_campaigns_current(
 			campaign_id,plan_revision,campaign_generation,campaign_state,current_wave_id
