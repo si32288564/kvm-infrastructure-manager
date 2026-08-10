@@ -1,7 +1,7 @@
 # P1-C03 OVN Geneve Tunnel Verification
 
 日付: 2026-08-10  
-状態: Foundation PASS / 実 2 Host qualification pending / P1-C03 In Progress
+状態: Foundation PASS / 実 2 Host kernel Geneve qualification PASS / OVN-generated Port path pending / P1-C03 In Progress
 
 ## Scope
 
@@ -49,7 +49,38 @@ VERIFIED / DEGRADED / CONFLICTING / UNKNOWN
 - production uplink、MTU、firewall、routing profile
 - tenant end-to-end reachability、Guest readiness、application health
 
-したがって、実 2 Host cross-chassis qualification は P1-C03 の残 gate として維持します。
+## 実 2 物理 Host non-disruptive qualification
+
+次の 2 Host 間で、既存 OVS/OVN、VM、route、service を変更せず、専用の一時 kernel Geneve interface だけを使用して cross-chassis packet path を検証しました。
+
+- source: `kvm-base-g01-n001-p.core.s01.si1230.com` (`172.17.0.31`)
+- destination: `kvm-base-g02-n001-p.core.s01.si1230.com` (`172.17.0.37`、本番 Host)
+- VNI: `16777000`
+- UDP destination port: `16082`
+- temporary interface: `kimgv260810`
+- overlay: `198.18.255.0/30`
+- tunnel MTU: `1400`
+
+安全条件:
+
+- interface 名、overlay route/address、UDP port の衝突がないことを作成前に read-only で確認
+- 本番 Host の OVS/OVN configuration、bridge、Port、VM、NIC、route、firewall、service は変更しない
+- 両 SSH session に `EXIT/HUP/INT/TERM` cleanup trap を設定し、失敗時も一時 interface を削除
+- 試験後に interface、overlay address/route、UDP listener が存在しないことを確認
+- 試験前後で両 Host の OVS external IDs が不変であることを確認
+
+結果:
+
+| Direction | Probe | Result |
+|---|---|---|
+| g01 → g02 | ICMP 56-byte payload | 5 sent / 5 received / 0% loss |
+| g02 → g01 | ICMP 56-byte payload | 5 sent / 5 received / 0% loss |
+| g01 → g02 | DF、1372-byte payload、1400-byte inner packet | 3 sent / 3 received / 0% loss |
+| g02 → g01 | DF、1372-byte payload、1400-byte inner packet | 3 sent / 3 received / 0% loss |
+
+この試験により、2 物理 Host 間の management underlay 上で Linux kernel Geneve transport と MTU 1400 の双方向 packet path を確認しました。
+
+ただし、両 Host の既存 `ovn-encap-ip` は `127.0.0.1` であり、今回の専用 interface は OVN controller が生成したものではありません。したがって、current KIM Port/Chassis authority に結び付く OVN-generated cross-chassis tunnel、production uplink profile、tenant end-to-end reachability は引き続き未証明です。
 
 ## Validation result
 
@@ -57,4 +88,6 @@ VERIFIED / DEGRADED / CONFLICTING / UNKNOWN
 - fresh PostgreSQL 17、migration 001〜026、全 persistence integration: PASS
 - `kvm-base-g01-n001-p.core.s01.si1230.com`、Linux kernel 7.0.0-28-generic、isolated Geneve fixture: PASS
 - network namespace / temporary fixture: test cleanup により削除
-- 実 2 Host cross-chassis qualification: 未実施、残 gate
+- 実 2 Host kernel Geneve cross-chassis qualification: PASS
+- cleanup / OVS configuration non-interference verification: PASS
+- OVN-generated current Port-bound cross-chassis qualification: 未実施、残 gate
