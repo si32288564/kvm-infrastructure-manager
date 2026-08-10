@@ -275,6 +275,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-026 | OVS Port Commandがbridge/XML/path/argvを受け付けず、Agent管理mappingのstandard OVS bridgeとinactive libvirt NIC identityをread-backしてimmutable pre-boot evidenceへ収束し、dataplane convergenceを主張しない |
 | AT-NET-027 | Final Admission の qualified VF Claim を SRIOV_DIRECT typed Commandへ固定し、current PCI/Qualification/policy/Binding と libvirt hostdev PCI identity read-backが一致した場合だけPortをREALIZEDへ進める |
 | AT-NET-028 | OVS Port を持つ RUNNING VM で、active libvirt NIC target と Agent 管理 Segment-to-Bridge mapping、OVS Port bridge/link state を typed read-backし、current Network/Segment/Mapping/Binding/Port generation と一致する場合だけ独立した dataplane projection を `CONVERGED` にする |
+| AT-NET-029 | current Network/Port/Segment/Host mapping/Binding から immutable OVN Port intent を生成し、apply response loss 後も stable KIM ownership marker、intent generation、object digest の NB read-back と、matching datapath/chassis の SB read-back で同一 intent へ収束する。SB realization だけで Host dataplane または end-to-end convergence を主張しない |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |

@@ -188,7 +188,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
-| NET-001, NET-008, NET-019, NET-020 | network-resource-architecture, architecture, execution-architecture | ADR-0007, ADR-0011, ADR-0020 | INV-NET-006, INV-NET-009 | AT-NET-002, AT-NET-007, AT-NET-011, FI-NET-006, FI-NET-007, XCT-NET-001, XCT-NET-002, XCT-NET-003, XCT-NET-004 | Planned |
+| NET-001, NET-008, NET-019, NET-020, NET-040 | network-resource-architecture, architecture, execution-architecture | ADR-0007, ADR-0011, ADR-0020 | INV-NET-006, INV-NET-009, INV-NET-025 | AT-NET-002, AT-NET-007, AT-NET-011, AT-NET-029, FI-NET-006, FI-NET-007, FI-NET-021, XCT-NET-001, XCT-NET-002, XCT-NET-003, XCT-NET-004 | Partial (immutable OVN Port intent、NB/SB/chassis read-back、response-loss convergence projection implemented; production controller runtime、multi-object Network/Router/DHCP/Security realization pending) |
 | NET-002, NET-003, NET-013, NET-014 | network-resource-architecture | ADR-0020 | INV-NET-005 | AT-NET-008, FI-NET-005 | Partial (VLAN Segment Claim authority/current generation implemented; VNI and lifecycle cleanup pending) |
 | NET-004, NET-022, NET-023, NET-027 | network-resource-architecture, security | ADR-0010, ADR-0020 | INV-NET-011, INV-NET-013 | AT-NET-012, AT-NET-013, AT-NET-017, FI-NET-010, FI-NET-013 | Planned |
 | NET-005, NET-024, NET-025, NET-026 | network-resource-architecture, failure-model | ADR-0010, ADR-0020 | INV-NET-012 | AT-NET-014, AT-NET-016, FI-NET-011, FI-NET-012 | Planned |

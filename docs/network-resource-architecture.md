@@ -201,6 +201,8 @@ Network Controller Adapterは`plan -> apply -> observe`のtyped contractを実�
 - observeはNB object、SB binding/logical flow、chassis/datapath、Host observationを別generation/freshnessで返します。
 - adapterはCore DB/Allocationへwriteせず、任意OVN command/object/columnを受け取りません。
 
+Port intent、NB observation、SB observation はそれぞれ immutable evidence として保持し、current OVN projection は current Network/Port/Segment/Host mapping/Binding generation との一致から再構築します。apply response を失っても stable KIM ownership marker、intent generation、object digest を使って同じ NB object を read-back し、反対 operation を発行しません。NB/SB 収束は Host-side OVS dataplane、end-to-end reachability、Guest readiness を暗黙に進めません。
+
 KIM所有markerのないobject、unknown generation、外部管理objectを自動adopt/deleteしません。intent driftはowned objectだけをtyped reconcileし、ownership conflictは`CONFLICTING/QUARANTINED`にします。
 
 ## 8. Connectivity Status and UNKNOWN Semantics
@@ -214,6 +216,8 @@ Port/Networkの表示状態はlayer別に保持します。
 | `SB_REALIZED` | matching chassis binding/logical flow/datapathを観測 |
 | `HOST_PROGRAMMED` | Host OVS/NIC/vhost/VF stateを観測 |
 | `DATAPLANE_VERIFIED` | contractで許可されたprobe/telemetryがmatching generationを確認 |
+
+`INTENT_COMMITTED`、`NB_APPLIED`、`SB_REALIZED` は独立状態です。`SB_REALIZED` は matching datapath/chassis を観測したことだけを意味し、`HOST_PROGRAMMED` または `DATAPLANE_VERIFIED` の代替ではありません。
 
 NB apply成功だけでPortをACTIVEにしません。SB/Host/dataplaneが未収束なら`PROVISIONING/DEGRADED/UNKNOWN`を区別します。timeout、controller reconnect、chassis row消失、heartbeat lossをunbind/release/fencingの証明にしません。
 

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	agentinventory "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/inventory"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/network/ovnadapter"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
 )
 
@@ -698,6 +699,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	prebootBatch := &pgx.Batch{}
 	prebootBatch.Queue(`INSERT INTO kim.network_ports_current(port_id,placement_admission_id,project_id,workload_id,network_id,subnet_id,port_generation,desired_state) VALUES($1,$2,'project',$3,$4,$5,1,'RESERVED')`, ovsPortID, winner.admission.AdmissionID, vmMaterialization.VMID, networkID, subnetID)
 	prebootBatch.Queue(`INSERT INTO kim.network_identity_claims(identity_claim_id,placement_admission_id,port_id,project_id,network_id,subnet_id,claim_type,mac_address,allocation_source,claim_generation,claim_state) VALUES($1,$2,$3,'project',$4,$5,'MAC','02:00:00:00:00:22','EXPLICIT',1,'RESERVED')`, ovsPortID+"/mac", winner.admission.AdmissionID, ovsPortID, networkID, subnetID)
+	prebootBatch.Queue(`INSERT INTO kim.network_identity_claims(identity_claim_id,placement_admission_id,port_id,project_id,network_id,subnet_id,claim_type,ip_address,allocation_source,claim_generation,claim_state) VALUES($1,$2,$3,'project',$4,$5,'IP','192.0.2.22','EXPLICIT',1,'RESERVED')`, ovsPortID+"/ip", winner.admission.AdmissionID, ovsPortID, networkID, subnetID)
 	prebootBatch.Queue(`INSERT INTO kim.port_bindings_current(port_id,placement_admission_id,host_id,segment_claim_id,binding_generation,binding_type,binding_state) VALUES($1,$2,$3,$4,1,'OVS','RESERVED')`, ovsPortID, winner.admission.AdmissionID, hostID, segmentClaimID)
 	prebootBatch.Queue(`INSERT INTO kim.execution_jobs(job_id,resource_type,resource_id,desired_revision,job_state) VALUES($1,'VM_NETWORK_PORT',$2,1,'SUCCEEDED')`, prebootJobID, ovsPortID)
 	prebootBatch.Queue(`INSERT INTO kim.execution_commands(command_id,job_id,host_id,command_type,schema_version,target_resource_id,payload,payload_digest) VALUES($1,$2,$3,'NETWORK_PORT_OVS_REALIZE','kim.command.network-port-ovs-realize/v1',$4,'{}',$5)`, prebootCommandID, prebootJobID, hostID, "port:"+ovsPortID, digestBytes([]byte("ovs-preboot-payload")))
@@ -707,7 +709,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	prebootBatch.Queue(`INSERT INTO kim.vm_network_port_realization_evidence(evidence_id,vm_id,vm_generation,plan_id,host_id,port_id,port_generation,network_id,network_generation,segment_claim_id,segment_generation,host_mapping_generation,binding_generation,binding_type,command_id,attempt_index,verification_id,observation_generation,observation_digest,verifier_digest,preboot_state) VALUES($1,$2,1,$3,$4,$5,1,$6,1,$7,1,1,1,'OVS',$8,1,$9,1,$10,$11,'REALIZED')`, prebootEvidenceID, vmMaterialization.VMID, vmMaterialization.PlanID, hostID, ovsPortID, networkID, segmentClaimID, prebootCommandID, prebootVerificationID, prebootObservationDigest, prebootVerifierDigest)
 	prebootBatch.Queue(`INSERT INTO kim.vm_network_port_realizations_current(vm_id,vm_generation,port_id,port_generation,binding_generation,observation_generation,evidence_id,preboot_state) VALUES($1,1,$2,1,1,1,$3,'REALIZED')`, vmMaterialization.VMID, ovsPortID, prebootEvidenceID)
 	prebootResults := pool.SendBatch(ctx, prebootBatch)
-	for range 10 {
+	for range 11 {
 		if _, err := prebootResults.Exec(); err != nil {
 			_ = prebootResults.Close()
 			t.Fatal(err)
@@ -778,6 +780,50 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	dataplaneConflict.ObservationDigest = digestBytes([]byte("different-ovs-dataplane"))
 	if err := AcceptOVSDataplaneObservation(ctx, pool, dataplaneConflict); !errors.Is(err, ErrVMMaterializationConflict) {
 		t.Fatalf("same OVS dataplane evidence/different digest error = %v", err)
+	}
+	ovnIntentRequest := OVNPortIntentRequest{IntentID: "ovn-intent-" + suffix, IntentGeneration: 1, PortID: ovsPortID}
+	ovnIntent, err := CommitOVNPortIntent(ctx, pool, ovnIntentRequest)
+	if err != nil || ovnIntent.PortID != ovsPortID || len(ovnIntent.ObjectSetDigest) != 64 || len(ovnIntent.CanonicalObjectSet) == 0 {
+		t.Fatalf("OVN Port intent=%#v err=%v", ovnIntent, err)
+	}
+	if replay, err := CommitOVNPortIntent(ctx, pool, ovnIntentRequest); err != nil || replay.ObjectSetDigest != ovnIntent.ObjectSetDigest {
+		t.Fatalf("idempotent OVN Port intent=%#v/%v want %#v", replay, err, ovnIntent)
+	}
+	var ovnLayerStatus string
+	if err := pool.QueryRow(ctx, `SELECT layer_status FROM kim.network_ovn_state_current WHERE port_id=$1`, ovsPortID).Scan(&ovnLayerStatus); err != nil || ovnLayerStatus != "INTENT_COMMITTED" {
+		t.Fatalf("OVN intent projection=%s err=%v", ovnLayerStatus, err)
+	}
+	ovnObservation := OVNPortObservation{
+		NBObservationID: "ovn-nb-observation-" + suffix, SBObservationID: "ovn-sb-observation-" + suffix,
+		IntentID: ovnIntent.IntentID, IntentGeneration: 1, PortID: ovsPortID, PortGeneration: 1, BindingGeneration: 1,
+		NBObservationGeneration: 1, SBObservationGeneration: 1,
+		NBObservationDigest:   digestBytes([]byte("ovn-nb-observation-" + suffix)),
+		SBObservationDigest:   digestBytes([]byte("ovn-sb-observation-" + suffix)),
+		AdapterArtifactDigest: digestBytes([]byte("ovn-adapter")), ChassisIdentityDigest: digestBytes([]byte("ovn-chassis")),
+		ApplyResponseState: "LOST",
+		Observation: ovnadapter.Observation{OwnershipMarkerMatches: true, ObjectSetDigestMatches: true,
+			LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, PortBindingPresent: true,
+			DatapathPresent: true, ExpectedChassisMatches: true},
+	}
+	if err := AcceptOVNPortObservation(ctx, pool, ovnObservation); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcceptOVNPortObservation(ctx, pool, ovnObservation); err != nil {
+		t.Fatalf("idempotent OVN observation: %v", err)
+	}
+	var nbState, sbState string
+	if err := pool.QueryRow(ctx, `SELECT nb_state,sb_state,layer_status FROM kim.network_ovn_state_current WHERE port_id=$1`, ovsPortID).Scan(&nbState, &sbState, &ovnLayerStatus); err != nil || nbState != "MATCHED" || sbState != "MATCHED" || ovnLayerStatus != "SB_REALIZED" {
+		t.Fatalf("OVN layer projection=%s/%s/%s err=%v", nbState, sbState, ovnLayerStatus, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.ovn_nb_observation_evidence SET nb_state='UNKNOWN' WHERE observation_id=$1`, ovnObservation.NBObservationID); err == nil {
+		t.Fatal("immutable OVN NB evidence accepted UPDATE")
+	}
+	staleOVN := ovnObservation
+	staleOVN.NBObservationID, staleOVN.SBObservationID = "stale-nb-"+suffix, "stale-sb-"+suffix
+	staleOVN.NBObservationGeneration, staleOVN.SBObservationGeneration = 2, 2
+	staleOVN.PortGeneration = 2
+	if err := AcceptOVNPortObservation(ctx, pool, staleOVN); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("stale OVN generation error=%v", err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_power_observation_evidence SET observed_power_state='SHUTOFF' WHERE verification_id=$1`, powerVerificationID); err == nil {
 		t.Fatal("immutable VM power observation evidence accepted UPDATE")
