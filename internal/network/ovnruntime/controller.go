@@ -27,6 +27,47 @@ type WorkStore interface {
 
 type PostgresWorkStore struct{ DB postgres.TxBeginner }
 
+type itemLocalError struct {
+	workID string
+	err    error
+}
+
+func (failure *itemLocalError) Error() string {
+	return fmt.Sprintf("OVN runtime work %s: %v", failure.workID, failure.err)
+}
+func (failure *itemLocalError) Unwrap() error { return failure.err }
+
+type renewalAuthorityError struct{ err error }
+
+func (failure *renewalAuthorityError) Error() string { return failure.err.Error() }
+func (failure *renewalAuthorityError) Unwrap() error { return failure.err }
+
+// RunOnceError preserves whether a claimed batch failed only at typed adapter
+// item boundaries or also lost PostgreSQL claim/renewal authority.
+type RunOnceError struct {
+	ItemErrors error
+	FatalError error
+}
+
+func (failure *RunOnceError) Error() string {
+	return errors.Join(failure.ItemErrors, failure.FatalError).Error()
+}
+
+func (failure *RunOnceError) Unwrap() []error {
+	var failures []error
+	if failure.ItemErrors != nil {
+		failures = append(failures, failure.ItemErrors)
+	}
+	if failure.FatalError != nil {
+		failures = append(failures, failure.FatalError)
+	}
+	return failures
+}
+
+func (failure *RunOnceError) ItemLocalOnly() bool {
+	return failure.ItemErrors != nil && failure.FatalError == nil
+}
+
 func (store PostgresWorkStore) Claim(ctx context.Context, request postgres.OVNRuntimeClaimRequest) ([]postgres.OVNRuntimeWork, error) {
 	return postgres.ClaimOVNRuntimeWork(ctx, store.DB, request)
 }
@@ -62,6 +103,7 @@ type Worker struct {
 	ClaimMaximumLifetime  time.Duration
 	ClaimRenewInterval    time.Duration
 	AdapterArtifactDigest string
+	ErrorHandler          func(error)
 }
 
 func (worker Worker) RunOnce(ctx context.Context) (int, error) {
@@ -77,55 +119,98 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	completed := 0
+	// A claimed batch is also the local concurrency bound. Starting every item
+	// immediately prevents a serial local queue from consuming claim lifetime
+	// before an item can establish its own authorization and renewal loop.
+	type itemOutcome struct {
+		completed bool
+		err       error
+	}
+	outcomes := make(chan itemOutcome, len(work))
 	for _, item := range work {
-		claim := postgres.OVNRuntimeClaim{WorkID: item.WorkID, Owner: worker.Owner, ClaimGeneration: item.ClaimGeneration}
-		var result ovnadapter.RuntimeResult
-		if item.ClaimMode == "READ_BACK_FIRST" {
-			if err := worker.Store.RecordReadBack(ctx, claim); err != nil {
-				return completed, err
-			}
-			result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
-				return worker.Adapter.ObservePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
-			})
-			if err != nil {
-				if errors.Is(err, ovnadapter.ErrForeignOVNObject) {
-					if quarantineErr := worker.Store.Quarantine(ctx, claim, "foreign_ovn_object"); quarantineErr != nil {
-						return completed, errors.Join(err, quarantineErr)
-					}
-					continue
-				}
-				return completed, err
-			}
-			if result.Observation.NBState() == "MATCHED" && result.Observation.SBState() == "MATCHED" {
-				if err := worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest)); err != nil {
-					return completed, err
-				}
-				completed++
-				continue
-			}
+		item := item
+		go func() {
+			completed, err := worker.processWork(ctx, item)
+			outcomes <- itemOutcome{completed: completed, err: err}
+		}()
+	}
+	completed := 0
+	var itemErrors, fatalErrors error
+	for range work {
+		outcome := <-outcomes
+		if outcome.completed {
+			completed++
 		}
-		if err := worker.Store.AuthorizeApply(ctx, claim); err != nil {
-			return completed, err
+		if outcome.err == nil {
+			continue
+		}
+		var itemFailure *itemLocalError
+		if errors.As(outcome.err, &itemFailure) {
+			itemErrors = errors.Join(itemErrors, outcome.err)
+		} else {
+			fatalErrors = errors.Join(fatalErrors, outcome.err)
+		}
+	}
+	if itemErrors == nil && fatalErrors == nil {
+		return completed, nil
+	}
+	return completed, &RunOnceError{ItemErrors: itemErrors, FatalError: fatalErrors}
+}
+
+func (worker Worker) processWork(ctx context.Context, item postgres.OVNRuntimeWork) (bool, error) {
+	claim := postgres.OVNRuntimeClaim{WorkID: item.WorkID, Owner: worker.Owner, ClaimGeneration: item.ClaimGeneration}
+	var result ovnadapter.RuntimeResult
+	var err error
+	if item.ClaimMode == "READ_BACK_FIRST" {
+		if err := worker.Store.RecordReadBack(ctx, claim); err != nil {
+			return false, err
 		}
 		result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
-			return worker.Adapter.ReconcilePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
+			return worker.Adapter.ObservePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
 		})
 		if err != nil {
 			if errors.Is(err, ovnadapter.ErrForeignOVNObject) {
 				if quarantineErr := worker.Store.Quarantine(ctx, claim, "foreign_ovn_object"); quarantineErr != nil {
-					return completed, errors.Join(err, quarantineErr)
+					return false, errors.Join(err, quarantineErr)
 				}
-				continue
+				return false, nil
 			}
-			return completed, err
+			var renewalFailure *renewalAuthorityError
+			if ctx.Err() != nil || errors.As(err, &renewalFailure) {
+				return false, err
+			}
+			return false, &itemLocalError{workID: item.WorkID, err: fmt.Errorf("read-back: %w", err)}
 		}
-		if err := worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest)); err != nil {
-			return completed, err
+		if result.Observation.NBState() == "MATCHED" && result.Observation.SBState() == "MATCHED" {
+			if err := worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest)); err != nil {
+				return false, err
+			}
+			return true, nil
 		}
-		completed++
 	}
-	return completed, nil
+	if err := worker.Store.AuthorizeApply(ctx, claim); err != nil {
+		return false, err
+	}
+	result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
+		return worker.Adapter.ReconcilePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
+	})
+	if err != nil {
+		if errors.Is(err, ovnadapter.ErrForeignOVNObject) {
+			if quarantineErr := worker.Store.Quarantine(ctx, claim, "foreign_ovn_object"); quarantineErr != nil {
+				return false, errors.Join(err, quarantineErr)
+			}
+			return false, nil
+		}
+		var renewalFailure *renewalAuthorityError
+		if ctx.Err() != nil || errors.As(err, &renewalFailure) {
+			return false, err
+		}
+		return false, &itemLocalError{workID: item.WorkID, err: fmt.Errorf("apply: %w", err)}
+	}
+	if err := worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (worker Worker) runAdapterWithRenewal(ctx context.Context, claim postgres.OVNRuntimeClaim, operation func(context.Context) (ovnadapter.RuntimeResult, error)) (ovnadapter.RuntimeResult, error) {
@@ -153,7 +238,7 @@ func (worker Worker) runAdapterWithRenewal(ctx context.Context, claim postgres.O
 			if _, err := worker.Store.Renew(ctx, claim, worker.ClaimLease); err != nil {
 				cancel()
 				result := <-completed
-				return result.result, errors.Join(err, result.err)
+				return result.result, &renewalAuthorityError{err: errors.Join(err, result.err)}
 			}
 		case <-ctx.Done():
 			cancel()
@@ -167,7 +252,20 @@ func (worker Worker) Run(ctx context.Context, pollInterval time.Duration) error 
 	if pollInterval <= 0 {
 		return errors.New("OVN runtime worker poll interval must be positive")
 	}
-	if _, err := worker.RunOnce(ctx); err != nil {
+	runOnce := func() error {
+		if _, err := worker.RunOnce(ctx); err != nil && ctx.Err() == nil {
+			var runFailure *RunOnceError
+			if errors.As(err, &runFailure) && runFailure.ItemLocalOnly() {
+				if worker.ErrorHandler != nil {
+					worker.ErrorHandler(err)
+				}
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+	if err := runOnce(); err != nil {
 		return err
 	}
 	ticker := time.NewTicker(pollInterval)
@@ -177,7 +275,7 @@ func (worker Worker) Run(ctx context.Context, pollInterval time.Duration) error 
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if _, err := worker.RunOnce(ctx); err != nil {
+			if err := runOnce(); err != nil {
 				return err
 			}
 		}

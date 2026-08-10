@@ -67,6 +67,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Owner: *owner, BatchLimit: *batchLimit, ClaimLease: *claimLease,
 		ClaimMaximumLifetime: *claimMaximumLifetime, ClaimRenewInterval: *claimRenewInterval,
 		AdapterArtifactDigest: *adapterDigest,
+		ErrorHandler: func(err error) {
+			fmt.Fprintf(stderr, "kim-network-worker reconcile error; retrying: %v\n", err)
+		},
 	}
 	if err := worker.Run(ctx, *pollInterval); err != nil {
 		fmt.Fprintf(stderr, "kim-network-worker stopped: %v\n", err)

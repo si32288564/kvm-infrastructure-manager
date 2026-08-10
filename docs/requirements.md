@@ -289,6 +289,7 @@
 | NET-047 | OVN runtime work は PostgreSQL-backed bounded claim で multi-worker 間を排他し、claim expiry を非実行証明にせず immutable `DISPATCH_UNKNOWN` evidence を残す。再取得 worker は apply 前に同一 intent の typed read-back を行い、current owner/claim generation だけが observation と current projection を進める | Must |
 | NET-048 | long-running OVN adapter operation の claim renewal は current owner/generation、未失効、DB authority time、maximum lifetime を一つの PostgreSQL transaction で検証し、immutable renewal evidenceを残す。expired claimをrenew/reviveせず、renewal outcomeが不明ならexpiry後の`READ_BACK_FIRST`で解決する | Must |
 | NET-049 | claim renewal の commit 後に response を失った worker は adapter operation を停止し、renewal の成功・失敗または side effect 不在を推測しない。PostgreSQL に commit 済みの renewed expiry までは別 worker の takeover を禁止し、expiry 後だけ新 claim generation の `READ_BACK_FIRST` で解決する | Must |
+| NET-050 | OVN runtime worker は一括取得した claim を未更新の local serial queue に滞留させず、`BatchLimit` を process 内の同時実行上限として各 work の authority check と renewal loop を直ちに開始する。item-local adapter error は観測可能に報告して bounded poll を継続するが、DB claim/renewal authority error は process を停止する。deployment profile は全 replica の aggregate in-flight claim 数を PostgreSQL/backend capacity 以下に制限し、意図的 failure 数を超える retry amplification を qualification で拒否する | Must |
 
 ### 2.13 NFV Dataplane
 
