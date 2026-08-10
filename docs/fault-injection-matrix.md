@@ -33,6 +33,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-CP-002 | backend call後、DB result commit前にworker kill | Attempt timeout | resource mutationをblock | Attempt UNKNOWN、correlation | 反対operation/duplicate mutation | observation/read-backで解決 |
 | FI-DB-001 | primary failover中に同時mutation | primary/term change、transaction error | old primary fencing、bounded retry | commit/idempotency/term evidence | split-brain commit、data loss | RPO 0、単一committed result |
 | FI-DB-002 | commit成功後response loss | transaction outcome unknown | idempotency照会 | committed rows、request digest | 二重commit | 元Operationを回収 |
+| FI-DB-003 | OVN apply後・observation commit前にsynchronous PostgreSQL primaryを強制停止し、standbyをpromoteして別workerを起動 | old DB connection loss、claim expiry、primary/recovery state change | old primaryを停止したままgeneration 1を`DISPATCH_UNKNOWN`にし、promoted primaryだけがgeneration 2 `READ_BACK_FIRST`をgrantする | pre-failover commit LSN、restore epoch/database authority generation、claim attempts/events、physical apply count | uncommitted authority採用、split-brain completion、blind duplicate apply、HA failoverのDR generation化 | promoted primaryがcommitted LSNを保持し、matching read-backから一つの`OBSERVED` decisionへ収束 |
 | FI-DR-001 | backup restore後に新しいbackend VM/Port/Volumeを提示 | generation/provenance mismatch | recovery mode、quarantine | unresolved resource、observation evidence | 自動adopt/削除/attach | explicit authorized adoptionまたは外部所有確定 |
 | FI-DATA-001 | domain mutationまたはOutbox insertの片方をcommit直前に失敗 | transaction failure | 全domain/Operation/Outbox row rollback | transaction/error/idempotency evidence | eventなしauthority commit、phantom event | 同一request再送で一つのatomic commit |
 | FI-DATA-002 | Outbox publish成功後ACKをdropしpublisherを再起動 | ACK loss/expired publish Lease | 同じevent IDを再送 | Outbox attempts/receipt correlation | 新event生成、domain mutation再実行 | consumer dedupeとOutbox published収束 |
@@ -258,7 +259,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 |---|---|
 | Client | FI-CLIENT-001..002 |
 | API / Control Plane | FI-CP-001..002 |
-| Database / DR / Persistence | FI-DB-001..002, FI-DR-001, FI-DATA-001..015 |
+| Database / DR / Persistence | FI-DB-001..003, FI-DR-001, FI-DATA-001..015 |
 | Internal Message | FI-BUS-001..003 |
 | Agent Gateway / Transport | FI-GATEWAY-001..008, FI-TRANSPORT-001..004 |
 | Agent | FI-AGENT-001..006 |

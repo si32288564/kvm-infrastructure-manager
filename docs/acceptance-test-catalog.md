@@ -284,6 +284,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-035 | production-shape OVN runtime が current Host mapping の Chassis reference、v2 typed plan、object-set digest を検証し、standard OVN CLI の単一 NB transactionで applyした後に NB/SB/chassisをread-backする。apply response lossでも同じ objectsへ収束し、foreign marker、plain TCP、非標準 executableをmutation前に拒否する |
 | AT-NET-036 | 複数 OVN runtime worker が同じ current intent を claim しても PostgreSQL `SKIP LOCKED` により一つだけが取得する。claim expiry 後は旧 attempt に `DISPATCH_UNKNOWN` を追記して新 generation を `READ_BACK_FIRST` で取得し、matching read-back なら再 apply せず収束し、不一致時だけ current claim の apply authorization 後に同一 intent を再 reconcile する |
 | AT-NET-037 | 実 `kim-network-worker` process を OVN apply 後・observation commit 前に `SIGKILL` し、claim expiry 後の別 process が generation 2 を `READ_BACK_FIRST` で取得する。保存済み OVN ownership を read-backして同一 intent へ収束し、物理 apply、`APPLY_AUTHORIZED`、terminal observation をそれぞれ一度だけ成立させる |
+| AT-NET-038 | synchronous PostgreSQL standby が `remote_apply` した OVN claim/attempt/intentを保持した状態でprimaryを強制停止しstandbyをpromoteする。旧primary接続workerのcompletionをauthorityへ進めず、promoted primary上のgeneration 2 workerが`READ_BACK_FIRST`で収束し、committed LSN/authority generationと単一physical applyを維持する |
 | AT-STO-001 | Volume lifecycle/attach/detach/snapshotがtyped executionとverificationで収束する |
 | AT-STO-002 | backend capability未対応時にsilent fallbackせずbounded errorを返す |
 | AT-STO-003 | Volume、Backend Binding、Attachment Intent/Claim/Observationが独立generationとcurrent referenceを持つ |

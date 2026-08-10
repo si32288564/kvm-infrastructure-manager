@@ -99,6 +99,14 @@ func blockReadBackIfRequested() error {
 	if err := os.WriteFile(signalPath, []byte("started\n"), 0o600); err != nil {
 		return err
 	}
+	if releasePath := os.Getenv("KIM_OVN_FIXTURE_READBACK_RELEASE"); releasePath != "" {
+		for {
+			if _, err := os.Stat(releasePath); err == nil {
+				return nil
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	parent := os.Getppid()
 	for os.Getppid() == parent && os.Getppid() != 1 {
 		time.Sleep(10 * time.Millisecond)
