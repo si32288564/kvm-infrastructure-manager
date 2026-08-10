@@ -186,6 +186,39 @@ type postgresFailoverCluster struct {
 	primaryURL, standbyURL                                  string
 }
 
+func (cluster *postgresFailoverCluster) rejoinOriginalPrimaryAsSynchronousStandby(t *testing.T, ctx context.Context) {
+	t.Helper()
+	dockerMust(t, ctx, "rm", "-f", cluster.primary)
+	dockerMust(t, ctx, "volume", "rm", "-f", cluster.primaryVolume)
+	dockerMust(t, ctx, "volume", "create", cluster.primaryVolume)
+	dockerMust(t, ctx, "exec", cluster.standby, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+		"-c", "ALTER SYSTEM SET synchronous_commit='remote_apply'", "-c", "SELECT pg_reload_conf()")
+	dockerMust(t, ctx, "run", "--rm", "--network", cluster.network,
+		"-v", cluster.primaryVolume+":/var/lib/postgresql/data", "postgres:17", "sh", "-ceu",
+		"chown -R postgres:postgres /var/lib/postgresql/data; exec gosu postgres pg_basebackup -h "+cluster.standby+" -U postgres -D /var/lib/postgresql/data -Fp -Xs -P -R")
+	dockerMust(t, ctx, "run", "-d", "--name", cluster.primary, "--network", cluster.network,
+		"-p", "127.0.0.1::5432", "-v", cluster.primaryVolume+":/var/lib/postgresql/data",
+		"postgres:17", "postgres", "-c", "hot_standby=on")
+	waitDockerPostgreSQL(t, ctx, cluster.primary)
+	dockerMust(t, ctx, "exec", cluster.standby, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1",
+		"-c", "ALTER SYSTEM SET synchronous_standby_names='*'", "-c", "SELECT pg_reload_conf()")
+	eventually(t, 30*time.Second, func() bool {
+		output, err := dockerOutput(ctx, "exec", cluster.standby, "psql", "-U", "postgres", "-d", "postgres", "-Atc", "SELECT count(*) FROM pg_stat_replication WHERE state='streaming' AND sync_state='sync'")
+		return err == nil && strings.TrimSpace(output) == "1"
+	}, "rejoined PostgreSQL primary did not become synchronous standby")
+	cluster.primaryURL = postgresContainerURL(t, ctx, cluster.primary)
+}
+
+func (cluster *postgresFailoverCluster) failback(t *testing.T, ctx context.Context) {
+	t.Helper()
+	dockerMust(t, ctx, "kill", cluster.standby)
+	dockerMust(t, ctx, "exec", "-u", "postgres", cluster.primary, "pg_ctl", "promote", "-D", "/var/lib/postgresql/data", "-w", "-t", "30")
+	eventually(t, 30*time.Second, func() bool {
+		output, err := dockerOutput(ctx, "exec", cluster.primary, "psql", "-U", "postgres", "-d", "postgres", "-Atc", "SELECT NOT pg_is_in_recovery()")
+		return err == nil && strings.TrimSpace(output) == "t"
+	}, "rejoined PostgreSQL standby was not promoted")
+}
+
 func startPostgreSQLFailoverCluster(t *testing.T, ctx context.Context) *postgresFailoverCluster {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,7 +138,7 @@ func seedOVNAuthority(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suf
 	emptyDigest := digest("[]")
 	batch := &pgx.Batch{}
 	batch.Queue(`INSERT INTO kim.database_authority(restore_epoch,authority_generation,mode)
-		VALUES($1,1,'ACTIVE') ON CONFLICT(singleton) DO UPDATE SET restore_epoch=EXCLUDED.restore_epoch,authority_generation=1,mode='ACTIVE'`, "ovn-fi-"+suffix)
+		VALUES($1,1,'ACTIVE') ON CONFLICT(singleton) DO NOTHING`, "ovn-fi-"+suffix)
 	batch.Queue(`INSERT INTO kim.host_identities(host_id,enrollment_state) VALUES($1,'APPROVED')`, hostID)
 	batch.Queue(`INSERT INTO kim.image_revision_evidence(
 		image_id,image_revision,owner_project_id,image_format,size_bytes,checksum_algorithm,
@@ -250,9 +251,10 @@ func buildBinary(t *testing.T, root, output, target string) string {
 }
 
 type process struct {
-	cmd    *exec.Cmd
-	done   chan error
-	output bytes.Buffer
+	cmd      *exec.Cmd
+	done     chan error
+	output   bytes.Buffer
+	stopOnce sync.Once
 }
 
 func startProcess(t *testing.T, binary string, arguments ...string) *process {
@@ -296,18 +298,20 @@ func (process *process) kill(t *testing.T) {
 }
 
 func (process *process) stop() {
-	select {
-	case <-process.done:
-		return
-	default:
-	}
-	_ = process.cmd.Process.Signal(os.Interrupt)
-	select {
-	case <-process.done:
-	case <-time.After(2 * time.Second):
-		_ = process.cmd.Process.Kill()
-		<-process.done
-	}
+	process.stopOnce.Do(func() {
+		select {
+		case <-process.done:
+			return
+		default:
+		}
+		_ = process.cmd.Process.Signal(os.Interrupt)
+		select {
+		case <-process.done:
+		case <-time.After(2 * time.Second):
+			_ = process.cmd.Process.Kill()
+			<-process.done
+		}
+	})
 }
 
 func eventually(t *testing.T, timeout time.Duration, condition func() bool, message string) {
