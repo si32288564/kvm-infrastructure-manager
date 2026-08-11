@@ -16,12 +16,17 @@ type Target struct {
 }
 
 type Observation struct {
-	State, Digest string
+	State, Condition, Digest string
 }
 
 type Backend interface {
 	Observe(context.Context, Target) (Observation, error)
 	Apply(context.Context, Target) error
+}
+
+type RecoveryBackend interface {
+	Observe(context.Context, Target) (Observation, error)
+	Recover(context.Context, Target, string) error
 }
 
 type StateMarkerBackend struct {
@@ -60,15 +65,15 @@ func (backend *StateMarkerBackend) Observe(_ context.Context, target Target) (Ob
 	path := MarkerPath(backend.directory, target.TargetID)
 	observed, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Observation{State: "ABSENT", Digest: digest([]byte("absent:" + target.TargetID))}, nil
+		return Observation{State: "ABSENT", Condition: "TARGET_ABSENT", Digest: digest([]byte("absent:" + target.TargetID))}, nil
 	}
 	if err != nil {
-		return Observation{State: "UNKNOWN", Digest: digest([]byte("unknown:" + target.TargetID))}, err
+		return Observation{State: "UNKNOWN", Condition: "OBSERVATION_UNKNOWN", Digest: digest([]byte("unknown:" + target.TargetID))}, err
 	}
 	if string(observed) != string(expected) {
-		return Observation{State: "CONFLICTING", Digest: digest(observed)}, nil
+		return Observation{State: "CONFLICTING", Condition: "TARGET_STATE_CONFLICT", Digest: digest(observed)}, nil
 	}
-	return Observation{State: "MATCHED", Digest: digest(observed)}, nil
+	return Observation{State: "MATCHED", Condition: "DESIRED_RELEASE_MATCHED", Digest: digest(observed)}, nil
 }
 
 func (backend *StateMarkerBackend) Apply(ctx context.Context, target Target) error {

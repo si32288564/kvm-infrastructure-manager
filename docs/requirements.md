@@ -431,6 +431,7 @@
 | UPG-028 | KIM-owned component package replacement は Target component identity、verified package digest、administrator-owned closed backend profile に bind し、package version、service state、configured executable path、running binary digest、typed health schema/process identity の current read-back が一致した場合だけ Target を成功へ進める | Must |
 | UPG-029 | package database lock contention、package manager interruption、または package operation response loss を「未適用」の証明にせず、prior Attempt を `UNKNOWN`、successor を `READ_BACK_FIRST` として current package status/evidence から再評価する | Must |
 | UPG-030 | unpacked / half-configured / triggers-pending 等の不完全 package status を `CONFLICTING` evidence として Target authority を terminal `FENCED` にし、明示 recovery plan なしの再 install、configure、restart、rollback、再 claim を禁止する | Must |
+| UPG-031 | quarantined package の recovery を通常 Upgrade Attempt と分離した immutable Plan、明示 authorization、closed strategy、Recovery Attempt/Lease、typed read-back、Verification、明示 rearm で実行する。`CONFIGURE_EXISTING` は固定 package identity だけを configure し、汎用 `dpkg --configure -a`、任意 package/argv、reinstall、downgrade、rollback を含めない | Must |
 
 ### 2.18 Time and Clock Semantics
 

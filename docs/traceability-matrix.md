@@ -281,7 +281,8 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | UPG-027 | upgrade-and-compatibility-architecture | ADR-0021 | INV-UPG-021 | AT-UPG-028, FI-UPG-018 | Planned |
 | UPG-028 | upgrade-and-compatibility-architecture, security | ADR-0021 | INV-UPG-027 | AT-UPG-034, FI-UPG-024 | Partial (closed Debian/systemd backend、verified `.deb` digest、package/service/process/health read-back、実 Ubuntu KVM fault qualification が PASS。実 KIM package profile は継続) |
 | UPG-029 | upgrade-and-compatibility-architecture, execution-architecture | ADR-0007, ADR-0021 | INV-UPG-028 | AT-UPG-035, FI-UPG-025 | Partial (実 dpkg lock contention を `UNKNOWN → READ_BACK_FIRST` で回収し、single install へ収束。install interruption / half-configured quarantine は継続) |
-| UPG-030 | upgrade-and-compatibility-architecture, execution-architecture | ADR-0007, ADR-0021 | INV-UPG-029 | AT-UPG-036, FI-UPG-026 | Partial (実 `postinst` interruption を `half-configured → CONFLICTING → FENCED / PAUSED` へ収束。明示 recovery Plan は継続) |
+| UPG-030 | upgrade-and-compatibility-architecture, execution-architecture | ADR-0007, ADR-0021 | INV-UPG-029 | AT-UPG-036, FI-UPG-026 | Implemented (実 `postinst` interruption を `half-configured → CONFLICTING → FENCED / PAUSED` へ収束し、明示 recovery authority 以外の再 claim / mutation を拒否) |
+| UPG-031 | upgrade-and-compatibility-architecture, execution-architecture | ADR-0007, ADR-0021 | INV-UPG-030 | AT-UPG-037, FI-UPG-027 | Implemented (通常 Target Attempt と分離した immutable `CONFIGURE_EXISTING` Recovery Plan/authorization/generation/Attempt/Lease/Verification/rearm authority を実装。実 `half-configured` package を fixed-package configure、typed read-back、Verified、explicit rearm へ収束し Campaign auto-resume を禁止) |
 
 ## 17. Time and Clock Semantics
 

@@ -162,6 +162,10 @@ Package database lock contention、`dpkg` interruption、response loss は packa
 
 `CONFLICTING` observation は単なる executor error ではありません。current claim transaction は immutable observation と `CONFLICT_QUARANTINED` event を保存し、Target/execution current projection を `FENCED` へ進めます。canary evaluation は `FENCED` を failure threshold へ算入し、該当 Campaign を `PAUSED` にします。FENCED 後は process restart や Lease expiry から Attempt を増やしません。`dpkg --configure -a`、再 install、downgrade/rollback は、それぞれ事前条件と read-back を持つ別の closed recovery Plan として承認・qualification されるまで発行しません。
 
+Package Recovery は通常 Upgrade Target Attempt の continuation ではありません。quarantine source Attempt/Observation、strategy、authorization digest、recovery profile revision、desired artifact/Target digest を immutable Recovery Plan に固定し、独立した Recovery generation、Attempt、Lease、Observation、Result を使用します。Developer Preview の初期 closed strategy は `CONFIGURE_EXISTING` のみです。Recovery executor は current read-back が `PACKAGE_HALF_CONFIGURED` の場合に限り administrator profile の固定 package identity へ `dpkg --configure <package>` を実行します。`dpkg --configure -a`、caller-supplied package/argv、reinstall、downgrade、rollback はこの strategy に含めません。
+
+Recovery の typed read-back が desired package version、systemd state、running binary digest、health schema、PID/boot ID/process start ticksを再検証して `VERIFIED` になっても、元 Target/execution は `FENCED`、Campaign は `PAUSED` のままです。別の immutable rearm authorization transaction だけが Target/execution を `PENDING` へ戻します。Campaign resume はさらに別 authority であり、Recovery verification または Target rearm から暗黙実行しません。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。

@@ -235,6 +235,25 @@ func (backend *SystemdPackageBackend) Apply(ctx context.Context, target Target) 
 	return nil
 }
 
+func (backend *SystemdPackageBackend) Recover(ctx context.Context, target Target, strategy string) error {
+	if strategy != "CONFIGURE_EXISTING" {
+		return errors.New("unsupported closed package recovery strategy")
+	}
+	if _, err := backend.artifactFor(target); err != nil {
+		return err
+	}
+	if _, err := runClosed(ctx, "/usr/bin/dpkg", "--configure", backend.profile.PackageName); err != nil {
+		return err
+	}
+	if _, err := runClosed(ctx, "/usr/bin/systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	if _, err := runClosed(ctx, "/usr/bin/systemctl", "restart", backend.profile.ServiceName); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (backend *SystemdPackageBackend) artifactFor(target Target) (SystemdPackageArtifact, error) {
 	if target.ComponentType != backend.profile.ComponentType || target.ComponentID != backend.profile.ComponentID {
 		return SystemdPackageArtifact{}, errors.New("Target component conflicts with the administrator profile")
@@ -264,7 +283,19 @@ func readProcessStartTicks(path string) (uint64, error) {
 
 func observationFromSystemd(state string, observed systemdObservation) Observation {
 	raw, _ := json.Marshal(observed)
-	return Observation{State: state, Digest: digest(raw)}
+	condition := "OBSERVATION_UNKNOWN"
+	switch state {
+	case "MATCHED":
+		condition = "DESIRED_RELEASE_MATCHED"
+	case "ABSENT":
+		condition = "TARGET_ABSENT"
+	case "CONFLICTING":
+		condition = "PACKAGE_STATE_CONFLICT"
+		if strings.Contains(observed.PackageStatus, "half-configured") {
+			condition = "PACKAGE_HALF_CONFIGURED"
+		}
+	}
+	return Observation{State: state, Condition: condition, Digest: digest(raw)}
 }
 
 func parseSystemdProperties(raw string) map[string]string {

@@ -46,14 +46,15 @@ func TestUpgradeTargetSystemdDebianPackageFaultRecovery(t *testing.T) {
 	executorUnitC := packageName + "-executor-c.service"
 	executorUnitD := packageName + "-executor-d.service"
 	executorUnitE := packageName + "-executor-e.service"
+	recoveryUnit := packageName + "-recovery.service"
 	lockUnit := packageName + "-dpkg-lock.service"
-	remoteCleanup := fmt.Sprintf("sudo -n systemctl stop %s %s %s %s %s %s %s >/dev/null 2>&1 || true; "+
+	remoteCleanup := fmt.Sprintf("sudo -n systemctl stop %s %s %s %s %s %s %s %s >/dev/null 2>&1 || true; "+
 		"sudo -n dpkg --purge %s >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload; "+
-		"sudo -n systemctl reset-failed %s %s %s %s %s %s >/dev/null 2>&1 || true; "+
+		"sudo -n systemctl reset-failed %s %s %s %s %s %s %s %s >/dev/null 2>&1 || true; "+
 		"sudo -n rm -rf %s %s %s", shellSafe(serviceName), shellSafe(executorUnitA), shellSafe(executorUnitB),
-		shellSafe(executorUnitC), shellSafe(executorUnitD), shellSafe(executorUnitE), shellSafe(lockUnit),
-		shellSafe(packageName), shellSafe(executorUnitA), shellSafe(executorUnitB), shellSafe(executorUnitC),
-		shellSafe(executorUnitD), shellSafe(executorUnitE), shellSafe(lockUnit), shellSafe(remoteRoot),
+		shellSafe(executorUnitC), shellSafe(executorUnitD), shellSafe(executorUnitE), shellSafe(recoveryUnit), shellSafe(lockUnit),
+		shellSafe(packageName), shellSafe(serviceName), shellSafe(executorUnitA), shellSafe(executorUnitB), shellSafe(executorUnitC),
+		shellSafe(executorUnitD), shellSafe(executorUnitE), shellSafe(recoveryUnit), shellSafe(lockUnit), shellSafe(remoteRoot),
 		shellSafe(filepath.Dir(healthPath)), shellSafe(filepath.Dir(installLog)))
 	t.Cleanup(func() { _, _ = remoteCommand(context.Background(), host, remoteCleanup) })
 	remoteMust(t, ctx, host, "mkdir -p "+shellSafe(remoteRoot))
@@ -71,6 +72,8 @@ func TestUpgradeTargetSystemdDebianPackageFaultRecovery(t *testing.T) {
 		"./cmd/kim-upgrade-fixture-component", "-X main.version=3.0.0")
 	executorBinary := buildLinuxBinary(t, repositoryRoot, filepath.Join(buildDirectory, "kim-upgrade-target-executor"),
 		"./cmd/kim-upgrade-target-executor", "")
+	recoveryBinary := buildLinuxBinary(t, repositoryRoot, filepath.Join(buildDirectory, "kim-upgrade-recovery-executor"),
+		"./cmd/kim-upgrade-recovery-executor", "")
 	binaryDigestV2 := localFileDigest(t, componentV2)
 	binaryDigestV3 := localFileDigest(t, componentV3)
 	interruptMarker := remoteRoot + "/postinst-v3-started"
@@ -83,7 +86,9 @@ func TestUpgradeTargetSystemdDebianPackageFaultRecovery(t *testing.T) {
 	remoteCopy(t, ctx, host, stageV2, remoteRoot+"/v2")
 	remoteCopy(t, ctx, host, stageV3, remoteRoot+"/v3")
 	remoteCopy(t, ctx, host, executorBinary, remoteRoot+"/kim-upgrade-target-executor")
-	remoteMust(t, ctx, host, fmt.Sprintf("chmod 0755 %s/kim-upgrade-target-executor; dpkg-deb --build %s/v1 %s/v1.deb >/dev/null; dpkg-deb --build %s/v2 %s/v2.deb >/dev/null; dpkg-deb --build %s/v3 %s/v3.deb >/dev/null",
+	remoteCopy(t, ctx, host, recoveryBinary, remoteRoot+"/kim-upgrade-recovery-executor")
+	remoteMust(t, ctx, host, fmt.Sprintf("chmod 0755 %s/kim-upgrade-target-executor %s/kim-upgrade-recovery-executor; dpkg-deb --build %s/v1 %s/v1.deb >/dev/null; dpkg-deb --build %s/v2 %s/v2.deb >/dev/null; dpkg-deb --build %s/v3 %s/v3.deb >/dev/null",
+		shellSafe(remoteRoot),
 		shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot),
 		shellSafe(remoteRoot), shellSafe(remoteRoot)))
 	packageDigestV1 := strings.Fields(remoteMust(t, ctx, host, "sha256sum "+shellSafe(remoteRoot+"/v1.deb")))[0]
@@ -339,10 +344,130 @@ func TestUpgradeTargetSystemdDebianPackageFaultRecovery(t *testing.T) {
 			interruptedAttempts, interruptedReadBack, interruptedUnknown, interruptedApply, interruptedQuarantine,
 			interruptedResults, v3InstallEntries, interruptedPackageStatus)
 	}
+
+	recoveryAuthorizationDigest := digest("package-recovery-authorization:" + nonce)
+	recoveryPlanRequest := postgres.UpgradeTargetRecoveryPlanRequest{
+		RecoveryPlanID: "package-recovery-plan-" + nonce, TargetID: interruptedTarget.TargetID,
+		Strategy: postgres.UpgradeRecoveryConfigureExisting, AuthorizationID: "operator-recovery-approval-" + nonce,
+		AuthorizationDigest: recoveryAuthorizationDigest, RecoveryProfileRevision: 1,
+	}
+	recoveryPlan, err := postgres.ApproveUpgradeTargetRecoveryPlan(ctx, pool, recoveryPlanRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedPlan, err := postgres.ApproveUpgradeTargetRecoveryPlan(ctx, pool, recoveryPlanRequest)
+	if err != nil || replayedPlan.PlanDigest != recoveryPlan.PlanDigest ||
+		replayedPlan.RecoveryGeneration != recoveryPlan.RecoveryGeneration {
+		t.Fatalf("stable Recovery Plan replay diverged: original=%+v replay=%+v err=%v", recoveryPlan, replayedPlan, err)
+	}
+	// The explicit Plan includes an operator-controlled precondition that allows the previously blocked
+	// maintainer script to finish. The recovery executor still owns only the closed dpkg --configure operation.
+	remoteMust(t, ctx, host, "touch "+shellSafe(interruptRelease))
+	startRemoteRecoveryExecutor(t, ctx, host, recoveryUnit, remoteRoot+"/kim-upgrade-recovery-executor",
+		remoteDatabaseURL, interruptedTarget.TargetID, "systemd-recovery-a", remoteRoot+"/profile.json", "0s")
+	eventually(t, 30*time.Second, func() bool {
+		var recoveryState, targetState, executionState string
+		return pool.QueryRow(ctx, `SELECT recovery.recovery_state,target.target_state,execution.execution_state
+			FROM kim.upgrade_target_recoveries_current recovery
+			JOIN kim.upgrade_targets_current target USING(target_id)
+			JOIN kim.upgrade_target_executions_current execution USING(target_id)
+			WHERE recovery.target_id=$1`, interruptedTarget.TargetID).Scan(&recoveryState, &targetState, &executionState) == nil &&
+			recoveryState == "VERIFIED" && targetState == "FENCED" && executionState == "FENCED"
+	}, "verified package recovery did not remain fenced before explicit rearm")
+	eventuallyRemote(t, ctx, host, 20*time.Second, func(output string) bool {
+		return strings.Contains(output, "3.0.0") && strings.Contains(output, `"ready":true`)
+	}, fmt.Sprintf("sudo -n cat %s", shellSafe(healthPath)), "configured package service did not become healthy")
+	var recoveryAttempts, recoveryApply, recoveryResults, rearmEvidence int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_recovery_attempt_evidence
+		WHERE target_id=$1 AND recovery_generation=$2`, interruptedTarget.TargetID, recoveryPlan.RecoveryGeneration).Scan(&recoveryAttempts); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_type='RECOVERY_APPLY_AUTHORIZED')
+		FROM kim.upgrade_target_recovery_event_evidence WHERE target_id=$1 AND recovery_generation=$2`,
+		interruptedTarget.TargetID, recoveryPlan.RecoveryGeneration).Scan(&recoveryApply); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_recovery_result_evidence
+		WHERE target_id=$1 AND recovery_generation=$2 AND outcome='VERIFIED'`, interruptedTarget.TargetID,
+		recoveryPlan.RecoveryGeneration).Scan(&recoveryResults); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_recovery_rearm_evidence
+		WHERE target_id=$1`, interruptedTarget.TargetID).Scan(&rearmEvidence); err != nil {
+		t.Fatal(err)
+	}
+	if recoveryAttempts != 1 || recoveryApply != 1 || recoveryResults != 1 || rearmEvidence != 0 {
+		t.Fatalf("recovery attempts=%d apply=%d results=%d premature-rearm=%d", recoveryAttempts, recoveryApply,
+			recoveryResults, rearmEvidence)
+	}
+	var recoveryAttempt int
+	var recoveryResultDigest, recoveryObservedDigest string
+	if err := pool.QueryRow(ctx, `SELECT attempt_generation,result_digest,observed_digest
+		FROM kim.upgrade_target_recovery_result_evidence WHERE target_id=$1 AND recovery_generation=$2`,
+		interruptedTarget.TargetID, recoveryPlan.RecoveryGeneration).Scan(&recoveryAttempt, &recoveryResultDigest,
+		&recoveryObservedDigest); err != nil {
+		t.Fatal(err)
+	}
+	if err := postgres.CompleteUpgradeTargetRecovery(ctx, pool, postgres.UpgradeTargetRecoveryCompletionRequest{
+		TargetID: interruptedTarget.TargetID, Owner: "response-loss-replay",
+		RecoveryGeneration: recoveryPlan.RecoveryGeneration, AttemptGeneration: uint64(recoveryAttempt),
+		Outcome: "VERIFIED", ResultDigest: recoveryResultDigest, ObservedDigest: recoveryObservedDigest,
+	}); err != nil {
+		t.Fatalf("stable Recovery Result replay did not recover the committed result: %v", err)
+	}
+	rearmAuthorizationDigest := digest("package-rearm-authorization:" + nonce)
+	if err := postgres.RearmUpgradeTargetAfterRecovery(ctx, pool, postgres.UpgradeTargetRecoveryRearmRequest{
+		TargetID: interruptedTarget.TargetID, RecoveryGeneration: recoveryPlan.RecoveryGeneration,
+		AuthorizationID: "operator-rearm-approval-" + nonce, AuthorizationDigest: rearmAuthorizationDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := postgres.RearmUpgradeTargetAfterRecovery(ctx, pool, postgres.UpgradeTargetRecoveryRearmRequest{
+		TargetID: interruptedTarget.TargetID, RecoveryGeneration: recoveryPlan.RecoveryGeneration,
+		AuthorizationID: "operator-rearm-approval-" + nonce, AuthorizationDigest: rearmAuthorizationDigest,
+	}); err != nil {
+		t.Fatalf("stable rearm authorization replay diverged: %v", err)
+	}
+	var recoveryState, rearmedTargetState, rearmedExecutionState, pausedCampaignState string
+	if err := pool.QueryRow(ctx, `SELECT recovery.recovery_state,target.target_state,execution.execution_state,campaign.campaign_state
+		FROM kim.upgrade_target_recoveries_current recovery
+		JOIN kim.upgrade_targets_current target USING(target_id)
+		JOIN kim.upgrade_target_executions_current execution USING(target_id)
+		JOIN kim.upgrade_target_evidence evidence USING(target_id)
+		JOIN kim.upgrade_campaigns_current campaign USING(campaign_id)
+		WHERE recovery.target_id=$1`, interruptedTarget.TargetID).Scan(&recoveryState, &rearmedTargetState,
+		&rearmedExecutionState, &pausedCampaignState); err != nil {
+		t.Fatal(err)
+	}
+	if recoveryState != "REARMED" || rearmedTargetState != "PENDING" || rearmedExecutionState != "PENDING" ||
+		pausedCampaignState != "PAUSED" {
+		t.Fatalf("recovery=%s target=%s execution=%s campaign=%s", recoveryState, rearmedTargetState,
+			rearmedExecutionState, pausedCampaignState)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_recovery_rearm_evidence
+		WHERE target_id=$1 AND recovery_generation=$2`, interruptedTarget.TargetID,
+		recoveryPlan.RecoveryGeneration).Scan(&rearmEvidence); err != nil || rearmEvidence != 1 {
+		t.Fatalf("rearm evidence was not idempotent: count=%d err=%v", rearmEvidence, err)
+	}
+	if _, err := postgres.ClaimUpgradeTarget(ctx, pool, postgres.UpgradeTargetClaimRequest{
+		CampaignID: interruptedPlan.CampaignID, TargetID: interruptedTarget.TargetID, Owner: "forbidden-paused-retry",
+		Lease: 2 * time.Second, MaximumLifetime: 5 * time.Second,
+	}); !errors.Is(err, postgres.ErrUpgradeTargetClaimUnavailable) {
+		t.Fatalf("explicit Target rearm implicitly resumed the paused Campaign: %v", err)
+	}
+	v3InstallEntries, err = strconv.Atoi(strings.TrimSpace(remoteMust(t, ctx, host,
+		fmt.Sprintf("sudo -n awk '$1==\"3.0.0\"{count++} END{print count+0}' %s", shellSafe(installLog)))))
+	if err != nil || v3InstallEntries != 1 {
+		t.Fatalf("closed CONFIGURE_EXISTING did not execute the maintainer script exactly once: entries=%d err=%v",
+			v3InstallEntries, err)
+	}
 	t.Logf("systemd package recovery converged: package=%s digest=%s attempts=%d unknown=%d installs=%d process=%s campaign=%s/%s",
 		packageName, packageDigestV2, attempts, unknownEvents, installEntries, processDigest, campaignState, waveID)
 	t.Logf("interrupted package fenced: digest=%s status=%s attempts=%d quarantine=%d campaign=PAUSED",
 		packageDigestV3, interruptedPackageStatus, interruptedAttempts, interruptedQuarantine)
+	t.Logf("explicit package recovery verified and rearmed: plan=%s generation=%d strategy=%s recovery_attempts=%d configure_count=%d campaign=%s",
+		recoveryPlan.RecoveryPlanID, recoveryPlan.RecoveryGeneration, recoveryPlan.Strategy, recoveryAttempts,
+		v3InstallEntries, pausedCampaignState)
 }
 
 func buildLinuxBinary(t *testing.T, root, output, target, ldflags string) string {
@@ -511,6 +636,16 @@ func startRemoteTargetExecutor(t *testing.T, ctx context.Context, host, unit, bi
 		"-claim-lease 2s -claim-maximum-lifetime 30s -claim-renew-interval 500ms -claim-poll-interval 100ms "+
 		"-observation-settle-window %s -database-max-connections 4", shellSafe(unit), shellSafe(binary),
 		shellSafe(databaseURL), shellSafe(campaignID), shellSafe(targetID), shellSafe(owner), shellSafe(profile), shellSafe(settle))
+	remoteMust(t, ctx, host, command)
+}
+
+func startRemoteRecoveryExecutor(t *testing.T, ctx context.Context, host, unit, binary, databaseURL, targetID, owner, profile, settle string) {
+	t.Helper()
+	command := fmt.Sprintf("sudo -n systemd-run --quiet --collect --unit=%s --property=Type=exec -- %s "+
+		"-database-url %s -target-id %s -executor-id %s -backend-profile %s "+
+		"-claim-lease 2s -claim-maximum-lifetime 30s -claim-renew-interval 500ms -claim-poll-interval 100ms "+
+		"-observation-settle-window %s -database-max-connections 4", shellSafe(unit), shellSafe(binary),
+		shellSafe(databaseURL), shellSafe(targetID), shellSafe(owner), shellSafe(profile), shellSafe(settle))
 	remoteMust(t, ctx, host, command)
 }
 
