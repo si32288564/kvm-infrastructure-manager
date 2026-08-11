@@ -60,7 +60,7 @@ func UpsertPlacementPool(ctx context.Context, db TxBeginner, pool PlacementPoolB
 		if groupLifecycle == "DISABLED" {
 			groupLifecycle = "DRAINING"
 		}
-		if err := upsertHostGroupTx(ctx, tx, HostGroupRevision{
+		if err := upsertHostGroupAndPolicyTx(ctx, tx, HostGroupRevision{
 			HostGroupID: pool.PoolID, Generation: pool.PoolGeneration,
 			GroupType: "PLACEMENT_POOL", Dimension: "service-class", Level: "pool",
 			LifecycleState: groupLifecycle,
@@ -105,9 +105,6 @@ func AssignHostPlacementPool(ctx context.Context, db TxBeginner, membership Host
 			return err
 		}
 		if err := lockHostGroupTx(ctx, tx, membership.PoolID); err != nil {
-			return err
-		}
-		if err := lockHostAuthorityTx(ctx, tx, membership.HostID); err != nil {
 			return err
 		}
 		if err := assignHostGroupMembershipTx(ctx, tx, HostGroupMembership{
@@ -246,12 +243,23 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				SELECT 1
 				FROM kim.host_groups_current group_current
 				JOIN kim.host_group_membership_sets_current set_current USING (host_group_id)
+				JOIN kim.host_group_cardinality_policies_current cardinality_policy
+				  ON cardinality_policy.group_type=group_current.group_type
+				 AND cardinality_policy.dimension=group_current.dimension
+				 AND cardinality_policy.level=group_current.level
+				 AND cardinality_policy.scope_type='SYSTEM' AND cardinality_policy.scope_id='system'
 				JOIN kim.host_group_memberships_current member USING (host_group_id)
 				WHERE group_current.host_group_id=$1 AND member.host_id=$2
 				  AND group_current.host_group_generation=$3
 				  AND set_current.membership_set_generation=$4
 				  AND member.membership_set_generation=$4 AND member.membership_generation=$5
 				  AND group_current.lifecycle_state='ACTIVE' AND set_current.validation_state='ACCEPTED'
+				  AND cardinality_policy.policy_state='ACTIVE'
+				  AND ((set_current.cardinality_policy_id=cardinality_policy.cardinality_policy_id
+				        AND set_current.cardinality_policy_generation=cardinality_policy.policy_generation
+				        AND set_current.cardinality=cardinality_policy.cardinality)
+				       OR (set_current.cardinality_policy_id IS NULL
+				           AND cardinality_policy.policy_generation=1 AND cardinality_policy.cardinality='MANY'))
 				  AND member.membership_state='ACTIVE'
 			)
 		`, request.PoolID, dry.HostID, dry.PoolGeneration, dry.MembershipSetGeneration, dry.MembershipGeneration).Scan(&membershipSetCurrent); err != nil || !membershipSetCurrent {
@@ -408,6 +416,17 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		 AND membership_set.membership_set_generation=membership.membership_set_generation
 		 AND membership_set.based_on_host_group_generation=host_group.host_group_generation
 		 AND membership_set.validation_state='ACCEPTED'
+		JOIN kim.host_group_cardinality_policies_current cardinality_policy
+		  ON cardinality_policy.group_type=host_group.group_type
+		 AND cardinality_policy.dimension=host_group.dimension
+		 AND cardinality_policy.level=host_group.level
+		 AND cardinality_policy.scope_type='SYSTEM' AND cardinality_policy.scope_id='system'
+		 AND cardinality_policy.policy_state='ACTIVE'
+		 AND ((membership_set.cardinality_policy_id=cardinality_policy.cardinality_policy_id
+		       AND membership_set.cardinality_policy_generation=cardinality_policy.policy_generation
+		       AND membership_set.cardinality=cardinality_policy.cardinality)
+		      OR (membership_set.cardinality_policy_id IS NULL
+		          AND cardinality_policy.policy_generation=1 AND cardinality_policy.cardinality='MANY'))
 		JOIN kim.placement_pools_current pool ON pool.pool_id=host_group.host_group_id
 		LEFT JOIN LATERAL (
 			SELECT sum(vcpus) vcpus, sum(memory_mib) memory_mib

@@ -95,6 +95,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-015 | membership bulk updateを一generationで不可分commitし、response loss再送を同じdigestへ収束させる |
 | AT-HGR-016 | complete membership set A/B/Cをgen1、A/C/Dをgen2としてatomic publishし、stable replayはgenerationを増幅せず、同request identityのsemantic mismatchとparallel stale publisherを拒否する |
 | AT-HGR-017 | Placement dry/finalとimmutable snapshotがaccepted membership set generation/digest/member evidenceを固定し、member除外・Group generation変更・後続set publishを越えてstale authorityを進めない |
+| AT-HGR-018 | SYSTEM scopeのcardinality policy evidence/currentをgeneration付きで管理し、parallel sibling publishで同一Hostをexclusive Groupへ割り当てる競合は一件だけcommitし、policy更新後はset再publishまでsnapshot/Placementをfail closedにする |
 
 ## 6. Availability Responsibility and Recovery
 

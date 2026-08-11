@@ -107,6 +107,7 @@
 | HGR-017 | READY/placement可能なHostが全active Placement Pool membershipsから一つのeffective Availability Policyを解決できることを必須とする | Must |
 | HGR-018 | HostGroup本体のgenerationとmembership set generationを分離し、完全なmember set evidenceの検証完了後だけcurrent setとcurrent member projectionを同一PostgreSQL transactionで不可分に切り替える | Must |
 | HGR-019 | Group Membership Snapshotをlive membership rowではなくaccepted membership set generationとcanonical digestへbindし、後続set変更から不変に保つ | Must |
+| HGR-020 | cardinality policyをgroup type、dimension、level、scopeのversioned authorityとして管理し、complete set publishを同scopeのsibling HostGroups全体でtransactionally直列化・検証する | Must |
 
 ### 2.5 Availability Responsibility and Managed Recovery
 

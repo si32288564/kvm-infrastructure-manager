@@ -79,7 +79,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 |---|---|---|---|---|---|
 | HGR-001, HGR-015 | host-grouping-architecture, domain-model | ADR-0014 | INV-HGR-001, INV-HGR-013 | AT-HGR-001, AT-HGR-013, AT-HGR-015, FI-HGR-007 | Partial (revision/current authority、membership lifecycle/evidence implemented; delete/reference guard pending) |
 | HGR-002 | host-grouping-architecture | ADR-0014 | INV-HGR-002 | AT-HGR-002 | Partial (typed persistence implemented; effect allow-list consumers pending) |
-| HGR-003, HGR-007 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-003 | AT-HGR-003, FI-HGR-001, FI-HGR-002 | Planned |
+| HGR-003, HGR-007, HGR-020 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-003, INV-HGR-017 | AT-HGR-003, AT-HGR-018, FI-HGR-001, FI-HGR-002, FI-HGR-011 | Partial (SYSTEM scope cardinality policy authority、sibling-set serialization、exclusive conflict/policy-generation fencing implemented; required population completeness and non-SYSTEM scopes pending) |
 | HGR-004, HGR-005 | host-grouping-architecture, extensibility-architecture | ADR-0011, ADR-0014 | INV-HGR-001, INV-HGR-004 | AT-HGR-004, AT-HGR-005, XCT-HGR-001, XCT-HGR-002, XCT-HGR-003, XCT-HGR-004 | Partial (materialized provenance/evidence implemented; selector evaluator/external verifier pending) |
 | HGR-006 | host-grouping-architecture | ADR-0014 | INV-HGR-005 | FI-HGR-003 | Planned |
 | HGR-008, HGR-009 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-006, INV-HGR-007 | AT-HGR-006, AT-HGR-007, FI-HGR-004 | Partial (HostGroup/membership generation dry/final fencing implemented; policy/hierarchy generations pending) |

@@ -281,6 +281,7 @@
 | INV-HGR-014 | READY/placement可能なHostは全active Placement Poolsから一つのeffective Availability Policyを解決できなければならない | AT-AVR-005 |
 | INV-HGR-015 | 個別membership row、selector proposal、partial bulk writeはaccepted membership set authorityではなく、完全なset evidenceとcurrent pointerのatomic commitだけがauthorityを進める | AT-HGR-016, FI-HGR-009 |
 | INV-HGR-016 | snapshot、Placement dry/finalはcurrent accepted membership set generation/digestとそのset内のmember evidenceへbindし、live row寄せ集めやstale setからauthorityを進めない | AT-HGR-017, FI-HGR-010 |
+| INV-HGR-017 | EXACTLY_ONE/ZERO_OR_ONE/MANYは単一Group内member数ではなく同一type/dimension/level/scopeのACTIVE sibling sets全体に対するHost別制約として、shared scope lock下で検証し、policy generation不一致setをauthorityへ進めない | AT-HGR-018, FI-HGR-011 |
 
 ## 11. Availability Responsibility and Recovery
 

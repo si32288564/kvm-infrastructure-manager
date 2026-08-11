@@ -102,6 +102,16 @@ dimension+levelは次のcardinalityを定義します。
 
 `EXACTLY_ONE`違反、exclusive dimension+levelの多重所属、required failure domain欠損は`MembershipConflict`または`UNKNOWN`です。自動的に任意Groupを選びません。
 
+cardinalityはHostGroup単体のmember数ではなく、次のclass/scope keyに対するmembership constraintです。
+
+~~~text
+group_type + dimension + level + scope_type + scope_id
+~~~
+
+Phase 1の最初のauthority profileはSYSTEM/systemです。policy revision evidenceはimmutable、current policyはgeneration付きprojectionです。異なるsibling Groupへのcomplete-set publisherも同じcardinality scope advisory lockを取得し、proposed setと他のcurrent ACTIVE sibling setsを同一transactionで検証します。policy generationが変わった既存setは書き換えず、current policyに対するnew complete-set publishまでsnapshot/Placement authorityとしてfail closedにします。
+
+EXACTLY_ONEのminimum-oneは、この増分ではpublishにより影響を受けるmaterialized Host populationに対して強制します。Site/Project/全managed Hostなどのpopulation authorityが未実装のため、集合外Hostを含むglobal completenessは後続gateです。ZERO_OR_ONEとEXACTLY_ONEの多重所属防止はcurrent sibling membership全体に適用します。
+
 ## 5. Membership Authority
 
 membership mode:

@@ -336,6 +336,152 @@ func TestHostGroupMembershipSetAuthorityPostgreSQLIntegration(t *testing.T) {
 	}
 }
 
+func TestHostGroupCardinalityAuthorityPostgreSQLIntegration(t *testing.T) {
+	databaseURL := os.Getenv("KIM_POSTGRES_TEST_URL")
+	if databaseURL == "" {
+		t.Skip("KIM_POSTGRES_TEST_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := OpenWithMaxConnections(ctx, databaseURL, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.database_authority SET mode='ACTIVE' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	hostID := "cardinality-host-" + suffix
+	groupA, groupB := "rack-a-"+suffix, "rack-b-"+suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities(host_id,enrollment_state) VALUES($1,'APPROVED')`, hostID); err != nil {
+		t.Fatal(err)
+	}
+	for _, groupID := range []string{groupA, groupB} {
+		if err := UpsertHostGroup(ctx, pool, HostGroupRevision{
+			HostGroupID: groupID, Generation: 1, GroupType: "FAILURE_DOMAIN",
+			Dimension: "physical-location-" + suffix, Level: "rack", LifecycleState: "ACTIVE",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var policyID string
+	if err := pool.QueryRow(ctx, `
+		SELECT cardinality_policy_id FROM kim.host_group_cardinality_policies_current
+		WHERE group_type='FAILURE_DOMAIN' AND dimension=$1 AND level='rack'
+		  AND scope_type='SYSTEM' AND scope_id='system'
+	`, "physical-location-"+suffix).Scan(&policyID); err != nil {
+		t.Fatal(err)
+	}
+	policy := HostGroupCardinalityPolicy{
+		PolicyID: policyID, Generation: 2, GroupType: "FAILURE_DOMAIN",
+		Dimension: "physical-location-" + suffix, Level: "rack",
+		ScopeType: "SYSTEM", ScopeID: "system", Cardinality: "ZERO_OR_ONE", State: "ACTIVE",
+	}
+	if err := UpsertHostGroupCardinalityPolicy(ctx, pool, policy); err != nil {
+		t.Fatal(err)
+	}
+
+	publish := func(groupID string) error {
+		_, err := PublishHostGroupMembershipSet(ctx, pool, HostGroupMembershipSetRequest{
+			PublishRequestID: "cardinality-publish-" + groupID, HostGroupID: groupID,
+			BasedOnHostGroupGeneration: 1, ExpectedCurrentSetGeneration: 0,
+			SourceType: "EXPLICIT", SourceRevision: "operator-1",
+			Members: []HostGroupMembership{{
+				HostGroupID: groupID, HostID: hostID, Generation: 1, State: "ACTIVE",
+				SourceType: "EXPLICIT", SourceRevision: "operator-1",
+			}},
+		})
+		return err
+	}
+	results := make(chan struct {
+		groupID string
+		err     error
+	}, 2)
+	go func() {
+		results <- struct {
+			groupID string
+			err     error
+		}{groupA, publish(groupA)}
+	}()
+	go func() {
+		results <- struct {
+			groupID string
+			err     error
+		}{groupB, publish(groupB)}
+	}()
+	var winner string
+	succeeded, conflicted := 0, 0
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			succeeded++
+			winner = result.groupID
+		} else if errors.Is(result.err, ErrHostGroupConflict) {
+			conflicted++
+		} else {
+			t.Fatalf("parallel sibling publish error = %v", result.err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("parallel sibling outcomes success=%d conflict=%d", succeeded, conflicted)
+	}
+	var activeMemberships int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM kim.host_group_memberships_current member
+		JOIN kim.host_groups_current group_current USING (host_group_id)
+		WHERE member.host_id=$1 AND member.membership_state='ACTIVE'
+		  AND group_current.group_type='FAILURE_DOMAIN'
+		  AND group_current.dimension=$2 AND group_current.level='rack'
+	`, hostID, "physical-location-"+suffix).Scan(&activeMemberships); err != nil || activeMemberships != 1 {
+		t.Fatalf("sibling active memberships = %d/%v, want 1", activeMemberships, err)
+	}
+
+	policy.Generation = 3
+	policy.Cardinality = "EXACTLY_ONE"
+	if err := UpsertHostGroupCardinalityPolicy(ctx, pool, policy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateHostGroupMembershipSnapshot(ctx, pool, HostGroupSnapshotRequest{
+		SnapshotID: "stale-policy-snapshot-" + suffix, HostGroupID: winner, Purpose: "UPGRADE",
+	}); !errors.Is(err, ErrHostGroupConflict) {
+		t.Fatalf("old policy-bound set snapshot = %v", err)
+	}
+	rebound, err := PublishHostGroupMembershipSet(ctx, pool, HostGroupMembershipSetRequest{
+		PublishRequestID: "cardinality-rebind-" + suffix, HostGroupID: winner,
+		BasedOnHostGroupGeneration: 1, ExpectedCurrentSetGeneration: 1,
+		SourceType: "EXPLICIT", SourceRevision: "operator-2",
+		Members: []HostGroupMembership{{
+			HostGroupID: winner, HostID: hostID, Generation: 1, State: "ACTIVE",
+			SourceType: "EXPLICIT", SourceRevision: "operator-1",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebound.Cardinality != "EXACTLY_ONE" || rebound.CardinalityPolicyGeneration != 3 {
+		t.Fatalf("policy-bound set = %#v", rebound)
+	}
+	if _, err := CreateHostGroupMembershipSnapshot(ctx, pool, HostGroupSnapshotRequest{
+		SnapshotID: "current-policy-snapshot-" + suffix, HostGroupID: winner, Purpose: "UPGRADE",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishHostGroupMembershipSet(ctx, pool, HostGroupMembershipSetRequest{
+		PublishRequestID: "cardinality-remove-last-" + suffix, HostGroupID: winner,
+		BasedOnHostGroupGeneration: 1, ExpectedCurrentSetGeneration: rebound.MembershipSetGeneration,
+		SourceType: "EXPLICIT", SourceRevision: "operator-3",
+	}); !errors.Is(err, ErrHostGroupConflict) {
+		t.Fatalf("EXACTLY_ONE removal of last membership = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE kim.host_group_cardinality_policy_evidence SET cardinality='MANY' WHERE cardinality_policy_id=$1 AND policy_generation=3`, policyID); err == nil {
+		t.Fatal("immutable cardinality policy evidence UPDATE unexpectedly succeeded")
+	}
+}
+
 func assertCurrentMembershipSet(t *testing.T, ctx context.Context, pool QueryRower, groupID string, wantGeneration uint64, wantMembers int) {
 	t.Helper()
 	var generation uint64
