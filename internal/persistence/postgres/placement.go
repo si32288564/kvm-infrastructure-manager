@@ -33,10 +33,12 @@ type HostPlacementMembership struct {
 }
 
 type PlacementAdmissionRequest struct {
-	RequestID, ProjectID, WorkloadID, ImageID, FlavorID, PoolID string
-	PCI                                                         []placement.PCIRequirement
-	Network                                                     []placement.NetworkRequirement
-	Storage                                                     []placement.StorageRequirement
+	RequestID, ProjectID, WorkloadID, ImageID, FlavorID, PoolID        string
+	PlacementScopeID, PlacementScopeDigest, VisibilityProvenanceDigest string
+	PlacementScopeGeneration                                           uint64
+	PCI                                                                []placement.PCIRequirement
+	Network                                                            []placement.NetworkRequirement
+	Storage                                                            []placement.StorageRequirement
 }
 
 type PlacementAdmission struct {
@@ -145,6 +147,9 @@ func AssignHostPlacementPool(ctx context.Context, db TxBeginner, membership Host
 // DryEvaluatePlacement uses a read-only repeatable-read transaction. It never
 // writes a decision, reservation, Outbox intent, or backend side effect.
 func DryEvaluatePlacement(ctx context.Context, db TxBeginner, request PlacementAdmissionRequest, hostID string) (placement.Evaluation, error) {
+	if request.PlacementScopeID != "" || request.PlacementScopeGeneration != 0 || request.PlacementScopeDigest != "" || request.VisibilityProvenanceDigest != "" {
+		return placement.Evaluation{}, ErrPlacementConflict
+	}
 	if err := validatePlacementAdmissionRequest(request, hostID); err != nil {
 		return placement.Evaluation{}, err
 	}
@@ -163,6 +168,13 @@ func DryEvaluatePlacement(ctx context.Context, db TxBeginner, request PlacementA
 // FinalAdmitPlacement repeats the dry rules over current authority and commits
 // immutable decision plus compute reservation in one PostgreSQL transaction.
 func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAdmissionRequest, dry placement.Evaluation) (PlacementAdmission, error) {
+	if request.PlacementScopeID != "" || request.PlacementScopeGeneration != 0 || request.PlacementScopeDigest != "" || request.VisibilityProvenanceDigest != "" {
+		return PlacementAdmission{}, ErrPlacementConflict
+	}
+	return finalAdmitPlacement(ctx, db, request, dry)
+}
+
+func finalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAdmissionRequest, dry placement.Evaluation) (PlacementAdmission, error) {
 	if err := validatePlacementAdmissionRequest(request, dry.HostID); err != nil {
 		return PlacementAdmission{}, err
 	}
@@ -191,21 +203,28 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 		}
 		var existing PlacementAdmission
 		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest, existingNetworkDigest, existingStorageDigest string
+		var existingScopeID, existingScopeDigest, existingVisibilityDigest string
+		var existingScopeGeneration uint64
 		err := tx.QueryRow(ctx, `
 			SELECT decision.admission_id, claim.allocation_id, decision.request_id,
 			       decision.request_digest, decision.host_id, decision.pool_id,
 			       decision.evaluation_digest, decision.project_id, decision.workload_id,
 			       decision.image_id, decision.flavor_id, decision.pci_requirements_digest,
-			       decision.network_requirements_digest, decision.storage_requirements_digest
+			       decision.network_requirements_digest, decision.storage_requirements_digest,
+			       COALESCE(decision.placement_scope_id,''),COALESCE(decision.placement_scope_generation,0),
+			       COALESCE(decision.placement_scope_digest,''),COALESCE(decision.visibility_provenance_digest,'')
 			FROM kim.placement_admission_decisions decision
 			JOIN kim.compute_allocation_claims claim ON claim.admission_id=decision.admission_id
 			WHERE decision.request_id=$1
 		`, request.RequestID).Scan(&existing.AdmissionID, &existing.AllocationID, &existing.RequestID,
 			&existing.RequestDigest, &existing.HostID, &existing.PoolID, &existing.EvaluationDigest,
 			&existingProjectID, &existingWorkloadID, &existingImageID, &existingFlavorID,
-			&existingPCIDigest, &existingNetworkDigest, &existingStorageDigest)
+			&existingPCIDigest, &existingNetworkDigest, &existingStorageDigest, &existingScopeID,
+			&existingScopeGeneration, &existingScopeDigest, &existingVisibilityDigest)
 		if err == nil {
-			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest || existingNetworkDigest != networkRequirementsDigest || existingStorageDigest != storageRequirementsDigest {
+			if existing.RequestDigest != dry.RequestDigest || existingProjectID != request.ProjectID || existingWorkloadID != request.WorkloadID || existingImageID != request.ImageID || existingFlavorID != request.FlavorID || existing.PoolID != request.PoolID || existingPCIDigest != pciRequirementsDigest || existingNetworkDigest != networkRequirementsDigest || existingStorageDigest != storageRequirementsDigest ||
+				existingScopeID != request.PlacementScopeID || existingScopeGeneration != request.PlacementScopeGeneration ||
+				existingScopeDigest != request.PlacementScopeDigest || existingVisibilityDigest != request.VisibilityProvenanceDigest {
 				return ErrPlacementConflict
 			}
 			admission = existing
@@ -339,8 +358,9 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				compliance_generation, pci_requirements, pci_requirements_digest,
 				network_requirements, network_requirements_digest,
 				storage_requirements, storage_requirements_digest,
+				placement_scope_id,placement_scope_generation,placement_scope_digest,visibility_provenance_digest,
 				decision_state, explanation
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,'ACCEPTED',$31)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,'ACCEPTED',$35)
 		`, admission.AdmissionID, request.RequestID, current.RequestDigest, current.EvaluationDigest,
 			request.ProjectID, request.WorkloadID, current.HostID, current.PoolID,
 			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration, current.MembershipSetGeneration,
@@ -351,7 +371,9 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			current.PreflightGeneration, current.ComplianceGeneration,
 			pciRequirementsPayload, pciRequirementsDigest,
 			networkRequirementsPayload, networkRequirementsDigest,
-			storageRequirementsPayload, storageRequirementsDigest, explanation)
+			storageRequirementsPayload, storageRequirementsDigest,
+			nullablePlacementScopeID(request), nullablePlacementScopeGeneration(request),
+			nullablePlacementScopeDigest(request), nullablePlacementVisibilityDigest(request), explanation)
 		if err != nil {
 			return fmt.Errorf("record Placement admission decision: %w", err)
 		}
@@ -1106,4 +1128,29 @@ func lockPlacementCatalogRows(ctx context.Context, tx pgx.Tx, request PlacementA
 		return err
 	}
 	return nil
+}
+
+func nullablePlacementScopeID(request PlacementAdmissionRequest) any {
+	if request.PlacementScopeID == "" {
+		return nil
+	}
+	return request.PlacementScopeID
+}
+func nullablePlacementScopeGeneration(request PlacementAdmissionRequest) any {
+	if request.PlacementScopeID == "" {
+		return nil
+	}
+	return request.PlacementScopeGeneration
+}
+func nullablePlacementScopeDigest(request PlacementAdmissionRequest) any {
+	if request.PlacementScopeID == "" {
+		return nil
+	}
+	return request.PlacementScopeDigest
+}
+func nullablePlacementVisibilityDigest(request PlacementAdmissionRequest) any {
+	if request.PlacementScopeID == "" {
+		return nil
+	}
+	return request.VisibilityProvenanceDigest
 }

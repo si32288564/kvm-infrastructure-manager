@@ -1,7 +1,7 @@
 # Placement Architecture
 
 - 状態: Baseline
-- 更新日: 2026-08-09
+- 更新日: 2026-08-11
 
 ## 1. 原則
 
@@ -9,7 +9,8 @@ Eligibility/Admission と Scoring を分離します。score が高くても不�
 
 ```mermaid
 flowchart LR
-    Request["Placement Request + Inventory Snapshot"] --> Candidates["Candidate Hosts"]
+    Request["Placement Request + Placement Scope ID"] --> Scope["Placement Scope + accepted HostGroup Sets"]
+    Scope --> Candidates["Visible Candidate Hosts"]
     Candidates --> Dry["Dry Eligibility / Admission"]
     Dry --> Eligible["Eligible Hosts"]
     Dry --> Rejected["Rejected + Reason Codes"]
@@ -76,6 +77,8 @@ Baseline blocking Controlはscoreではなくeligibilityで評価します。Hos
 Clock Health/evidence freshnessがrequested operationのpolicyを満たさないHostは該当scopeでeligibility=falseとします。Host source timestampの新しさだけでeligibleにせず、received/verified time、uncertainty、clock/boot generationを [Time and Clock Semantics Architecture](time-and-clock-semantics.md) に従って評価します。
 
 HostGroupはcandidate scopeとfailure-domain ruleを提供しますが、Host固有eligibilityを上書きしません。materialized membership/policy/hierarchy generationをFinal Admissionで再検証し、stale/conflict時は部分予約を残さずreselectionします。Group aggregate capacityは表示用の導出値で、reservation authorityではありません。詳細は [Host Grouping Architecture](host-grouping-architecture.md) に従います。
+
+Scope-aware flowではPlacement Requestがtyped `placement_scope_id`を指定し、Scope resolverはclosed `VM_PLACEMENT` Scopeのexplicit `PLACEMENT_POOL` generationsからcurrent accepted Set/memberだけを読みます。同一Hostの複数visibility pathはcandidate identityをdeduplicateしつつ全provenanceを保持します。membershipはvisibilityを、visibilityはeligibilityを、eligibilityはFinal Admissionを意味しません。`DRAINING`/`RETIRED` Scope、Project identifier mismatch、Scope/Set driftはfail closedです。Final Admissionはnew Scopeで自動re-placementせずnew Dryを要求します。
 
 Availability Policy欠損/stale/conflictのHostはplacement不適格です。Final Admissionはeffective Policyを再解決し、VM/AllocationへAvailability Binding revisionを同じtransactionで保存します。Host failure recoveryはbound Policy/failure-domain constraintをPlacement Requestへ含め、current destination PoolのPolicy compatibilityも再評価します。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従います。
 

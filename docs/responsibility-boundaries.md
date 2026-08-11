@@ -63,6 +63,8 @@ KIM の typed remediation は schema、precondition、対象 resource、rollback
 
 CMDB/asset systemはHostGroup selector/assertionのsourceになれますが、KIM membership authorityを直接所有しません。KIMがsource identity、generation、freshnessを検証しPostgreSQLへmaterializeして初めてmembershipになります。
 
+Placement Scopeは公開candidate populationのauthorityであり、HostGroup membership、Group Policy Binding、Hierarchyから暗黙生成しません。Scope-aware Placement Requestだけがclosed consumer Scopeを参照し、Scope membershipから導出されたvisibilityはEligibilityやFinal resource claimを意味しません。Projectは現在compatibility identifierだけを検証し、first-class Project generation authorityを実装済みとはみなしません。
+
 ## 4. Network
 
 | KIM | External Network / WIM / Physical Infrastructure Manager |

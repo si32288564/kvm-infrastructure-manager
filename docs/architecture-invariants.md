@@ -288,6 +288,7 @@
 | INV-HGR-020 | HostGroup-targeted Upgrade Planはcurrent SetやSelectorを直接評価せず、exact immutable UPGRADE Snapshotとmember evidenceからTargetを一度だけ生成する。live membership drift、Coordinator recovery、PAUSE/RESUMEは既存Plan/Snapshot/Targetを変更しない | AT-HGR-021, FI-HGR-014 |
 | INV-HGR-021 | Maintenanceはexact immutable MAINTENANCE Snapshotから独立Plan/Wave/Targetを一度だけatomic publishし、UPGRADE Snapshotを受理せず、live drift/recovery/pause/resumeでTarget identityを変更しない | AT-HGR-022, FI-HGR-015 |
 | INV-HGR-022 | HostGroup membership/hierarchy/cardinalityとGroup Policy Bindingを別authorityとし、exact Group/Policy revisionを解決する。same-priority非互換はASSIGNMENT_CONFLICTでconsumer BLOCKED、stale highest assignmentはlower-priority fallbackを行わず、live Binding driftでhistorical consumer evidenceを書き換えない | AT-HGR-023, FI-HGR-016 |
+| INV-HGR-023 | HostGroup membership、Placement Scope visibility、Eligibility、Final Admissionを別authorityとし、Hierarchy/Selector/Group Policyからexposureを暗黙生成しない。Final Admissionはexact Scope/Group/Set/member provenanceを再検証し、stale時にre-placementやpartial claimを行わない | AT-HGR-024, FI-HGR-017 |
 
 ## 11. Availability Responsibility and Recovery
 

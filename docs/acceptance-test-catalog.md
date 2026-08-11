@@ -102,6 +102,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-021 | A/B/Cのaccepted Membership SetからUPGRADE Snapshotを作成しPlan/Wave/Targetへbindする。live SetをA/C/Dへ変更後もactive TargetをA/B/Cに保ち、Snapshot/Set raceはcomplete一世代だけを記録する |
 | AT-HGR-022 | A/B/Cのaccepted SetからMAINTENANCE Snapshotと独立Plan/Wave/Targetsをatomic publishし、A/C/D drift、recovery、pause/resume後もA/B/Cとdigestを維持する。purpose mismatch、concurrency、Host fenceもfail closedにする |
 | AT-HGR-023 | exact HostGroup/Policy revisionにbindしたMAINTENANCE Group Policy Bindingをmany-to-many membershipからhigher-priorityで決定する。same-priority exact-equivalentは収束、非互換はASSIGNMENT_CONFLICTでPlan publicationをBLOCKED、stale highestはfallbackせず、replay/concurrency/drift後もimmutable resolution/Plan provenanceを維持する |
+| AT-HGR-024 | closed VM_PLACEMENT Scopeへexact PLACEMENT_POOL generationsをatomic publishし、current accepted Setsからvisible populationをdeduplicateする。NO_SCOPE/BLOCKED/NO_VISIBLE/VISIBLE_BUT_INELIGIBLEを分離し、Scope/Set drift、widening、resource競合でFinal Admissionをstale rejectして全claimをrollbackする |
 
 ## 6. Availability Responsibility and Recovery
 

@@ -1,7 +1,7 @@
 # Host Grouping Architecture
 
 - 状態: Baseline
-- 更新日: 2026-08-09
+- 更新日: 2026-08-11
 
 ## 1. 目的
 
@@ -191,6 +191,21 @@ Phase 1の最初のmaterialized profileは`SYSTEM/system + TREE`です。TREEは
 
 ## 7. Placement Integration
 
+Placement ScopeはHostGroup membershipの別名ではなく、Placement consumerへ公開するpopulation authorityです。Phase 1のclosed profileは `VM_PLACEMENT` consumerが明示された `PLACEMENT_POOL` HostGroup generationsを参照します。ScopeはHost IDを保存せず、Hierarchy child、Selector proposal、Group Policy Bindingからexposureを暗黙継承しません。Projectは現時点のcompatibility identifierでありgeneration fencingは後続です。
+
+```text
+Placement Request + placement_scope_id
+  -> current ACTIVE Scope generation
+  -> explicit PLACEMENT_POOL generations
+  -> current accepted Membership Sets/members
+  -> visible Host union (multi-Group provenanceを保持してdeduplicate)
+  -> existing Eligibility/Scoring
+  -> transactional Final Admission
+```
+
+`ACTIVE`だけがnew dry/Final sourceです。`DRAINING`と`RETIRED`はhistoryを保持してnew authorityをBLOCKします。Dryはread-only repeatable-readで `NO_SCOPE`、`SCOPE_BLOCKED`、`NO_VISIBLE_HOST`、`VISIBLE_BUT_NO_ELIGIBLE_HOST`、`READY` を区別します。Final AdmissionはScopeと全provenance Groupをserializeし、Scope/Group/Set/memberとHost/resource authorityを一transactionで再検証します。drift時はnew Scopeでre-selectionせずnew Dryを要求し、全claimをrollbackします。
+
+
 Placement Request Snapshotは次を追加で固定します。
 
 - requested Placement Scope/Group ID
@@ -294,7 +309,7 @@ Maintenance PlanもGroup snapshotへbindします。
 
 HostGroupはSystem/Infrastructure scope resourceです。Tenant/Project Principalはraw Host membership、failure topology、operator/owner Groupを変更・列挙しません。
 
-Tenant向けAZ/poolは`exposure_policy`で許可された`PLACEMENT_POOL`の安定した公開projectionです。公開名から内部rack/power/Host identityを推測できないようにし、Projectごとの利用可否はPlacement Policyで管理します。
+Tenant向けAZ/poolはfirst-class Placement Scope revisionがexact `PLACEMENT_POOL` HostGroup generationsを明示公開します。ScopeはHost listをコピーせず、dry時にcurrent accepted Membership Setsからvisible populationを導出します。公開名から内部rack/power/Host identityを推測できないようにし、現profileはProject compatibility identifierをexact照合します。Project generation authorityは後続です。
 
 Group mutation、membership、hierarchy、policy binding、exposureには別permissionを持たせ、すべて監査します。
 

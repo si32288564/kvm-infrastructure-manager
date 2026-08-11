@@ -18,6 +18,7 @@ KIMにはHost Aggregate/AZ/traitの要求と、Placement、Baseline rollout、Ma
 - Profile/Baseline binding conflictを決定的に検出し、last-winsにしない。
 - Groupはcapacity、Host capability、Compliance、Enrollment、Host Operation Authorityを所有・上書きしない。
 - Tenantへはexposure policy付きPlacement Scopeだけを公開し、raw infrastructure groupingを隠す。
+- Placement ScopeはHost listではなくexact PLACEMENT_POOL generationを公開し、current accepted Membership Setからvisible populationを導出する。Scope、membership、eligibility、resource claimは別authorityとする。
 
 ## Consequences
 
