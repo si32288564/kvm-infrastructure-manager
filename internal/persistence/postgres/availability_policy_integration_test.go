@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -189,9 +190,37 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 		t.Fatalf("historical binding revision=%d err=%v", oldRevision, err)
 	}
 
-	// Retirement blocks new resolution but preserves both historical bindings.
-	p3 := availabilityPolicyFixture(policyID, 3, "INFRASTRUCTURE_MANAGED", "RESTART_ON_OTHER_HOST", "RETIRED")
-	if _, err := PublishAvailabilityPolicy(ctx, pool, p3); err != nil {
+	// Final Admission and a Policy current switch serialize to one complete authority.
+	raceRequest := request("availability-admission-race-" + suffix)
+	raceDry, err := DryEvaluateAvailabilityPlacementScope(ctx, pool, raceRequest)
+	if err != nil || raceDry.Status != "READY" {
+		t.Fatalf("race dry=%+v err=%v", raceDry, err)
+	}
+	p3 := availabilityPolicyFixture(policyID, 3, "INFRASTRUCTURE_MANAGED", "EVACUATE", "ACTIVE")
+	var raceWG sync.WaitGroup
+	var raceAdmission PlacementAdmission
+	var finalErr, publishErr error
+	raceWG.Add(2)
+	go func() {
+		defer raceWG.Done()
+		raceAdmission, finalErr = FinalAdmitAvailabilityPlacementScope(ctx, pool, raceDry, raceRequest, raceDry.Candidates[0])
+	}()
+	go func() { defer raceWG.Done(); _, publishErr = PublishAvailabilityPolicy(ctx, pool, p3) }()
+	raceWG.Wait()
+	if publishErr != nil {
+		t.Fatalf("concurrent policy publish: %v", publishErr)
+	}
+	if finalErr == nil {
+		if raceAdmission.AvailabilityBinding == nil || raceAdmission.AvailabilityBinding.PolicyRevision != 2 {
+			t.Fatalf("mixed concurrent binding=%+v", raceAdmission)
+		}
+	} else if !errors.Is(finalErr, ErrPlacementStale) {
+		t.Fatalf("concurrent Final outcome=%v", finalErr)
+	}
+
+	// Retirement blocks new resolution but preserves historical bindings.
+	p4 := availabilityPolicyFixture(policyID, 4, "INFRASTRUCTURE_MANAGED", "RESTART_ON_OTHER_HOST", "RETIRED")
+	if _, err := PublishAvailabilityPolicy(ctx, pool, p4); err != nil {
 		t.Fatal(err)
 	}
 	retiredDry, err := DryEvaluateAvailabilityPlacementScope(ctx, pool, request("availability-retired-"+suffix))

@@ -55,6 +55,7 @@ Fresh `postgres:17-alpine` migration and persistence integration passed with:
 - equal-priority conflict and exact-equivalent resolution;
 - stale highest priority without lower fallback;
 - competing exact-revision publishers: one commit, one conflict, one evidence row;
+- Final Admission versus Policy current switch, 10 race-detector runs: old complete authority commit or stale rejection only; no mixed VM Binding;
 - read-only Dry provenance with zero authority writes;
 - policy drift after Dry rejected with no new claim;
 - Admission, compute claim, generic resolution, and VM Binding atomic commit;
