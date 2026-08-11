@@ -90,6 +90,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HGR-014 | host-grouping-architecture, security | ADR-0014 | INV-HGR-011 | AT-HGR-012 | Planned |
 | HGR-016 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-012 | AT-HGR-014 | Planned |
 | HGR-017 | host-grouping-architecture, availability-responsibility-architecture, placement-architecture | ADR-0014, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Planned |
+| HGR-018, HGR-019 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-015, INV-HGR-016 | AT-HGR-016, AT-HGR-017, FI-HGR-009, FI-HGR-010 | Implemented (whole-set generation、atomic publish、Placement/snapshot binding、legacy backfill) |
 
 ## 7. Availability Responsibility / Managed Recovery
 

@@ -24,13 +24,26 @@ type HostGroupMembership struct {
 	Generation                                             uint64
 }
 
+type HostGroupMembershipSetRequest struct {
+	PublishRequestID, HostGroupID, SourceType, SourceRevision string
+	BasedOnHostGroupGeneration, ExpectedCurrentSetGeneration  uint64
+	SelectorEvaluationGeneration, HierarchyGeneration         *uint64
+	Members                                                   []HostGroupMembership
+}
+
+type HostGroupMembershipSet struct {
+	PublishRequestID, HostGroupID, CanonicalMemberSetDigest string
+	MembershipSetGeneration, BasedOnHostGroupGeneration     uint64
+	MemberCount                                             int
+}
+
 type HostGroupSnapshotRequest struct {
 	SnapshotID, HostGroupID, Purpose string
 }
 
 type HostGroupSnapshot struct {
 	SnapshotID, HostGroupID, Purpose, MembershipDigest string
-	HostGroupGeneration                                uint64
+	HostGroupGeneration, MembershipSetGeneration       uint64
 	MemberCount                                        int
 }
 
@@ -72,6 +85,31 @@ func AssignHostGroupMembership(ctx context.Context, db TxBeginner, membership Ho
 	})
 }
 
+// PublishHostGroupMembershipSet validates and atomically publishes one complete
+// HostGroup membership projection. Individual membership evidence written by a
+// failed transaction never becomes current set authority.
+func PublishHostGroupMembershipSet(ctx context.Context, db TxBeginner, request HostGroupMembershipSetRequest) (HostGroupMembershipSet, error) {
+	if err := validateHostGroupMembershipSetRequest(request); err != nil {
+		return HostGroupMembershipSet{}, err
+	}
+	var published HostGroupMembershipSet
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+			return err
+		}
+		if err := lockHostGroupTx(ctx, tx, request.HostGroupID); err != nil {
+			return err
+		}
+		var err error
+		published, err = publishHostGroupMembershipSetTx(ctx, tx, request)
+		return err
+	})
+	if err != nil {
+		return HostGroupMembershipSet{}, fmt.Errorf("publish HostGroup membership set: %w", err)
+	}
+	return published, nil
+}
+
 func CreateHostGroupMembershipSnapshot(ctx context.Context, db TxBeginner, request HostGroupSnapshotRequest) (HostGroupSnapshot, error) {
 	if request.SnapshotID == "" || request.HostGroupID == "" || !validHostGroupSnapshotPurpose(request.Purpose) {
 		return HostGroupSnapshot{}, errors.New("complete HostGroup membership snapshot request is required")
@@ -86,10 +124,10 @@ func CreateHostGroupMembershipSnapshot(ctx context.Context, db TxBeginner, reque
 		}
 		var existing HostGroupSnapshot
 		err := tx.QueryRow(ctx, `
-			SELECT snapshot_id,host_group_id,host_group_generation,purpose,member_count,membership_digest
+			SELECT snapshot_id,host_group_id,host_group_generation,membership_set_generation,purpose,member_count,membership_set_digest
 			FROM kim.host_group_membership_snapshot_evidence WHERE snapshot_id=$1
 		`, request.SnapshotID).Scan(&existing.SnapshotID, &existing.HostGroupID,
-			&existing.HostGroupGeneration, &existing.Purpose, &existing.MemberCount,
+			&existing.HostGroupGeneration, &existing.MembershipSetGeneration, &existing.Purpose, &existing.MemberCount,
 			&existing.MembershipDigest)
 		if err == nil {
 			if existing.HostGroupID != request.HostGroupID || existing.Purpose != request.Purpose {
@@ -101,25 +139,33 @@ func CreateHostGroupMembershipSnapshot(ctx context.Context, db TxBeginner, reque
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		var lifecycle string
+		var lifecycle, validationState string
 		if err := tx.QueryRow(ctx, `
-			SELECT host_group_generation,lifecycle_state
-			FROM kim.host_groups_current
-			WHERE host_group_id=$1
+			SELECT group_current.host_group_generation,group_current.lifecycle_state,
+			       set_current.membership_set_generation,set_current.canonical_member_set_digest,
+			       set_current.validation_state
+			FROM kim.host_groups_current group_current
+			JOIN kim.host_group_membership_sets_current set_current USING (host_group_id)
+			WHERE group_current.host_group_id=$1
+			  AND set_current.based_on_host_group_generation=group_current.host_group_generation
 			FOR SHARE
-		`, request.HostGroupID).Scan(&snapshot.HostGroupGeneration, &lifecycle); err != nil {
+		`, request.HostGroupID).Scan(&snapshot.HostGroupGeneration, &lifecycle,
+			&snapshot.MembershipSetGeneration, &snapshot.MembershipDigest, &validationState); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrHostGroupConflict
+			}
 			return err
 		}
-		if lifecycle != "ACTIVE" {
+		if lifecycle != "ACTIVE" || validationState != "ACCEPTED" {
 			return ErrHostGroupConflict
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT host_id,membership_generation,evidence_digest
-			FROM kim.host_group_memberships_current
-			WHERE host_group_id=$1 AND membership_state='ACTIVE'
+			SELECT host_id,membership_generation,membership_evidence_digest
+			FROM kim.host_group_membership_set_member_evidence
+			WHERE host_group_id=$1 AND membership_set_generation=$2 AND membership_state='ACTIVE'
 			ORDER BY host_id
 			FOR SHARE
-		`, request.HostGroupID)
+		`, request.HostGroupID, snapshot.MembershipSetGeneration)
 		if err != nil {
 			return err
 		}
@@ -140,24 +186,26 @@ func CreateHostGroupMembershipSnapshot(ctx context.Context, db TxBeginner, reque
 		snapshot = HostGroupSnapshot{
 			SnapshotID: request.SnapshotID, HostGroupID: request.HostGroupID,
 			Purpose: request.Purpose, HostGroupGeneration: snapshot.HostGroupGeneration,
-			MemberCount: len(members), MembershipDigest: hostGroupMembershipSnapshotDigest(members),
+			MembershipSetGeneration: snapshot.MembershipSetGeneration,
+			MemberCount:             len(members), MembershipDigest: snapshot.MembershipDigest,
 		}
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO kim.host_group_membership_snapshot_evidence (
-				snapshot_id,host_group_id,host_group_generation,purpose,member_count,membership_digest
-			) VALUES ($1,$2,$3,$4,$5,$6)
+				snapshot_id,host_group_id,host_group_generation,membership_set_generation,
+				purpose,member_count,membership_digest,membership_set_digest
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
 			ON CONFLICT (snapshot_id) DO NOTHING
 		`, snapshot.SnapshotID, snapshot.HostGroupID, snapshot.HostGroupGeneration,
-			snapshot.Purpose, snapshot.MemberCount, snapshot.MembershipDigest)
+			snapshot.MembershipSetGeneration, snapshot.Purpose, snapshot.MemberCount, snapshot.MembershipDigest)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			if err := tx.QueryRow(ctx, `
-				SELECT snapshot_id,host_group_id,host_group_generation,purpose,member_count,membership_digest
+				SELECT snapshot_id,host_group_id,host_group_generation,membership_set_generation,purpose,member_count,membership_set_digest
 				FROM kim.host_group_membership_snapshot_evidence WHERE snapshot_id=$1
 			`, request.SnapshotID).Scan(&existing.SnapshotID, &existing.HostGroupID,
-				&existing.HostGroupGeneration, &existing.Purpose, &existing.MemberCount,
+				&existing.HostGroupGeneration, &existing.MembershipSetGeneration, &existing.Purpose, &existing.MemberCount,
 				&existing.MembershipDigest); err != nil {
 				return err
 			}
@@ -169,9 +217,9 @@ func CreateHostGroupMembershipSnapshot(ctx context.Context, db TxBeginner, reque
 		for _, member := range members {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO kim.host_group_membership_snapshot_members (
-					snapshot_id,host_group_id,host_id,membership_generation,membership_evidence_digest
-				) VALUES ($1,$2,$3,$4,$5)
-			`, snapshot.SnapshotID, snapshot.HostGroupID, member.HostID, member.Generation, member.EvidenceDigest); err != nil {
+					snapshot_id,host_group_id,host_id,membership_generation,membership_evidence_digest,membership_set_generation
+				) VALUES ($1,$2,$3,$4,$5,$6)
+			`, snapshot.SnapshotID, snapshot.HostGroupID, member.HostID, member.Generation, member.EvidenceDigest, snapshot.MembershipSetGeneration); err != nil {
 				return err
 			}
 		}
@@ -248,59 +296,277 @@ func upsertHostGroupTx(ctx context.Context, tx pgx.Tx, revision HostGroupRevisio
 }
 
 func assignHostGroupMembershipTx(ctx context.Context, tx pgx.Tx, membership HostGroupMembership) error {
-	var groupType string
-	if err := tx.QueryRow(ctx, `SELECT group_type FROM kim.host_groups_current WHERE host_group_id=$1 AND lifecycle_state IN ('ACTIVE','DRAINING') FOR SHARE`, membership.HostGroupID).Scan(&groupType); err != nil {
+	var groupGeneration, currentSetGeneration uint64
+	if err := tx.QueryRow(ctx, `
+		SELECT group_current.host_group_generation,COALESCE(set_current.membership_set_generation,0)
+		FROM kim.host_groups_current group_current
+		LEFT JOIN kim.host_group_membership_sets_current set_current USING (host_group_id)
+		WHERE group_current.host_group_id=$1 AND group_current.lifecycle_state='ACTIVE'
+		FOR SHARE OF group_current
+	`, membership.HostGroupID).Scan(&groupGeneration, &currentSetGeneration); err != nil {
 		return err
 	}
-	digest := hostGroupMembershipDigest(membership)
-	tag, err := tx.Exec(ctx, `
-		INSERT INTO kim.host_group_membership_evidence (
-			host_group_id,host_id,membership_generation,membership_state,source_type,source_revision,evidence_digest
-		) VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (host_group_id,host_id,membership_generation) DO NOTHING
-	`, membership.HostGroupID, membership.HostID, membership.Generation, membership.State,
-		membership.SourceType, membership.SourceRevision, digest)
+	members, err := loadCurrentHostGroupMemberships(ctx, tx, membership.HostGroupID)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		var existingDigest string
-		if err := tx.QueryRow(ctx, `SELECT evidence_digest FROM kim.host_group_membership_evidence WHERE host_group_id=$1 AND host_id=$2 AND membership_generation=$3`, membership.HostGroupID, membership.HostID, membership.Generation).Scan(&existingDigest); err != nil {
-			return err
-		}
-		if existingDigest != digest {
-			return ErrHostGroupConflict
+	replaced := false
+	for index := range members {
+		if members[index].HostID == membership.HostID {
+			members[index] = membership
+			replaced = true
+			break
 		}
 	}
-	tag, err = tx.Exec(ctx, `
-		INSERT INTO kim.host_group_memberships_current (
-			host_group_id,host_id,membership_generation,membership_state,source_type,source_revision,evidence_digest
-		) VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (host_group_id,host_id) DO UPDATE SET
-			membership_generation=EXCLUDED.membership_generation,
-			membership_state=EXCLUDED.membership_state,
-			source_type=EXCLUDED.source_type,
-			source_revision=EXCLUDED.source_revision,
-			evidence_digest=EXCLUDED.evidence_digest,
-			updated_at=statement_timestamp()
-		WHERE kim.host_group_memberships_current.membership_generation < EXCLUDED.membership_generation
-	`, membership.HostGroupID, membership.HostID, membership.Generation, membership.State,
-		membership.SourceType, membership.SourceRevision, digest)
+	if !replaced {
+		members = append(members, membership)
+	}
+	_, err = publishHostGroupMembershipSetTx(ctx, tx, HostGroupMembershipSetRequest{
+		PublishRequestID: "membership/" + hostGroupMembershipDigest(membership),
+		HostGroupID:      membership.HostGroupID, SourceType: membership.SourceType,
+		SourceRevision: membership.SourceRevision, BasedOnHostGroupGeneration: groupGeneration,
+		ExpectedCurrentSetGeneration: currentSetGeneration, Members: members,
+	})
+	return err
+}
+
+func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request HostGroupMembershipSetRequest) (HostGroupMembershipSet, error) {
+	requestedMembers := append([]HostGroupMembership(nil), request.Members...)
+	sort.Slice(requestedMembers, func(i, j int) bool { return requestedMembers[i].HostID < requestedMembers[j].HostID })
+	requestedDigests := make([]hostGroupSnapshotMember, 0, len(requestedMembers))
+	for _, member := range requestedMembers {
+		requestedDigests = append(requestedDigests, hostGroupSnapshotMember{
+			HostID: member.HostID, Generation: member.Generation,
+			EvidenceDigest: hostGroupMembershipDigest(member),
+		})
+	}
+	requestDigest := hostGroupMembershipSetRequestDigest(request, hostGroupMembershipSnapshotDigest(requestedDigests))
+	var existing HostGroupMembershipSet
+	var existingRequestDigest string
+	err := tx.QueryRow(ctx, `
+		SELECT publish_request_id,host_group_id,membership_set_generation,
+		       based_on_host_group_generation,canonical_member_set_digest,member_count,request_digest
+		FROM kim.host_group_membership_set_evidence WHERE publish_request_id=$1
+	`, request.PublishRequestID).Scan(&existing.PublishRequestID, &existing.HostGroupID,
+		&existing.MembershipSetGeneration, &existing.BasedOnHostGroupGeneration,
+		&existing.CanonicalMemberSetDigest, &existing.MemberCount, &existingRequestDigest)
+	if err == nil {
+		if existingRequestDigest != requestDigest {
+			return HostGroupMembershipSet{}, ErrHostGroupConflict
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return HostGroupMembershipSet{}, err
+	}
+	var currentGroupGeneration uint64
+	var lifecycle string
+	if err := tx.QueryRow(ctx, `SELECT host_group_generation,lifecycle_state FROM kim.host_groups_current WHERE host_group_id=$1 FOR SHARE`, request.HostGroupID).Scan(&currentGroupGeneration, &lifecycle); err != nil {
+		return HostGroupMembershipSet{}, err
+	}
+	if lifecycle != "ACTIVE" || currentGroupGeneration != request.BasedOnHostGroupGeneration {
+		return HostGroupMembershipSet{}, ErrHostGroupConflict
+	}
+	var currentSetGeneration uint64
+	requestedSetDigest := hostGroupMembershipSnapshotDigest(requestedDigests)
+	err = tx.QueryRow(ctx, `
+		SELECT evidence.publish_request_id,evidence.host_group_id,evidence.membership_set_generation,
+		       evidence.based_on_host_group_generation,evidence.canonical_member_set_digest,evidence.member_count
+		FROM kim.host_group_membership_sets_current current_set
+		JOIN kim.host_group_membership_set_evidence evidence
+		  ON evidence.host_group_id=current_set.host_group_id
+		 AND evidence.membership_set_generation=current_set.membership_set_generation
+		WHERE evidence.host_group_id=$1 AND evidence.based_on_host_group_generation=$2
+		  AND evidence.source_type=$3 AND evidence.source_revision=$4
+		  AND evidence.selector_evaluation_generation IS NOT DISTINCT FROM $5
+		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $6
+		  AND evidence.canonical_member_set_digest=$7
+	`, request.HostGroupID, request.BasedOnHostGroupGeneration, request.SourceType,
+		request.SourceRevision, request.SelectorEvaluationGeneration, request.HierarchyGeneration,
+		requestedSetDigest).Scan(&existing.PublishRequestID, &existing.HostGroupID,
+		&existing.MembershipSetGeneration, &existing.BasedOnHostGroupGeneration,
+		&existing.CanonicalMemberSetDigest, &existing.MemberCount)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return HostGroupMembershipSet{}, err
+	}
+	err = tx.QueryRow(ctx, `SELECT membership_set_generation FROM kim.host_group_membership_sets_current WHERE host_group_id=$1 FOR UPDATE`, request.HostGroupID).Scan(&currentSetGeneration)
+	if errors.Is(err, pgx.ErrNoRows) {
+		currentSetGeneration = 0
+	} else if err != nil {
+		return HostGroupMembershipSet{}, err
+	}
+	if request.ExpectedCurrentSetGeneration != currentSetGeneration {
+		return HostGroupMembershipSet{}, ErrHostGroupConflict
+	}
+
+	members := append([]HostGroupMembership(nil), request.Members...)
+	currentMembers, err := loadCurrentHostGroupMemberships(ctx, tx, request.HostGroupID)
 	if err != nil {
-		return err
+		return HostGroupMembershipSet{}, err
 	}
-	if tag.RowsAffected() == 1 {
-		return nil
+	provided := make(map[string]struct{}, len(members))
+	for _, member := range members {
+		provided[member.HostID] = struct{}{}
 	}
-	var generation uint64
-	var currentDigest string
-	if err := tx.QueryRow(ctx, `SELECT membership_generation,evidence_digest FROM kim.host_group_memberships_current WHERE host_group_id=$1 AND host_id=$2`, membership.HostGroupID, membership.HostID).Scan(&generation, &currentDigest); err != nil {
-		return err
+	currentByHost := make(map[string]HostGroupMembership, len(currentMembers))
+	for _, current := range currentMembers {
+		currentByHost[current.HostID] = current
 	}
-	if generation == membership.Generation && currentDigest == digest {
-		return nil
+	for _, member := range members {
+		if current, exists := currentByHost[member.HostID]; exists && member.Generation < current.Generation {
+			return HostGroupMembershipSet{}, ErrHostGroupConflict
+		}
 	}
-	return ErrHostGroupConflict
+	for _, old := range currentMembers {
+		if _, exists := provided[old.HostID]; exists {
+			continue
+		}
+		if old.State != "REMOVED" {
+			old.Generation++
+			old.State = "REMOVED"
+			old.SourceType = request.SourceType
+			old.SourceRevision = request.SourceRevision
+		}
+		members = append(members, old)
+	}
+	sort.Slice(members, func(i, j int) bool { return members[i].HostID < members[j].HostID })
+	for _, member := range members {
+		if err := lockHostAuthorityTx(ctx, tx, member.HostID); err != nil {
+			return HostGroupMembershipSet{}, err
+		}
+	}
+
+	memberDigests := make([]hostGroupSnapshotMember, 0, len(members))
+	memberCount := 0
+	for _, member := range members {
+		digest := hostGroupMembershipDigest(member)
+		memberDigests = append(memberDigests, hostGroupSnapshotMember{HostID: member.HostID, Generation: member.Generation, EvidenceDigest: digest})
+		if member.State != "REMOVED" {
+			memberCount++
+		}
+	}
+	setDigest := hostGroupMembershipSnapshotDigest(memberDigests)
+	err = tx.QueryRow(ctx, `
+		SELECT evidence.publish_request_id,evidence.host_group_id,evidence.membership_set_generation,
+		       evidence.based_on_host_group_generation,evidence.canonical_member_set_digest,evidence.member_count
+		FROM kim.host_group_membership_sets_current current_set
+		JOIN kim.host_group_membership_set_evidence evidence
+		  ON evidence.host_group_id=current_set.host_group_id
+		 AND evidence.membership_set_generation=current_set.membership_set_generation
+		WHERE evidence.host_group_id=$1 AND evidence.based_on_host_group_generation=$2
+		  AND evidence.source_type=$3 AND evidence.source_revision=$4
+		  AND evidence.selector_evaluation_generation IS NOT DISTINCT FROM $5
+		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $6
+		  AND evidence.canonical_member_set_digest=$7
+	`, request.HostGroupID, request.BasedOnHostGroupGeneration, request.SourceType,
+		request.SourceRevision, request.SelectorEvaluationGeneration, request.HierarchyGeneration,
+		setDigest).Scan(&existing.PublishRequestID, &existing.HostGroupID,
+		&existing.MembershipSetGeneration, &existing.BasedOnHostGroupGeneration,
+		&existing.CanonicalMemberSetDigest, &existing.MemberCount)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return HostGroupMembershipSet{}, err
+	}
+
+	setGeneration := currentSetGeneration + 1
+	for index, member := range members {
+		digest := memberDigests[index].EvidenceDigest
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO kim.host_group_membership_evidence (
+				host_group_id,host_id,membership_generation,membership_state,source_type,source_revision,evidence_digest
+			) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING
+		`, member.HostGroupID, member.HostID, member.Generation, member.State, member.SourceType, member.SourceRevision, digest)
+		if err != nil {
+			return HostGroupMembershipSet{}, err
+		}
+		if tag.RowsAffected() == 0 {
+			var recorded string
+			if err := tx.QueryRow(ctx, `SELECT evidence_digest FROM kim.host_group_membership_evidence WHERE host_group_id=$1 AND host_id=$2 AND membership_generation=$3`, member.HostGroupID, member.HostID, member.Generation).Scan(&recorded); err != nil || recorded != digest {
+				return HostGroupMembershipSet{}, ErrHostGroupConflict
+			}
+		}
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO kim.host_group_membership_set_evidence (
+			host_group_id,membership_set_generation,based_on_host_group_generation,
+			publish_request_id,request_digest,source_type,source_revision,
+			selector_evaluation_generation,hierarchy_generation,
+			canonical_member_set_digest,member_count,validation_state
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACCEPTED')
+	`, request.HostGroupID, setGeneration, request.BasedOnHostGroupGeneration,
+		request.PublishRequestID, requestDigest, request.SourceType, request.SourceRevision,
+		request.SelectorEvaluationGeneration, request.HierarchyGeneration, setDigest, memberCount)
+	if err != nil {
+		return HostGroupMembershipSet{}, err
+	}
+	for index, member := range members {
+		digest := memberDigests[index].EvidenceDigest
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.host_group_membership_set_member_evidence (
+				host_group_id,membership_set_generation,host_id,membership_generation,
+				membership_state,source_type,source_revision,membership_evidence_digest
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		`, request.HostGroupID, setGeneration, member.HostID, member.Generation,
+			member.State, member.SourceType, member.SourceRevision, digest); err != nil {
+			return HostGroupMembershipSet{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO kim.host_group_memberships_current (
+				host_group_id,host_id,membership_generation,membership_state,
+				source_type,source_revision,evidence_digest,membership_set_generation
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			ON CONFLICT (host_group_id,host_id) DO UPDATE SET
+				membership_generation=EXCLUDED.membership_generation,
+				membership_state=EXCLUDED.membership_state,
+				source_type=EXCLUDED.source_type,source_revision=EXCLUDED.source_revision,
+				evidence_digest=EXCLUDED.evidence_digest,
+				membership_set_generation=EXCLUDED.membership_set_generation,
+				updated_at=statement_timestamp()
+		`, request.HostGroupID, member.HostID, member.Generation, member.State,
+			member.SourceType, member.SourceRevision, digest, setGeneration); err != nil {
+			return HostGroupMembershipSet{}, err
+		}
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO kim.host_group_membership_sets_current (
+			host_group_id,membership_set_generation,based_on_host_group_generation,
+			canonical_member_set_digest,member_count,validation_state
+		) VALUES ($1,$2,$3,$4,$5,'ACCEPTED')
+		ON CONFLICT (host_group_id) DO UPDATE SET
+			membership_set_generation=EXCLUDED.membership_set_generation,
+			based_on_host_group_generation=EXCLUDED.based_on_host_group_generation,
+			canonical_member_set_digest=EXCLUDED.canonical_member_set_digest,
+			member_count=EXCLUDED.member_count,validation_state='ACCEPTED',updated_at=statement_timestamp()
+	`, request.HostGroupID, setGeneration, request.BasedOnHostGroupGeneration, setDigest, memberCount)
+	if err != nil {
+		return HostGroupMembershipSet{}, err
+	}
+	return HostGroupMembershipSet{PublishRequestID: request.PublishRequestID,
+		HostGroupID: request.HostGroupID, MembershipSetGeneration: setGeneration,
+		BasedOnHostGroupGeneration: request.BasedOnHostGroupGeneration,
+		CanonicalMemberSetDigest:   setDigest, MemberCount: memberCount}, nil
+}
+
+func loadCurrentHostGroupMemberships(ctx context.Context, row pgx.Tx, hostGroupID string) ([]HostGroupMembership, error) {
+	rows, err := row.Query(ctx, `SELECT host_id,membership_generation,membership_state,source_type,source_revision FROM kim.host_group_memberships_current WHERE host_group_id=$1 ORDER BY host_id`, hostGroupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := make([]HostGroupMembership, 0)
+	for rows.Next() {
+		member := HostGroupMembership{HostGroupID: hostGroupID}
+		if err := rows.Scan(&member.HostID, &member.Generation, &member.State, &member.SourceType, &member.SourceRevision); err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	return members, rows.Err()
 }
 
 func lockHostGroupTx(ctx context.Context, tx pgx.Tx, hostGroupID string) error {
@@ -321,6 +587,26 @@ func validateHostGroupMembership(membership HostGroupMembership) error {
 		membership.SourceRevision == "" || !validHostGroupMembershipState(membership.State) ||
 		!validHostGroupMembershipSource(membership.SourceType) {
 		return errors.New("complete HostGroup membership is required")
+	}
+	return nil
+}
+
+func validateHostGroupMembershipSetRequest(request HostGroupMembershipSetRequest) error {
+	if request.PublishRequestID == "" || request.HostGroupID == "" || request.BasedOnHostGroupGeneration == 0 ||
+		request.SourceRevision == "" || !validHostGroupMembershipSource(request.SourceType) ||
+		(request.SelectorEvaluationGeneration != nil && *request.SelectorEvaluationGeneration == 0) ||
+		(request.HierarchyGeneration != nil && *request.HierarchyGeneration == 0) {
+		return errors.New("complete HostGroup membership set request is required")
+	}
+	seen := make(map[string]struct{}, len(request.Members))
+	for _, member := range request.Members {
+		if err := validateHostGroupMembership(member); err != nil || member.HostGroupID != request.HostGroupID {
+			return errors.New("invalid HostGroup membership set member")
+		}
+		if _, duplicate := seen[member.HostID]; duplicate {
+			return errors.New("duplicate HostGroup membership set member")
+		}
+		seen[member.HostID] = struct{}{}
 	}
 	return nil
 }
@@ -377,6 +663,19 @@ func hostGroupMembershipSnapshotDigest(members []hostGroupSnapshotMember) string
 		fields = append(fields, member.HostID, fmt.Sprint(member.Generation), member.EvidenceDigest)
 	}
 	return digestHostGroupFields(fields...)
+}
+
+func hostGroupMembershipSetRequestDigest(request HostGroupMembershipSetRequest, setDigest string) string {
+	selectorGeneration, hierarchyGeneration := "", ""
+	if request.SelectorEvaluationGeneration != nil {
+		selectorGeneration = fmt.Sprint(*request.SelectorEvaluationGeneration)
+	}
+	if request.HierarchyGeneration != nil {
+		hierarchyGeneration = fmt.Sprint(*request.HierarchyGeneration)
+	}
+	return digestHostGroupFields(request.HostGroupID,
+		fmt.Sprint(request.BasedOnHostGroupGeneration), request.SourceType,
+		request.SourceRevision, selectorGeneration, hierarchyGeneration, setDigest)
 }
 
 func digestHostGroupFields(fields ...string) string {

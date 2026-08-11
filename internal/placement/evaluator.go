@@ -94,7 +94,7 @@ type StorageAuthority struct {
 type AuthoritySnapshot struct {
 	DatabaseMode                                                            string
 	HostID, PoolID                                                          string
-	PoolGeneration, MembershipGeneration                                    uint64
+	PoolGeneration, MembershipSetGeneration, MembershipGeneration           uint64
 	PoolPolicyID                                                            string
 	PoolPolicyGeneration                                                    uint64
 	PoolState, MembershipState                                              string
@@ -118,21 +118,21 @@ type RequiredClaim struct {
 }
 
 type Evaluation struct {
-	RequestID, RequestDigest, HostID, PoolID  string
-	ImageID, FlavorID                         string
-	ImageRevision, FlavorRevision             uint64
-	FlavorShapeDigest                         string
-	Eligible                                  bool
-	ReasonCodes                               []string
-	Score                                     int64
-	EvaluationDigest                          string
-	PoolGeneration, MembershipGeneration      uint64
-	PoolPolicyID                              string
-	PoolPolicyGeneration                      uint64
-	CapabilityGeneration                      uint64
-	BaselineAssignmentGeneration              uint64
-	PreflightGeneration, ComplianceGeneration uint64
-	RequiredClaim                             RequiredClaim
+	RequestID, RequestDigest, HostID, PoolID                      string
+	ImageID, FlavorID                                             string
+	ImageRevision, FlavorRevision                                 uint64
+	FlavorShapeDigest                                             string
+	Eligible                                                      bool
+	ReasonCodes                                                   []string
+	Score                                                         int64
+	EvaluationDigest                                              string
+	PoolGeneration, MembershipSetGeneration, MembershipGeneration uint64
+	PoolPolicyID                                                  string
+	PoolPolicyGeneration                                          uint64
+	CapabilityGeneration                                          uint64
+	BaselineAssignmentGeneration                                  uint64
+	PreflightGeneration, ComplianceGeneration                     uint64
+	RequiredClaim                                                 RequiredClaim
 }
 
 func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) {
@@ -200,8 +200,9 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		ImageID: request.ImageID, ImageRevision: request.ImageRevision,
 		FlavorID: request.FlavorID, FlavorRevision: request.FlavorRevision,
 		FlavorShapeDigest: request.FlavorShapeDigest,
-		PoolGeneration:    authority.PoolGeneration, MembershipGeneration: authority.MembershipGeneration,
-		PoolPolicyID: authority.PoolPolicyID, PoolPolicyGeneration: authority.PoolPolicyGeneration,
+		PoolGeneration:    authority.PoolGeneration, MembershipSetGeneration: authority.MembershipSetGeneration,
+		MembershipGeneration: authority.MembershipGeneration,
+		PoolPolicyID:         authority.PoolPolicyID, PoolPolicyGeneration: authority.PoolPolicyGeneration,
 		CapabilityGeneration:         authority.CapabilityGeneration,
 		BaselineAssignmentGeneration: authority.BaselineAssignmentGeneration,
 		PreflightGeneration:          authority.PreflightGeneration, ComplianceGeneration: authority.ComplianceGeneration,

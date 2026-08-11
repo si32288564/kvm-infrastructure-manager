@@ -342,11 +342,41 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if counts := placementMutationCounts(t, ctx, pool); counts != before {
 		t.Fatalf("stale HostGroup Final Admission left partial authority: %v", counts)
 	}
+	if err := AssignHostPlacementPool(ctx, pool, HostPlacementMembership{HostID: hostID, PoolID: poolID, Generation: 3, State: "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
 
 	current, err := DryEvaluatePlacement(ctx, pool, request, hostID)
 	if err != nil || !current.Eligible {
 		t.Fatalf("current dry evaluation/error = %#v/%v", current, err)
 	}
+	setPeerHost := "host-set-peer-" + suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.host_identities(host_id,enrollment_state) VALUES($1,'APPROVED')`, setPeerHost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishHostGroupMembershipSet(ctx, pool, HostGroupMembershipSetRequest{
+		PublishRequestID: "placement-set-only-switch-" + suffix,
+		HostGroupID:      poolID, BasedOnHostGroupGeneration: 2,
+		ExpectedCurrentSetGeneration: current.MembershipSetGeneration,
+		SourceType:                   "PLACEMENT_POOL_COMPAT", SourceRevision: "set-only-switch",
+		Members: []HostGroupMembership{
+			{HostGroupID: poolID, HostID: hostID, Generation: 3, State: "ACTIVE", SourceType: "PLACEMENT_POOL_COMPAT", SourceRevision: "3"},
+			{HostGroupID: poolID, HostID: setPeerHost, Generation: 1, State: "ACTIVE", SourceType: "PLACEMENT_POOL_COMPAT", SourceRevision: "set-only-switch"},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FinalAdmitPlacement(ctx, pool, request, current); !errors.Is(err, ErrPlacementStale) {
+		t.Fatalf("stale membership-set-only admission error = %v", err)
+	}
+	if counts := placementMutationCounts(t, ctx, pool); counts != before {
+		t.Fatalf("stale membership-set Final Admission left partial authority: %v", counts)
+	}
+	current, err = DryEvaluatePlacement(ctx, pool, request, hostID)
+	if err != nil || !current.Eligible {
+		t.Fatalf("post-set-switch dry evaluation/error = %#v/%v", current, err)
+	}
+
 	competingRequest := request
 	competingRequest.RequestID = "request-competing-" + suffix
 	competingRequest.WorkloadID = "vm-competing-" + suffix

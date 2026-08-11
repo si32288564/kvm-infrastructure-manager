@@ -240,6 +240,23 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 		if err := lockStorageAuthorityRows(ctx, tx, dry.HostID, request.Storage); err != nil {
 			return err
 		}
+		var membershipSetCurrent bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM kim.host_groups_current group_current
+				JOIN kim.host_group_membership_sets_current set_current USING (host_group_id)
+				JOIN kim.host_group_memberships_current member USING (host_group_id)
+				WHERE group_current.host_group_id=$1 AND member.host_id=$2
+				  AND group_current.host_group_generation=$3
+				  AND set_current.membership_set_generation=$4
+				  AND member.membership_set_generation=$4 AND member.membership_generation=$5
+				  AND group_current.lifecycle_state='ACTIVE' AND set_current.validation_state='ACCEPTED'
+				  AND member.membership_state='ACTIVE'
+			)
+		`, request.PoolID, dry.HostID, dry.PoolGeneration, dry.MembershipSetGeneration, dry.MembershipGeneration).Scan(&membershipSetCurrent); err != nil || !membershipSetCurrent {
+			return ErrPlacementStale
+		}
 		current, err := evaluatePlacementTx(ctx, tx, request, dry.HostID)
 		if err != nil {
 			return err
@@ -263,7 +280,7 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			INSERT INTO kim.placement_admission_decisions (
 				admission_id, request_id, request_digest, evaluation_digest,
 				project_id, workload_id, host_id, pool_id, pool_generation,
-				pool_policy_id, pool_policy_generation, membership_generation,
+				pool_policy_id, pool_policy_generation, membership_set_generation, membership_generation,
 				image_id, image_revision, flavor_id,
 				flavor_revision, flavor_shape_digest, capability_generation,
 				baseline_assignment_generation, preflight_generation,
@@ -271,10 +288,10 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				network_requirements, network_requirements_digest,
 				storage_requirements, storage_requirements_digest,
 				decision_state, explanation
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,'ACCEPTED',$28)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,'ACCEPTED',$29)
 		`, admission.AdmissionID, request.RequestID, current.RequestDigest, current.EvaluationDigest,
 			request.ProjectID, request.WorkloadID, current.HostID, current.PoolID,
-			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration,
+			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration, current.MembershipSetGeneration,
 			current.MembershipGeneration, current.ImageID, current.ImageRevision,
 			current.FlavorID, current.FlavorRevision, current.FlavorShapeDigest,
 			current.CapabilityGeneration, current.BaselineAssignmentGeneration,
@@ -367,6 +384,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 	err = row.QueryRow(ctx, `
 		SELECT database.mode, capability.host_id, membership.host_group_id,
 		       host_group.host_group_generation, pool.policy_id, pool.policy_generation,
+		       membership_set.membership_set_generation,
 		       membership.membership_generation,
 		       host_group.lifecycle_state, membership.membership_state,
 		       capability.observation_generation, capability.projection_state,
@@ -385,6 +403,11 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		JOIN kim.host_groups_current host_group
 		  ON host_group.host_group_id=membership.host_group_id
 		 AND host_group.group_type='PLACEMENT_POOL'
+		JOIN kim.host_group_membership_sets_current membership_set
+		  ON membership_set.host_group_id=membership.host_group_id
+		 AND membership_set.membership_set_generation=membership.membership_set_generation
+		 AND membership_set.based_on_host_group_generation=host_group.host_group_generation
+		 AND membership_set.validation_state='ACCEPTED'
 		JOIN kim.placement_pools_current pool ON pool.pool_id=host_group.host_group_id
 		LEFT JOIN LATERAL (
 			SELECT sum(vcpus) vcpus, sum(memory_mib) memory_mib
@@ -395,7 +418,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		WHERE database.singleton AND capability.host_id=$1
 	`, hostID, request.PoolID).Scan(&authority.DatabaseMode, &authority.HostID, &authority.PoolID,
 		&authority.PoolGeneration, &authority.PoolPolicyID, &authority.PoolPolicyGeneration,
-		&authority.MembershipGeneration, &authority.PoolState,
+		&authority.MembershipSetGeneration, &authority.MembershipGeneration, &authority.PoolState,
 		&authority.MembershipState, &authority.CapabilityGeneration, &authority.CapabilityState,
 		&authority.ReadinessState, &authority.PreflightState, &authority.ComplianceState,
 		&authority.ReadinessCapabilityGeneration, &authority.BaselineAssignmentGeneration, &authority.PreflightGeneration,

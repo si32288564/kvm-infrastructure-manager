@@ -93,6 +93,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-013 | DRAFT/ACTIVE/DRAINING/RETIRED/DELETED lifecycleとactive reference delete guardを検証する |
 | AT-HGR-014 | membership/hierarchy変更後も既存workloadを維持し、違反をdrift/action-requiredとして記録する |
 | AT-HGR-015 | membership bulk updateを一generationで不可分commitし、response loss再送を同じdigestへ収束させる |
+| AT-HGR-016 | complete membership set A/B/Cをgen1、A/C/Dをgen2としてatomic publishし、stable replayはgenerationを増幅せず、同request identityのsemantic mismatchとparallel stale publisherを拒否する |
+| AT-HGR-017 | Placement dry/finalとimmutable snapshotがaccepted membership set generation/digest/member evidenceを固定し、member除外・Group generation変更・後続set publishを越えてstale authorityを進めない |
 
 ## 6. Availability Responsibility and Recovery
 

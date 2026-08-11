@@ -14,6 +14,8 @@ HostGroupは自由形式tagの別名ではありません。membership authority
 1. HostGroup membershipはPostgreSQL authorityであり、Agent自己申告labelから直接確定しない。
 2. Placement Pool、Failure Domain、Operational Cohortの意味をgroup typeで分離する。
 3. Group membershipはHost capability、Compliance、Enrollment、mutation authorityを上書きしない。
+12. HostGroup semantic/lifecycle generationとwhole-group membership set generationを分離する。
+13. 個別membership evidenceやpartial bulk writeではなく、validated complete setのatomic current switchだけをmembership authorityとする。
 4. Placement dry evaluationとfinal admissionは同じGroup membership/policy generationを検証する。
 5. Baseline rolloutとMaintenance waveは開始時のimmutable membership snapshotへbindする。
 6. Groupはcapacityを所有せず、capacityはHost/Resource Providerにだけclaimする。
@@ -48,6 +50,19 @@ HostGroupMembership
 ├─ state
 └─ actor / reason / audit
 
+
+HostGroupMembershipSet
+├─ membership_set_generation
+├─ based_on_host_group_generation
+├─ source_type / source_revision
+├─ selector_evaluation_generation (optional)
+├─ hierarchy_generation (optional)
+├─ canonical_member_set_digest / member_count
+├─ validation_state
+└─ immutable set member evidence
+
+HostGroupMembershipSetCurrent
+└─ accepted set generationへのatomic pointer
 HostGroupRelation
 ├─ parent_group_id / child_group_id
 ├─ dimension / parent_level / child_level
@@ -97,6 +112,22 @@ membership mode:
 
 selector inputはapproved factsだけです。Agent自己申告hostname/label、Tenant metadata、未検証external claimをprivileged Group membershipのauthorityにしません。
 
+
+### Whole-set publication
+
+`HostGroup generation`はGroup自体のsemantic/lifecycle incarnation、`membership_set_generation`はGroupに現在誰がどのstateで所属するかという完全な集合のincarnationです。個別member generationはset内のprovenanceとして保持しますが、個別rowの存在だけではaccepted set authorityになりません。
+
+```text
+complete set proposal
+  -> member/provenance validation
+  -> canonical digest
+  -> immutable set + member evidence
+  -> current set pointer + current member projection
+```
+
+最後のpublishは一つのPostgreSQL transactionです。unknown Host、digest/request conflict、stale Group/set generation、invalid lifecycle、transaction failureのいずれでもold current set全体を維持し、mixed generationを公開しません。同じrequest identity/semantic digestのreplayは元のset evidenceへ収束します。
+
+member除外は過去evidenceを削除せず、new set内の`REMOVED` tombstoneとして保持します。selector/hierarchyは今回のfoundationでは実装せず、optional provenance generationだけをset evidenceへ予約します。
 selector評価はpureで、`SelectorEvaluation`としてinput generation、selector version、result set、reasonを保存します。resultをPostgreSQL transactionでmembership generationへmaterializeして初めてauthorityになります。selector engineや外部sourceの停止時にlast resultを無期限でcurrentにせず、freshness policy超過後はstale/UNKNOWNにします。
 
 membership add/removeはETag、authorization、audit、idempotencyを必要とします。同じHost集合でも順序に依存しないcanonical digestを持ちます。
@@ -118,7 +149,7 @@ Failure Domainでは`physical-location: site > rack > chassis`のような階層
 Placement Request Snapshotは次を追加で固定します。
 
 - requested Placement Scope/Group ID
-- candidate Hostのmaterialized membership generation
+- current accepted membership set generationとcandidate member evidence generation
 - Group policy/hierarchy generation
 - required failure-domain path
 - exposure policy generation
@@ -140,7 +171,7 @@ Groupに所属していてもHost固有Eligibilityを満たさなければ選択
 
 READY/placement可能なHostはactive Placement Poolへ所属し、全active Pool bindingsから一つのeffective Availability Policyを解決できなければなりません。Pool membershipが複数でも構いませんが、Policy欠損/stale/conflictはHostをBLOCKED/eligibility=falseとします。requested scopeはeffective Policyを変更できず、compatibleであることだけを追加検証します。
 
-Final AdmissionはGroup membership/policy/hierarchy generationをHost/resource claimsと同じtransactionで再検証します。HostがGroupから外れた、GroupがDRAININGになった、failure-domain pathが変わった場合は部分予約を残さずreselectionへ戻ります。
+Final AdmissionはHostGroup generation、accepted membership set generation、candidate member generation、policy/hierarchy generationをHost/resource claimsと同じtransactionで再検証します。HostがGroupから外れた、setが切り替わった、GroupがDRAININGになった、failure-domain pathが変わった場合は部分予約を残さずreselectionへ戻ります。
 
 Group aggregate capacityはHost inventory/allocationから導出する表示値です。Group rowへ独立capacity ledgerを持たず、二重予約authorityにしません。
 
@@ -181,6 +212,7 @@ Rollout開始時に`GroupMembershipSnapshot`を作成します。
 ```text
 snapshot_id
 group_id / group_generation
+membership_set_generation / membership_set_digest
 resolved_host_ids / canonical_digest
 selector/hierarchy generations
 created_at / created_by
