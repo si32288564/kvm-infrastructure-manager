@@ -62,6 +62,22 @@ func TestMaintenanceHostGroupSnapshotConsumerPostgreSQLIntegration(t *testing.T)
 		t.Fatal(err)
 	}
 	request := maintenancePlanFixture("maintenance-"+suffix, maintenanceSnapshot)
+	policy := MaintenancePolicyRevision{PolicyID: "maintenance-policy-" + suffix, PolicyRevision: 1,
+		OperationType: request.OperationType, OperationSchemaVersion: request.OperationSchemaVersion,
+		ProfileID: request.ProfileID, ProfileRevision: request.ProfileRevision, ProfileDigest: request.ProfileDigest,
+		MaximumConcurrent:               request.MaximumConcurrent,
+		FailureDomainMaximumUnavailable: request.FailureDomainMaximumUnavailable, LifecycleState: "ACTIVE"}
+	policyDigest, err := PublishMaintenancePolicy(ctx, pool, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishGroupPolicyBinding(ctx, pool, GroupPolicyBindingRequest{
+		PublishRequestID: "maintenance-binding-request-" + suffix, BindingID: "maintenance-binding-" + suffix,
+		HostGroupID: groupID, HostGroupGeneration: 1, PolicyType: "MAINTENANCE", ConsumerType: "MAINTENANCE_PLAN",
+		PolicyID: policy.PolicyID, PolicyRevision: 1, PolicyDigest: policyDigest, Priority: 100,
+		LifecycleState: "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
 	plan, err := PublishMaintenancePlan(ctx, pool, request)
 	if err != nil {
 		t.Fatal(err)

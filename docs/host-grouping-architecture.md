@@ -250,6 +250,14 @@ Group membership変更は新しいeffective assignment evaluationをtriggerし�
 
 Availability Policyは別resolverで一意性を評価し、Final Admission時にVM/Allocationのimmutable Availability Bindingへ固定します。Group/Policy変更だけで既存VMのHost failure responsibilityを変更しません。詳細は [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md) に従います。
 
+### Implemented Phase 1 resolution authority
+
+HostGroup membership is not a policy association, and hierarchy is not policy inheritance. A Binding fixes one exact HostGroup semantic generation, one closed policy/consumer type, and one exact Policy revision/digest. Membership Set changes alone do not invalidate it.
+
+The initial implemented combination is `MAINTENANCE` / `MAINTENANCE_PLAN`. Higher numeric priority wins. Equal highest-priority assignments resolve only when their typed policy identity, revision, and digest are identical; otherwise the result is `ASSIGNMENT_CONFLICT` and Maintenance Plan publication is blocked. A stale highest-priority assignment produces `STALE_ASSIGNMENT` and never silently falls back.
+
+Membership Snapshots and Policy Resolution evidence are separate immutable provenance inputs. Later Binding, Policy, or membership changes do not rewrite an accepted Plan.
+
 ## 9. Baseline Rollout Scope
 
 Rollout開始時に`GroupMembershipSnapshot`を作成します。

@@ -93,6 +93,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HGR-018, HGR-019 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-015, INV-HGR-016 | AT-HGR-016, AT-HGR-017, FI-HGR-009, FI-HGR-010 | Implemented (whole-set generation、atomic publish、Placement/snapshot binding、legacy backfill) |
 | HGR-022, UPG-032 | host-grouping-architecture, upgrade-and-compatibility-architecture | ADR-0014, ADR-0021 | INV-HGR-020, INV-UPG-031 | AT-HGR-021, AT-UPG-038, FI-HGR-014, FI-UPG-028 | Implemented (UPGRADE Snapshot provenance/digest、transactional Plan binding、Snapshot-derived immutable Targets、recovery/resume target stability、Host eligibility fencing) |
 | HGR-023 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-021 | AT-HGR-022, FI-HGR-015 | Implemented (purpose分離、atomic Plan/Wave/Target、provenance、drift/recovery/resume stability、Host fencing) |
+| HGR-024 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0014 | INV-HGR-022 | AT-HGR-023, FI-HGR-016 | Partial (closed MAINTENANCE/MAINTENANCE_PLAN Binding、exact revision、deterministic resolution、conflict/stale fencing、immutable Maintenance Plan provenanceを実装。Availability/Placement/Baseline consumersは継続) |
 
 ## 7. Availability Responsibility / Managed Recovery
 

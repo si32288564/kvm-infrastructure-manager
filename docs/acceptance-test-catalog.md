@@ -101,6 +101,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-020 | versioned closed typed Selectorをcurrent normalized Host evidenceへpure評価し、MATCHED/NOT_MATCHED/UNKNOWN/UNSUPPORTEDをimmutable evidence化する。materializationはinput/Selector/Cardinality/Hierarchy/HostGroup generationを再検証してcomplete Setをatomic publishし、semantic replayは一authorityへ収束する |
 | AT-HGR-021 | A/B/Cのaccepted Membership SetからUPGRADE Snapshotを作成しPlan/Wave/Targetへbindする。live SetをA/C/Dへ変更後もactive TargetをA/B/Cに保ち、Snapshot/Set raceはcomplete一世代だけを記録する |
 | AT-HGR-022 | A/B/Cのaccepted SetからMAINTENANCE Snapshotと独立Plan/Wave/Targetsをatomic publishし、A/C/D drift、recovery、pause/resume後もA/B/Cとdigestを維持する。purpose mismatch、concurrency、Host fenceもfail closedにする |
+| AT-HGR-023 | exact HostGroup/Policy revisionにbindしたMAINTENANCE Group Policy Bindingをmany-to-many membershipからhigher-priorityで決定する。same-priority exact-equivalentは収束、非互換はASSIGNMENT_CONFLICTでPlan publicationをBLOCKED、stale highestはfallbackせず、replay/concurrency/drift後もimmutable resolution/Plan provenanceを維持する |
 
 ## 6. Availability Responsibility and Recovery
 

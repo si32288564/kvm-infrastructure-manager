@@ -118,9 +118,66 @@ func PublishMaintenancePlan(ctx context.Context, db TxBeginner, request Maintena
 		if len(members) != memberCount {
 			return ErrMaintenanceEvidenceConflict
 		}
+		// Stable replay recovers the already accepted immutable Plan without
+		// reinterpreting it through later live Binding or Policy revisions.
+		var existingPlan MaintenancePlan
+		var existingOperation, existingSchema, existingProfileID, existingProfileDigest string
+		var existingProfileRevision uint64
+		var existingMaximum, existingFailureMaximum int
+		err = tx.QueryRow(ctx, `SELECT maintenance_id,plan_revision,plan_digest,source_snapshot_id,
+			source_snapshot_digest,operation_type,operation_schema_version,profile_id,profile_revision,
+			profile_digest,maximum_concurrent,failure_domain_maximum_unavailable
+			FROM kim.maintenance_plan_evidence WHERE maintenance_id=$1 AND plan_revision=$2 FOR SHARE`,
+			request.MaintenanceID, request.PlanRevision).Scan(&existingPlan.MaintenanceID,
+			&existingPlan.PlanRevision, &existingPlan.PlanDigest, &existingPlan.SnapshotID,
+			&existingPlan.SnapshotDigest, &existingOperation, &existingSchema, &existingProfileID,
+			&existingProfileRevision, &existingProfileDigest, &existingMaximum, &existingFailureMaximum)
+		if err == nil {
+			if existingPlan.SnapshotID != request.SnapshotID || existingPlan.SnapshotDigest != request.SnapshotDigest ||
+				existingOperation != request.OperationType || existingSchema != request.OperationSchemaVersion ||
+				existingProfileID != request.ProfileID || existingProfileRevision != request.ProfileRevision ||
+				existingProfileDigest != request.ProfileDigest || existingMaximum != request.MaximumConcurrent ||
+				existingFailureMaximum != request.FailureDomainMaximumUnavailable {
+				return ErrMaintenanceEvidenceConflict
+			}
+			result = existingPlan
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		targetDigests := make([]string, 0, len(members))
+		policyResolutions := make(map[string]GroupPolicyResolution, len(members))
 		for _, member := range members {
 			targetDigests = append(targetDigests, maintenanceTargetDigest(request, member.HostID))
+			resolutionID := "maintenance-policy:" + digestReleaseBytes([]byte(fmt.Sprintf("%s\n%d\n%s\n%s",
+				request.MaintenanceID, request.PlanRevision, request.SnapshotID, member.HostID)))
+			resolution, err := resolveGroupPolicyTx(ctx, tx, GroupPolicyResolutionRequest{
+				ResolutionID: resolutionID, HostID: member.HostID,
+				PolicyType: "MAINTENANCE", ConsumerType: "MAINTENANCE_PLAN",
+				PinnedHostGroupID: groupID, PinnedMembershipSetGeneration: setGeneration})
+			if err != nil || resolution.Result != "RESOLVED" {
+				return ErrMaintenanceEvidenceConflict
+			}
+			var operationType, schemaVersion, profileID, profileDigest string
+			var profileRevision uint64
+			var maximumConcurrent, failureMaximum int
+			if err := tx.QueryRow(ctx, `SELECT operation_type,operation_schema_version,profile_id,profile_revision,
+				profile_digest,maximum_concurrent,failure_domain_maximum_unavailable
+				FROM kim.maintenance_policy_revision_evidence
+				WHERE policy_id=$1 AND policy_revision=$2 AND policy_digest=$3`,
+				resolution.EffectivePolicyID, resolution.EffectivePolicyRevision, resolution.EffectivePolicyDigest).Scan(
+				&operationType, &schemaVersion, &profileID, &profileRevision, &profileDigest,
+				&maximumConcurrent, &failureMaximum); err != nil {
+				return ErrMaintenanceEvidenceConflict
+			}
+			if operationType != request.OperationType || schemaVersion != request.OperationSchemaVersion ||
+				profileID != request.ProfileID || profileRevision != request.ProfileRevision ||
+				profileDigest != request.ProfileDigest || maximumConcurrent != request.MaximumConcurrent ||
+				failureMaximum != request.FailureDomainMaximumUnavailable {
+				return ErrMaintenanceEvidenceConflict
+			}
+			policyResolutions[member.HostID] = resolution
 		}
 		targetRaw, _ := json.Marshal(targetDigests)
 		waveDigest := digestReleaseBytes(targetRaw)
@@ -133,6 +190,7 @@ func PublishMaintenancePlan(ctx context.Context, db TxBeginner, request Maintena
 			"maximum_concurrent":                 request.MaximumConcurrent,
 			"failure_domain_maximum_unavailable": request.FailureDomainMaximumUnavailable,
 			"target_snapshot_digest":             waveDigest,
+			"policy_resolution_set":              policyResolutions,
 		})
 		result = MaintenancePlan{MaintenanceID: request.MaintenanceID, PlanRevision: request.PlanRevision,
 			PlanDigest: digestReleaseBytes(planRaw), SnapshotID: request.SnapshotID, SnapshotDigest: request.SnapshotDigest}
@@ -166,6 +224,19 @@ func PublishMaintenancePlan(ctx context.Context, db TxBeginner, request Maintena
 			return err
 		}
 		for _, member := range members {
+			resolution := policyResolutions[member.HostID]
+			policyProvenanceDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s\n%d\n%s\n%s\n%d\n%s",
+				request.MaintenanceID, request.PlanRevision, member.HostID, resolution.EffectivePolicyID,
+				resolution.EffectivePolicyRevision, resolution.ResolutionDigest)))
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.maintenance_plan_policy_resolution_evidence(
+				maintenance_id,plan_revision,host_id,resolution_id,effective_policy_id,
+				effective_policy_revision,effective_policy_digest,provenance_digest)
+				VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, request.MaintenanceID, request.PlanRevision,
+				member.HostID, resolution.ResolutionID, resolution.EffectivePolicyID,
+				resolution.EffectivePolicyRevision, resolution.EffectivePolicyDigest,
+				policyProvenanceDigest); err != nil {
+				return err
+			}
 			targetID := maintenanceTargetID(request, member.HostID)
 			targetDigest := maintenanceTargetDigest(request, member.HostID)
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.maintenance_target_evidence(

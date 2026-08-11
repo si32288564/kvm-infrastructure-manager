@@ -112,6 +112,7 @@
 | HGR-021 | closed typed Selectorをversioned authorityとして管理し、current normalized Host evidenceからimmutable proposal evidenceを作成後、current Selector/input/Cardinality/Hierarchy/HostGroup generationを再検証したcomplete Membership Setだけをatomic materializeする | Must |
 | HGR-022 | HostGroup対象Upgradeをpurpose=UPGRADEのimmutable Membership Snapshotへbindし、Plan/Wave/TargetをSnapshot member evidenceから生成してlive membership変更・Coordinator recovery・Campaign resumeでtarget setを再生成しない | Must |
 | HGR-023 | HostGroup対象Maintenanceをpurpose=MAINTENANCEのimmutable Membership Snapshotへbindし、独立Plan/Wave/typed Targetをatomic publishしてlive membership変更・Coordinator recovery・pause/resumeでtarget setを再生成しない | Must |
+| HGR-024 | HostGroup membershipとpolicy associationを分離し、exact Group/Policy revision付きtyped Group Policy Bindingをpriorityで解決する。同priority非互換はASSIGNMENT_CONFLICT、stale highest assignmentはlower priorityへfallbackせずconsumerをBLOCKEDにする | Must |
 
 ### 2.5 Availability Responsibility and Managed Recovery
 
