@@ -295,3 +295,9 @@ Phase 0で各failure classに以下を関連付けます。
 - automated test、fault injection、runbook owner
 
 最低限、commit応答喪失、Lease expiry後の遅延Result、Agent crash before/after journal、Gateway partition、DB failover、Host loss、libvirt timeout、OVN conflict、Ceph attachment timeout、stale authorityをsystem testへ含めます。
+
+## Recovery terminal ambiguity
+
+Recovery preparation、power Command response、process liveness、単一`RUNNING` observationはsuccess authorityではありません。power response lossはOperation `UNKNOWN`とし、Budgetを`CONSUMED`に保持してtyped backend read-backを先行します。read-backが一致してもOperationは`VERIFYING`であり、exact multi-domain Recovery Verificationと別のTerminal Decisionを必要とします。
+
+Terminal Decisionのcommit応答が失われた場合は同じDecision identity/digestを再読込し、Operation/Epoch/Budget transitionを再発行しません。Verification後にpower、attachment、network、source fencing/storageのcurrent generationが変わればold Verificationはstaleです。

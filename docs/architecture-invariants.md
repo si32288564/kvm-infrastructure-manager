@@ -328,6 +328,9 @@
 | INV-AVR-031 | Operation startはexact Epoch/Decision/Claim/historical Binding/Policy/actionとcurrent-usable Fencing/Storage Proof、fixed destination Planを再検証する。Host re-arm、Storage Claim ABA、Budget state drift、destination readiness/Scope/Policy drift時はBudget/Admission/Executionを一切commitしない | AT-AVR-022, FI-AVR-016 |
 | INV-AVR-032 | RESTART_ON_OTHER_HOST startだけがsource compute accounting release、existing Final Admission、Budget RESERVED→CONSUMED、closed typed destination-preparation Command、RUNNING transitionをone transactionでcommitする。selected destinationをsilent substituteせず、CONSUMEDはactive storm countへ残す | AT-AVR-022, FI-AVR-016 |
 | INV-AVR-033 | RUNNING、Lease expiry、Command success、preparation marker MATCHEDのいずれもRecovery VERIFIEDではない。ambiguous executionはUNKNOWNを保持しread-back後もVERIFYINGへ進むだけで、dangerous-stepはcurrent Fencing/Storage/Budget/Admissionを再評価する | AT-AVR-022, FI-AVR-016 |
+| INV-AVR-034 | Recovery preparation、define/image/attachment/network realization、power Command success、単一RUNNING observationのいずれもRecovery VERIFIEDではない。Recovery Verificationはexact destination Admission/materialization、current power、attachment、network、PCI requirement、source Fencing/Storage Proof、CONSUMED Budgetの世代付きread-backをimmutableに束ねるpure authorityである | AT-AVR-023, FI-AVR-017 |
+| INV-AVR-035 | dangerous-step AUTHORIZED evidenceはpower capabilityではない。explicit power authority transactionがsource Fencing/Storage、Budget、destination Admission/readiness/Host authorityを再読込し、drift時はJob/Commandを一件も発行しない。power outcome UNKNOWNではblind StartせずBudgetをCONSUMEDに維持する | AT-AVR-023, FI-AVR-017 |
+| INV-AVR-036 | accepted Recovery Terminal DecisionだけがOperation VERIFYING→VERIFIED、Failure Epoch FENCED→RECOVERED、Budget CONSUMED→RELEASEDをone transactionで進める。RECOVERED causeはexact Terminal Decisionだけであり、Verification/Observation/Command/VM RUNNINGを代用しない。response-loss/parallel replayは各transitionを増幅しない | AT-AVR-023, FI-AVR-017 |
 
 ## 12. Workload Resilience Intent
 

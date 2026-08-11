@@ -268,3 +268,6 @@ Host lifecycle stateとCompliance statusは別の軸です。`READY`はactive Ba
 - final admissionと全resource claimは一つのtransactionでcommitする。
 - Commandごとにactive Leaseは最大一つで、Attemptは上書きしない。
 - Agent Resultの成功だけではJobを成功にせず、後続observationを必要とする。
+- Recovery Operation/Plan、destination Admission、Recovery Materialization、Recovery Verification、Recovery Terminal Decisionは別aggregate/evidenceである。
+- same workload/VM UUIDは複数historical Admission/materialization incarnationを持てるが、同一VM generationとAdmissionのPlan authorityは一意である。
+- Failure Epoch `RECOVERED`のcause authorityはaccepted Recovery Terminal Decisionだけであり、Observation、Command、Job、RUNNING projectionはcauseにできない。

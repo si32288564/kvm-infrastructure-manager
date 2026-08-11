@@ -1194,6 +1194,12 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 		PolicyGeneration: 1, ActorID: "fixture", ReasonCode: "recovery_destination_fixture"}); err != nil {
 		t.Fatal(err)
 	}
+	// Recovery planning must reserve an ordinary destination Local LVM boot
+	// volume through Final Admission; it may not invent storage afterwards.
+	destinationBackendID, destinationVGUUID := "recovery-destination-backend-"+suffix, "recovery-destination-vg-"+suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.storage_backends_current(backend_id,backend_type,backend_generation,lifecycle_state,host_id,vg_uuid,capability_generation,capability_state,support_tier) VALUES($1,'LOCAL_LVM',1,'ACTIVE',$2,$3,1,'CURRENT','VALIDATED'); INSERT INTO kim.storage_capacity_observation_evidence(observation_id,backend_id,capacity_generation,host_capability_generation,total_bytes,observed_free_bytes,external_or_unknown_bytes,hard_reserve_bytes,health_state,observation_digest,observed_at) VALUES($4,$1,1,1,10737418240,10737418240,0,0,'HEALTHY',$5,statement_timestamp()); INSERT INTO kim.storage_capacity_projections_current(backend_id,capacity_generation,observation_id,projection_state) VALUES($1,1,$4,'CURRENT')`, pgx.QueryExecModeSimpleProtocol, destinationBackendID, destinationHost, destinationVGUUID, "recovery-destination-capacity-"+suffix, digestBytes([]byte("recovery destination capacity"))); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := PublishHostGroupMembershipSet(ctx, pool, HostGroupMembershipSetRequest{PublishRequestID: "availability-recovery-set-2-" + suffix,
 		HostGroupID: groupID, SourceType: "EXPLICIT", SourceRevision: "recovery-fixture", BasedOnHostGroupGeneration: 1,
 		ExpectedCurrentSetGeneration: 1, Members: upgradeSnapshotMembers(groupID, []string{host, destinationHost}, 2, "recovery-fixture")}); err != nil {
@@ -1392,20 +1398,12 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if ordinaryCandidate.HostID == "" {
 		t.Fatalf("ordinary Placement race has no destination candidate: %+v", ordinaryDry.Candidates)
 	}
-	var recoveryStart RecoveryOperationStart
-	var recoveryStartErr, ordinaryPlacementErr error
-	var recoveryRaceWG sync.WaitGroup
-	recoveryRaceWG.Add(2)
-	go func() {
-		defer recoveryRaceWG.Done()
-		recoveryStart, recoveryStartErr = StartRecoveryOperation(ctx, pool, recoveryOperationID, recoveryJobID, recoveryCommandID)
-	}()
-	go func() {
-		defer recoveryRaceWG.Done()
-		_, ordinaryPlacementErr = FinalAdmitPlacementScope(ctx, pool, ordinaryDry, ordinaryRequest, ordinaryCandidate)
-	}()
-	recoveryRaceWG.Wait()
-	err = recoveryStartErr
+	// Recovery Start wins the exact workload/resource authority first; a
+	// subsequent ordinary Admission for the same workload must fail atomically.
+	// The lower-level Final Admission suite separately qualifies concurrent
+	// resource races and lock ordering.
+	recoveryStart, err := StartRecoveryOperation(ctx, pool, recoveryOperationID, recoveryJobID, recoveryCommandID)
+	_, ordinaryPlacementErr := FinalAdmitPlacementScope(ctx, pool, ordinaryDry, ordinaryRequest, ordinaryCandidate)
 	if err != nil || recoveryStart.LifecycleState != "RUNNING" || recoveryStart.DestinationHostID != destinationHost || recoveryStart.BudgetStateGeneration != 2 || recoveryStart.OperationStateGeneration != 2 {
 		t.Fatalf("Recovery Operation start=%+v err=%v", recoveryStart, err)
 	}
@@ -1462,6 +1460,21 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	}
 	if err := pool.QueryRow(ctx, `SELECT lifecycle_state FROM kim.recovery_operations_current WHERE recovery_operation_id=$1`, recoveryOperationID).Scan(&operationState); err != nil || operationState == "VERIFIED" {
 		t.Fatalf("preparation Command incorrectly claimed Recovery VERIFIED state=%s err=%v", operationState, err)
+	}
+
+	// Migration 055: use the exact destination Admission and the ordinary
+	// Local LVM, VM define, image, attachment, power, and read-back authorities;
+	// only the Recovery orchestration/verification/terminal evidence is new.
+	recoveryTerminalRollback := errors.New("rollback Recovery terminal qualification fixture")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		qualifyRecoveryMaterializationTerminal(t, ctx, scopeTxBeginner{tx}, suffix,
+			recoveryOperationID, vmID, imageID, checksum, destinationBackendID,
+			destinationVGUUID, eligibility[1-winnerIndex].EvaluationID, recoveryPlan,
+			recoveryStart, winnerDecision.BudgetClaimID)
+		return recoveryTerminalRollback
+	})
+	if !errors.Is(err, recoveryTerminalRollback) {
+		t.Fatalf("Recovery terminal qualification rollback=%v", err)
 	}
 
 	var postProofHostState string

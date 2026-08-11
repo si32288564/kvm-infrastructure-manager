@@ -29,3 +29,5 @@ Infrastructure Managed HAでHost、rack、power、site障害が起きると、�
 - canonical scope schema、Campaign correlation rule、late merge reconciliationをversioning/test対象として管理する必要があります。
 - Recovery開始遅延を許容する代わりにbackend overloadと重複dispatchを抑えます。
 - Budget tuning、priority/fairness class、failure campaignによる検証が必要です。
+
+Migration 055ではpower/Result ambiguity中のBudgetを`CONSUMED`に維持する。exact Recovery Verificationをaccepted Terminal Decisionがcommitした時だけ`RELEASED`へgenerationを進める。terminal response lossのreplayは同じimmutable Decisionへ収束し、active-countを一時的に過小計上またはtransition generationを増幅しない。

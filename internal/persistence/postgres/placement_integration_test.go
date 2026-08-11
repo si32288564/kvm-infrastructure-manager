@@ -37,6 +37,16 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if _, err := Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	var storageBaseline [6]int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.volumes_current),
+		(SELECT count(*) FROM kim.storage_capacity_claims),
+		(SELECT count(*) FROM kim.volume_backend_binding_intents),
+		(SELECT count(*) FROM kim.volume_attachments_current),
+		(SELECT count(*) FROM kim.volume_attachment_claims),
+		(SELECT count(*) FROM kim.volume_backend_binding_intents WHERE observed_lv_uuid IS NOT NULL)`).Scan(&storageBaseline[0], &storageBaseline[1], &storageBaseline[2], &storageBaseline[3], &storageBaseline[4], &storageBaseline[5]); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO kim.database_authority (restore_epoch, authority_generation, mode)
 		VALUES ('placement-test', 1, 'ACTIVE')
@@ -673,7 +683,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	`).Scan(&volumes, &capacityClaims, &storageBindings, &attachments, &attachmentClaims, &prematureLVUUIDs); err != nil {
 		t.Fatal(err)
 	}
-	if volumes != 3 || capacityClaims != 3 || storageBindings != 3 || attachments != 3 || attachmentClaims != 3 || prematureLVUUIDs != 0 {
+	if volumes != storageBaseline[0]+3 || capacityClaims != storageBaseline[1]+3 || storageBindings != storageBaseline[2]+3 || attachments != storageBaseline[3]+3 || attachmentClaims != storageBaseline[4]+3 || prematureLVUUIDs != storageBaseline[5] {
 		t.Fatalf("atomic Storage Volume/capacity/binding/attachment claims = %d/%d/%d/%d/%d premature-lv=%d", volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs)
 	}
 	winnerVolumeID := winner.request.Storage[0].VolumeID
@@ -1479,7 +1489,7 @@ type localLVMVerificationFixture struct {
 	SizeBytes                                          uint64
 }
 
-func seedLocalLVMVerification(ctx context.Context, pool *pgxpool.Pool, fixture localLVMVerificationFixture) error {
+func seedLocalLVMVerification(ctx context.Context, pool TxBeginner, fixture localLVMVerificationFixture) error {
 	return pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.execution_jobs (job_id, resource_type, resource_id, desired_revision, job_state) VALUES ($1,'VOLUME',$2,1,'SUCCEEDED')`, fixture.JobID, fixture.VolumeID); err != nil {
 			return err

@@ -155,12 +155,12 @@ func seedOVNAuthority(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suf
 		VALUES($1,1,'ACTIVE','fixture-policy',1)`, poolID)
 	batch.Queue(`INSERT INTO kim.placement_admission_decisions(
 		admission_id,request_id,request_digest,evaluation_digest,project_id,workload_id,host_id,
-		pool_id,pool_generation,pool_policy_id,pool_policy_generation,membership_generation,
+		pool_id,pool_generation,pool_policy_id,pool_policy_generation,membership_set_generation,membership_generation,
 		image_id,image_revision,flavor_id,flavor_revision,flavor_shape_digest,capability_generation,
 		baseline_assignment_generation,preflight_generation,compliance_generation,
 		pci_requirements,pci_requirements_digest,network_requirements,network_requirements_digest,
 		storage_requirements,storage_requirements_digest,decision_state,explanation
-	) VALUES($1,$2,$3,$4,'project',$5,$6,$7,1,'fixture-policy',1,1,$8,1,$9,1,$10,1,1,1,1,
+	) VALUES($1,$2,$3,$4,'project',$5,$6,$7,1,'fixture-policy',1,1,1,$8,1,$9,1,$10,1,1,1,1,
 		'[]',$11,'[]',$11,'[]',$11,'ACCEPTED','{}')`, admissionID, requestID, digest("request"), digest("evaluation"), "workload-"+suffix, hostID, poolID, imageID, flavorID, digest("shape"), emptyDigest)
 	batch.Queue(`INSERT INTO kim.networks_current(network_id,project_id,network_generation,lifecycle_state,mtu)
 		VALUES($1,'project',1,'ACTIVE',1500)`, networkID)

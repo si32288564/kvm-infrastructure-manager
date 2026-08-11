@@ -29,3 +29,5 @@ HostGroupはPlacement Pool、Failure Domain、Operational Cohortを型分離し�
 - Availability Policy/Binding、Host Failure Epoch、Recovery Plan/Operation、Rebind workflowが必要になります。
 - Policy変更の即時性より、既存VM責任の再現性と二重起動防止を優先します。
 - Northbound Fault/EventとAvailability class mappingを定義する必要があります。
+
+Migration 055の適用では、Recovery successを明示Terminal Decisionに限定する。preparation、power response、RUNNING observationはsuccess causeではない。Terminal Decisionはexact immutable Verificationを再検証し、Operation VERIFIED、Epoch RECOVERED、Budget RELEASEDをatomicにcommitする。historical Admission/materialization evidenceは保持し、cleanupは別authorityとする。

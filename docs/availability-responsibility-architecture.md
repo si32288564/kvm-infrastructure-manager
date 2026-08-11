@@ -470,4 +470,12 @@ Migration 054はEligibilityとExecutionの間にexplicit `RecoveryOperationReque
 
 Operation start transactionはexact Epoch、Confirmation/Fencing/Storage provenance、current proof usability、Budget Claim state generation、fixed destination Scope/HostGroup/readiness/Availability Policyを再検証する。validな場合だけ、fenced source compute accounting claimをimmutable release evidence付きでRELEASEDへ進め、既存Final Admissionを使用してdestination resourcesをatomic claimし、Budgetを`RESERVED gen1 → CONSUMED state-gen2`へ進め、closed typed KIM-owned destination-preparation Commandと`RUNNING` transitionをcommitする。いずれかがstaleなら全変更をrollbackし、別Hostへsilent substitutionしない。
 
-このpreparation CommandはExecution delivery/UNKNOWN/read-back contractのqualification stepでありVM recoveryではない。Command outcome不明はOperation `UNKNOWN`、MATCHED read-back後も`VERIFYING`に留める。future destination power-on直前のdangerous-step evaluationはcurrent Fencing/Storage Proof、CONSUMED Budget、exact Admissionを再検証し、`AUTHORIZED` evidenceだけを作るがCommandを発行しない。actual VM rematerialization、Recovery `VERIFIED`、Failure Epoch `RECOVERED`、Budget terminal releaseは後続gateである。
+このpreparation CommandはExecution delivery/UNKNOWN/read-back contractのqualification stepでありVM recoveryではない。Command outcome不明はOperation `UNKNOWN`、MATCHED read-back後も`VERIFYING`に留める。
+
+## Recovery materialization and terminal authority
+
+Migration 055は`RESTART_ON_OTHER_HOST`だけをend-to-end実装する。exact destination Admissionに従い、same workload/VM UUIDの新destination materialization incarnationを既存VM define、Image、Local LVM Binding/Attachment、Network readiness authorityで作る。historical source Admission/materialization evidenceは変更しない。`EVACUATE`はclosed identityのままbackend `UNSUPPORTED/BLOCKED`でありfallbackしない。
+
+dangerous-step Evaluationはpure evidenceでありpower capabilityではない。explicit power authority transactionがsource Fencing/Storage Proof、CONSUMED Budget、destination Admission/readiness/Host authorityを直前に再検証してから既存typed libvirt power Job/Commandを発行する。power outcomeがUNKNOWNならblind StartせずBudgetを保持してread-backへ進む。
+
+Recovery Verificationもpure immutable evidenceである。exact destination power `RUNNING/MATCHED`、Attachment `ATTACHED`かつholder open、Network `REALIZED`、PCI requirement、source Proof usability、Budget generationを固定するがterminal stateを変更しない。explicit Terminal Decisionだけが同一transactionでOperation `VERIFYING→VERIFIED`、Failure Epoch `FENCED→RECOVERED`、Budget `CONSUMED→RELEASED`を進める。Recovery成功はsource cleanup完了を意味しない。

@@ -300,3 +300,5 @@ Migration 052のPhase 1 Storage Safety authorityはLocal LVMだけを対象と�
 - secret redaction、force operation permission、adapter conformance
 
 Migration 054のRecovery Operation startはMigration 052のimmutable Storage Safety Proof rowだけを信頼せず、exact Attachment observation、Claim state generation、Binding generation、device absence/holder closureを再検証する。`RELEASED → ACTIVE`またはABA後はdestination Final Admission、Budget consume、Execution dispatchを開始しない。actual destination volume materialization/attach前にもdangerous-step safety gateを再利用する。
+
+Migration 055ではsource Storage Safety Proofを「sourceから安全にrecover awayできるauthority」、destination Attachment observationを「destination LVがVMへ正しく接続されたauthority」として分離する。destinationは既存Local LVM Binding/Attachment Commandとdevice/holder read-backを使用する。power直前とterminal transactionでsource proof usabilityおよびdestination Attachment generationを再検証し、`ATTACHED→DETACHED→ATTACHED`のold evidenceを再利用しない。Recovery failureからVolume detach/deleteまたはClaim releaseを推測しない。

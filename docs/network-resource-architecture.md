@@ -350,3 +350,7 @@ mutationはidempotency key、ETag/generation、Operationを要求します。Eve
 - SR-IOV/DPDK bindingとPCI/PMD/RxQ transactional admission
 - unknown/foreign OVN object、restore classification、explicit Adoption
 - adapter secret/redaction、typed operation、UNKNOWN/read-back conformance
+
+## Recovery consumer
+
+Recovery destination networkはexact Final AdmissionのPort/IP/MAC/Binding/PCI Claimsと既存pre-boot realization authorityを使用する。Recovery materializerは再allocationやbridge/OVN identityの自由指定を行わない。Recovery Verificationはcurrent VM/Plan generationに対応するNetwork readiness generation/digestを固定し、state名だけで`REALIZED`を再利用しない。post-boot dataplane/guest reachabilityは別authorityであり、Recovery successに暗黙包含しない。

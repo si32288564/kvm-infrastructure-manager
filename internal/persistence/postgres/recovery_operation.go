@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/statemarker"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
 )
 
 var (
@@ -113,6 +114,37 @@ func recoveryPlacementRequest(operationID string, source PlacementAdmissionReque
 	return request
 }
 
+// addRecoveryBootStorageRequirementTx converts the source boot-volume shape
+// into an ordinary destination Placement storage requirement. It selects no
+// backend outside the fixed destination Host and creates no storage authority;
+// Final Admission remains the only reservation boundary.
+func addRecoveryBootStorageRequirementTx(ctx context.Context, tx pgx.Tx, operationID, sourceAdmissionID, destinationHostID string, request *PlacementAdmissionRequest) error {
+	if len(request.Storage) != 0 {
+		return nil
+	}
+	var classID, accessMode string
+	var classRevision, fencingRevision, sizeBytes uint64
+	var bootable bool
+	if err := tx.QueryRow(ctx, `SELECT v.storage_class_id,v.storage_class_revision,v.size_bytes,v.access_mode,v.bootable,c.fencing_policy_revision FROM kim.volumes_current v JOIN kim.storage_class_revision_evidence c ON c.storage_class_id=v.storage_class_id AND c.class_revision=v.storage_class_revision WHERE v.placement_admission_id=$1 AND v.bootable AND v.lifecycle_state IN ('RESERVED','CREATING','AVAILABLE')`, sourceAdmissionID).Scan(&classID, &classRevision, &sizeBytes, &accessMode, &bootable, &fencingRevision); err != nil {
+		return ErrRecoveryOperationBlocked
+	}
+	var backendID, vgUUID string
+	var backendGeneration, capacityGeneration uint64
+	var candidates int
+	if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(min(b.backend_id),''),coalesce(min(b.vg_uuid),''),coalesce(min(b.backend_generation),0),coalesce(min(p.capacity_generation),0) FROM kim.storage_backends_current b JOIN kim.storage_capacity_projections_current p ON p.backend_id=b.backend_id AND p.projection_state='CURRENT' JOIN kim.storage_classes_current cc ON cc.storage_class_id=$2 AND cc.class_revision=$3 AND cc.lifecycle_state='ACTIVE' WHERE b.host_id=$1 AND b.backend_type='LOCAL_LVM' AND b.lifecycle_state='ACTIVE' AND b.capability_state='CURRENT'`, destinationHostID, classID, classRevision).Scan(&candidates, &backendID, &vgUUID, &backendGeneration, &capacityGeneration); err != nil || candidates != 1 {
+		return ErrRecoveryOperationBlocked
+	}
+	request.Storage = []placement.StorageRequirement{{
+		VolumeID: "recovery-volume:" + operationID + ":1", AttachmentID: "recovery-attachment:" + operationID + ":1",
+		BackendID: backendID, VGUUID: vgUUID, StorageClassID: classID,
+		BackendGeneration: backendGeneration, StorageClassRevision: classRevision,
+		CapacityGeneration: capacityGeneration, AttachmentGeneration: 1,
+		FencingPolicyRevision: fencingRevision, SizeBytes: sizeBytes,
+		AccessMode: accessMode, Bootable: bootable,
+	}}
+	return nil
+}
+
 func recoveryPlanCandidateDigest(candidate AvailabilityPlacementCandidate) string {
 	p := candidate.Placement
 	provenance := append([]PlacementVisibilityProvenance(nil), p.Provenance...)
@@ -180,6 +212,9 @@ func PlanRecoveryOperation(ctx context.Context, db TxBeginner, operationID, plan
 			return err
 		}
 		destinationRequest := recoveryPlacementRequest(operationID, baseRequest)
+		if err := addRecoveryBootStorageRequirementTx(ctx, tx, operationID, epoch.AdmissionID, destinationHostID, &destinationRequest); err != nil {
+			return err
+		}
 		dry, err := DryEvaluateAvailabilityPlacementScope(ctx, scopeTxBeginner{tx}, destinationRequest)
 		if err != nil {
 			return err
@@ -420,7 +455,7 @@ func EvaluateRecoveryDangerousStep(ctx context.Context, db TxBeginner, evaluatio
 		if err != nil {
 			return err
 		}
-		out.FencingProofID, out.FencingProofDigest, out.FencingUsability, err = loadFencingProofUsabilityTx(ctx, tx, epoch)
+		out.FencingProofID, out.FencingProofDigest, out.FencingUsability, err = loadRecoverySourceFencingProofUsabilityTx(ctx, tx, epoch)
 		if err != nil {
 			return err
 		}

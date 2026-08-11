@@ -249,3 +249,5 @@ Developer Previewではdiscovery、eligibility、transactional claim、observati
 - [Open vSwitch DPDK Support](https://docs.openvswitch.org/en/latest/topics/dpdk/)
 - [DPDK Linux EAL Parameters](https://doc.dpdk.org/guides-25.07/linux_gsg/linux_eal_parameters.html)
 - [ETSI GS NFV-IFA 001: Acceleration Technologies](https://www.etsi.org/deliver/etsi_gs/nfv-ifa/001_099/001/01.01.01_60/gs_nfv-ifa001v010101p.pdf)
+
+RecoveryでPCI/SR-IOVが必要な場合、materializerはdestination Final Admissionのexact qualified claimだけを使用する。claim再選択または`EVACUATE`からのfallbackは禁止する。Migration 055のqualified end-to-end fixtureはPCI requirementなしに限定し、PCI requirementが非空ならRecovery Verificationを`NOT_VERIFIED`としてfail closedにする。実VF recovery qualificationは後続gateである。
