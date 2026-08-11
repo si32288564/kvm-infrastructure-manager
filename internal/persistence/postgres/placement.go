@@ -45,6 +45,7 @@ type PlacementAdmission struct {
 	AdmissionID, AllocationID, RequestID, RequestDigest string
 	HostID, PoolID                                      string
 	EvaluationDigest                                    string
+	AvailabilityBinding                                 *VMAvailabilityBinding
 }
 
 func UpsertPlacementPool(ctx context.Context, db TxBeginner, pool PlacementPoolBinding) error {

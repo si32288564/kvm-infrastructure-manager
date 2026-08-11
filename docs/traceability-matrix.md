@@ -93,17 +93,17 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HGR-018, HGR-019 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-015, INV-HGR-016 | AT-HGR-016, AT-HGR-017, FI-HGR-009, FI-HGR-010 | Implemented (whole-set generation、atomic publish、Placement/snapshot binding、legacy backfill) |
 | HGR-022, UPG-032 | host-grouping-architecture, upgrade-and-compatibility-architecture | ADR-0014, ADR-0021 | INV-HGR-020, INV-UPG-031 | AT-HGR-021, AT-UPG-038, FI-HGR-014, FI-UPG-028 | Implemented (UPGRADE Snapshot provenance/digest、transactional Plan binding、Snapshot-derived immutable Targets、recovery/resume target stability、Host eligibility fencing) |
 | HGR-023 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-021 | AT-HGR-022, FI-HGR-015 | Implemented (purpose分離、atomic Plan/Wave/Target、provenance、drift/recovery/resume stability、Host fencing) |
-| HGR-024 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0014 | INV-HGR-022 | AT-HGR-023, FI-HGR-016 | Partial (closed MAINTENANCE/MAINTENANCE_PLAN Binding、exact revision、deterministic resolution、conflict/stale fencing、immutable Maintenance Plan provenanceを実装。Availability/Placement/Baseline consumersは継続) |
+| HGR-024 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0014 | INV-HGR-022 | AT-HGR-023, FI-HGR-016 | Partial (closed MAINTENANCE/MAINTENANCE_PLAN と AVAILABILITY_POLICY/VM_PLACEMENT、exact revision、deterministic resolution、conflict/stale fencing、immutable consumer provenanceを実装。Baseline consumerは後続) |
 | HGR-025 | host-grouping-architecture, placement-architecture, responsibility-boundaries | ADR-0006, ADR-0014 | INV-HGR-023 | AT-HGR-024, FI-HGR-017 | Implemented (closed VM_PLACEMENT/PLACEMENT_POOL Scope revision、atomic exposure publish、read-only visible population、Scope/Set/member provenance、Final Admission fencing/rollback、Project identifier boundaryを実装) |
 
 ## 7. Availability Responsibility / Managed Recovery
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
-| AVR-001, AVR-002, AVR-003, AVR-004 | availability-responsibility-architecture, host-grouping-architecture | ADR-0014, ADR-0015 | INV-AVR-001 | AT-AVR-001, AT-AVR-002, AT-AVR-003, AT-AVR-004 | Planned |
-| AVR-005 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Planned |
-| AVR-006 | availability-responsibility-architecture, placement-architecture, domain-model | ADR-0006, ADR-0015 | INV-AVR-002 | AT-AVR-006 | Planned |
-| AVR-007 | availability-responsibility-architecture | ADR-0015 | INV-AVR-003 | AT-AVR-007, FI-AVR-002 | Planned |
+| AVR-001, AVR-002, AVR-003, AVR-004 | availability-responsibility-architecture, host-grouping-architecture | ADR-0014, ADR-0015 | INV-AVR-001 | AT-AVR-001, AT-AVR-002, AT-AVR-003, AT-AVR-004 | Implemented (migration 048: immutable typed Policy、PLACEMENT_POOL Binding、responsibility/action DB constraint) |
+| AVR-005 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Implemented (generic many-to-many resolution、NO_ASSIGNMENT/conflict/stale Placement block) |
+| AVR-006 | availability-responsibility-architecture, placement-architecture, domain-model | ADR-0006, ADR-0015 | INV-AVR-002 | AT-AVR-006 | Implemented (Availability-aware Final Admission と VM Binding/claims の atomic commit) |
+| AVR-007 | availability-responsibility-architecture | ADR-0015 | INV-AVR-003 | AT-AVR-007, FI-AVR-002 | Partial (historical binding preservation実装、explicit Rebind authorityは後続) |
 | AVR-008 | availability-responsibility-architecture, failure-model | ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-013 | AT-AVR-008, FI-AVR-003 | Planned |
 | AVR-009 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-004, INV-AVR-012 | AT-AVR-009, FI-AVR-004, FI-AVR-010 | Planned |
 | AVR-010 | availability-responsibility-architecture, security | ADR-0015 | INV-AVR-005 | AT-AVR-010, FI-AVR-005 | Planned |

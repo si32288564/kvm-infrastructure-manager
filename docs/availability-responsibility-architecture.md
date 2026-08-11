@@ -411,3 +411,11 @@ DRAFT -> ACTIVE -> DEPRECATED -> RETIRED
 ```
 
 すべてのmutationはETag/If-Match、Idempotency-Key、Operation、Authorization、Audit contractに従います。
+
+## 15. Phase 1 persistence / consumer status (2026-08-11)
+
+Migration 048はclosed typed `AvailabilityPolicy` revision/current authority、generic `AVAILABILITY_POLICY / VM_PLACEMENT` Group Policy Binding、read-only Dry resolution、Final Admission時のimmutable VM Availability Bindingを実装する。`NO_ASSIGNMENT`、`ASSIGNMENT_CONFLICT`、`STALE_ASSIGNMENT`はcandidateをfail closedにし、暗黙defaultやlower-priority fallbackを行わない。
+
+新規authoritative pathは`DryEvaluateAvailabilityPlacementScope`から`FinalAdmitAvailabilityPlacementScope`へexact resolution digestを渡す。Finalはcurrent binding、HostGroup、Membership Set、Policy revision/digest/lifecycle、resolution inputsを再検証し、別Policyへsilent re-resolutionしない。pre-048 Admissionと既存compatibility APIへ架空のAvailabilityPolicyをbackfillしない。
+
+この増分はfailure detection、fencing proof、Recovery Eligibility、Recovery Operationを発行しない。explicit Availability Rebind persistence/runtimeも後続gateであり、live Policy/Binding driftは既存VM Binding revisionを変更しない。

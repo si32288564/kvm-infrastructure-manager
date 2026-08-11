@@ -38,6 +38,7 @@ type GroupPolicyResolutionRequest struct {
 	ResolutionID, HostID, PolicyType, ConsumerType string
 	PinnedHostGroupID                              string
 	PinnedMembershipSetGeneration                  uint64
+	ReadOnly                                       bool
 }
 
 type GroupPolicyResolution struct {
@@ -108,14 +109,17 @@ func PublishMaintenancePolicy(ctx context.Context, db TxBeginner, policy Mainten
 				return ErrGroupPolicyConflict
 			}
 		}
+		if err := publishGroupPolicyCatalogTx(ctx, tx, "MAINTENANCE", policy.PolicyID, policy.PolicyRevision, digest, policy.LifecycleState); err != nil {
+			return err
+		}
 		return nil
 	})
 	return digest, err
 }
 
 func PublishGroupPolicyBinding(ctx context.Context, db TxBeginner, request GroupPolicyBindingRequest) (GroupPolicyBinding, error) {
-	if request.PublishRequestID == "" || request.BindingID == "" || request.HostGroupID == "" ||
-		request.PolicyType != "MAINTENANCE" || request.ConsumerType != "MAINTENANCE_PLAN" || request.PolicyID == "" ||
+	if request.PublishRequestID == "" || request.BindingID == "" || request.HostGroupID == "" || request.PolicyID == "" ||
+		!((request.PolicyType == "MAINTENANCE" && request.ConsumerType == "MAINTENANCE_PLAN") || (request.PolicyType == "AVAILABILITY_POLICY" && request.ConsumerType == "VM_PLACEMENT")) ||
 		request.PolicyRevision == 0 || !validDigest(request.PolicyDigest) || request.HostGroupGeneration == 0 ||
 		(request.LifecycleState != "ACTIVE" && request.LifecycleState != "DRAINING" && request.LifecycleState != "RETIRED") {
 		return GroupPolicyBinding{}, ErrGroupPolicyConflict
@@ -144,13 +148,13 @@ func PublishGroupPolicyBinding(ctx context.Context, db TxBeginner, request Group
 			return err
 		}
 		var groupGeneration uint64
-		var groupLifecycle string
-		if err := tx.QueryRow(ctx, `SELECT host_group_generation,lifecycle_state FROM kim.host_groups_current WHERE host_group_id=$1 FOR SHARE`, request.HostGroupID).Scan(&groupGeneration, &groupLifecycle); err != nil || groupGeneration != request.HostGroupGeneration || groupLifecycle != "ACTIVE" {
+		var groupLifecycle, groupType string
+		if err := tx.QueryRow(ctx, `SELECT host_group_generation,lifecycle_state,group_type FROM kim.host_groups_current WHERE host_group_id=$1 FOR SHARE`, request.HostGroupID).Scan(&groupGeneration, &groupLifecycle, &groupType); err != nil || groupGeneration != request.HostGroupGeneration || groupLifecycle != "ACTIVE" || (request.PolicyType == "AVAILABILITY_POLICY" && groupType != "PLACEMENT_POOL") {
 			return ErrGroupPolicyConflict
 		}
 		var policyRevision uint64
 		var policyDigest, policyLifecycle string
-		if err := tx.QueryRow(ctx, `SELECT policy_revision,policy_digest,lifecycle_state FROM kim.maintenance_policies_current WHERE policy_id=$1 FOR SHARE`, request.PolicyID).Scan(&policyRevision, &policyDigest, &policyLifecycle); err != nil || policyRevision != request.PolicyRevision || policyDigest != request.PolicyDigest || policyLifecycle != "ACTIVE" {
+		if err := tx.QueryRow(ctx, `SELECT policy_revision,policy_digest,lifecycle_state FROM kim.group_policies_current WHERE policy_type=$1 AND policy_id=$2 FOR SHARE`, request.PolicyType, request.PolicyID).Scan(&policyRevision, &policyDigest, &policyLifecycle); err != nil || policyRevision != request.PolicyRevision || policyDigest != request.PolicyDigest || policyLifecycle != "ACTIVE" {
 			return ErrGroupPolicyConflict
 		}
 		var current uint64
@@ -211,9 +215,12 @@ func resolveGroupPolicyTx(ctx context.Context, tx pgx.Tx, request GroupPolicyRes
 	if request.ResolutionID == "" || request.HostID == "" {
 		return GroupPolicyResolution{}, ErrGroupPolicyConflict
 	}
-	if request.PolicyType != "MAINTENANCE" || request.ConsumerType != "MAINTENANCE_PLAN" {
-		return GroupPolicyResolution{ResolutionID: request.ResolutionID, HostID: request.HostID,
-			Result: "UNSUPPORTED"}, nil
+	if !((request.PolicyType == "MAINTENANCE" && request.ConsumerType == "MAINTENANCE_PLAN") || (request.PolicyType == "AVAILABILITY_POLICY" && request.ConsumerType == "VM_PLACEMENT")) {
+		return GroupPolicyResolution{ResolutionID: request.ResolutionID, HostID: request.HostID, Result: "UNSUPPORTED"}, nil
+	}
+	lockClause := " FOR SHARE OF set_evidence,group_current,binding"
+	if request.ReadOnly {
+		lockClause = ""
 	}
 	rows, err := tx.Query(ctx, `WITH applicable_memberships AS (
 		 SELECT member.host_group_id,member.membership_set_generation
@@ -238,11 +245,10 @@ func resolveGroupPolicyTx(ctx context.Context, tx pgx.Tx, request GroupPolicyRes
 		 ON set_evidence.host_group_id=member.host_group_id
 		AND set_evidence.membership_set_generation=member.membership_set_generation
 		JOIN kim.host_groups_current group_current ON group_current.host_group_id=member.host_group_id
-		JOIN kim.host_group_policy_bindings_current binding ON binding.host_group_id=member.host_group_id
-		LEFT JOIN kim.maintenance_policies_current policy_current ON policy_current.policy_id=binding.policy_id
+        JOIN kim.host_group_policy_bindings_current binding ON binding.host_group_id=member.host_group_id
+        LEFT JOIN kim.group_policies_current policy_current ON policy_current.policy_type=binding.policy_type AND policy_current.policy_id=binding.policy_id
 		WHERE binding.consumer_type=$2 AND binding.policy_type=$3
-		ORDER BY binding.priority DESC,binding.binding_id
-		FOR SHARE OF set_evidence,group_current,binding`, request.HostID, request.ConsumerType, request.PolicyType,
+        ORDER BY binding.priority DESC,binding.binding_id`+lockClause, request.HostID, request.ConsumerType, request.PolicyType,
 		request.PinnedHostGroupID, request.PinnedMembershipSetGeneration)
 	if err != nil {
 		return GroupPolicyResolution{}, err
@@ -281,10 +287,10 @@ func resolveGroupPolicyTx(ctx context.Context, tx pgx.Tx, request GroupPolicyRes
 			result = "RESOLVED"
 		}
 	}
-	return persistGroupPolicyResolutionTx(ctx, tx, request, result, candidates)
+	return persistGroupPolicyResolutionTx(ctx, tx, request, result, candidates, !request.ReadOnly)
 }
 
-func persistGroupPolicyResolutionTx(ctx context.Context, tx pgx.Tx, request GroupPolicyResolutionRequest, result string, candidates []groupPolicyCandidate) (GroupPolicyResolution, error) {
+func persistGroupPolicyResolutionTx(ctx context.Context, tx pgx.Tx, request GroupPolicyResolutionRequest, result string, candidates []groupPolicyCandidate, persist bool) (GroupPolicyResolution, error) {
 	sort.Slice(candidates, func(i, j int) bool {
 		if candidates[i].Priority == candidates[j].Priority {
 			return candidates[i].BindingID < candidates[j].BindingID
@@ -304,6 +310,9 @@ func persistGroupPolicyResolutionTx(ctx context.Context, tx pgx.Tx, request Grou
 	}
 	resolutionRaw, _ := json.Marshal(r)
 	r.ResolutionDigest = digestReleaseBytes(resolutionRaw)
+	if !persist {
+		return r, nil
+	}
 	var priorDigest string
 	err := tx.QueryRow(ctx, `SELECT resolution_digest FROM kim.host_group_policy_resolution_evidence WHERE resolution_id=$1`, request.ResolutionID).Scan(&priorDigest)
 	if err == nil {
