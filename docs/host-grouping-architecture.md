@@ -146,8 +146,30 @@ complete set proposal
 
 最後のpublishは一つのPostgreSQL transactionです。unknown Host、digest/request conflict、stale Group/set generation、invalid lifecycle、transaction failureのいずれでもold current set全体を維持し、mixed generationを公開しません。同じrequest identity/semantic digestのreplayは元のset evidenceへ収束します。
 
-member除外は過去evidenceを削除せず、new set内の`REMOVED` tombstoneとして保持します。selectorは後続実装ですが、hierarchy authorityが存在するclassではcomplete setをcurrent hierarchy ID/generationへ必ずbindします。hierarchy更新やnode HostGroup generation drift後は、new hierarchyに対するcomplete set再publishまでsnapshot/Placement authorityをfail closedにします。
-selector評価はpureで、`SelectorEvaluation`としてinput generation、selector version、result set、reasonを保存します。resultをPostgreSQL transactionでmembership generationへmaterializeして初めてauthorityになります。selector engineや外部sourceの停止時にlast resultを無期限でcurrentにせず、freshness policy超過後はstale/UNKNOWNにします。
+member除外は過去evidenceを削除せず、new set内の`REMOVED` tombstoneとして保持します。hierarchy authorityが存在するclassではcomplete setをcurrent hierarchy ID/generationへ必ずbindします。hierarchy更新やnode HostGroup generation drift後は、new hierarchyに対するcomplete set再publishまでsnapshot/Placement authorityをfail closedにします。
+
+### Selector proposal and materialization
+
+Phase 1のSelectorは`kim.host-group.selector/v1`というclosed typed schemaです。任意SQL、JSONPath、shell、Go expression、filesystem path、backend commandを受け付けません。predicateはAND-onlyの`EQUALS`で、allow-listされたHost identity、Compute architecture、normalized capability availabilityだけを参照します。capability `UNKNOWN`は`NOT_MATCHED`へ縮退せず、default `FAIL_CLOSED` policyによりproposal全体を`UNKNOWN`にします。
+
+```text
+Selector revision/current authority
+  -> pure evaluation over explicit Host population
+  -> immutable evaluation + per-Host input/result evidence
+  -> proposed canonical candidate-set digest
+  -> materialization transaction
+       current HostGroup generation
+       current Selector generation
+       current inventory/capability generation and digest
+       current Cardinality policy generation
+       current Hierarchy generation
+       expected Membership Set generation
+  -> accepted complete Membership Set
+```
+
+Selector evaluationはmembership projectionを更新しません。`selector match != membership authority`であり、Agent label、Inventory observation、external assertionも同様です。materialization時に一つでもgeneration/digestが変化していればold accepted Setを維持してrejectします。Set publish後のobservation driftも既存evidenceを自動変更せず、new evaluationとnew Setを必要とします。
+
+Selector-bound Setはselector ID/generationとevaluation ID/generationをimmutable provenanceとして保持します。current Selector generationが変化した時点でold Set evidenceは保存したまま、新規SnapshotとPlacement authorityはnew Selectorに対するSet再materializationまでfail closedです。同expected generationのparallel evaluatorはPostgreSQL advisory authority下で同semantic resultなら一つのevaluationへ収束し、異なるcandidate setなら一方だけがcurrent decisionを進めます。
 
 membership add/removeはETag、authorization、audit、idempotencyを必要とします。同じHost集合でも順序に依存しないcanonical digestを持ちます。
 

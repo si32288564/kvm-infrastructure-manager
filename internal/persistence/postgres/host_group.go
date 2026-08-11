@@ -27,7 +27,9 @@ type HostGroupMembership struct {
 type HostGroupMembershipSetRequest struct {
 	PublishRequestID, HostGroupID, SourceType, SourceRevision string
 	BasedOnHostGroupGeneration, ExpectedCurrentSetGeneration  uint64
-	SelectorEvaluationGeneration, HierarchyGeneration         *uint64
+	SelectorID, SelectorEvaluationID                          string
+	SelectorGeneration, SelectorEvaluationGeneration          *uint64
+	HierarchyGeneration                                       *uint64
 	Members                                                   []HostGroupMembership
 }
 
@@ -38,6 +40,8 @@ type HostGroupMembershipSet struct {
 	CardinalityPolicyGeneration                             uint64
 	HierarchyID                                             string
 	HierarchyGeneration                                     uint64
+	SelectorID, SelectorEvaluationID                        string
+	SelectorGeneration, SelectorEvaluationGeneration        uint64
 	MemberCount                                             int
 }
 
@@ -179,9 +183,20 @@ func CreateHostGroupMembershipSnapshot(ctx context.Context, db TxBeginner, reque
 			  ON hierarchy_current.group_type=group_current.group_type
 			 AND hierarchy_current.dimension=group_current.dimension
 			 AND hierarchy_current.scope_type='SYSTEM' AND hierarchy_current.scope_id='system'
+			LEFT JOIN kim.host_group_selectors_current selector_current
+			  ON selector_current.host_group_id=group_current.host_group_id
 			WHERE group_current.host_group_id=$1
 			  AND set_current.based_on_host_group_generation=group_current.host_group_generation
 			  AND policy.policy_state='ACTIVE'
+			  AND (
+			    (selector_current.selector_id IS NULL AND set_current.selector_id IS NULL)
+			    OR (
+			      selector_current.selector_generation=set_current.selector_generation
+			      AND selector_current.host_group_id=group_current.host_group_id
+			      AND selector_current.based_on_host_group_generation=group_current.host_group_generation
+			      AND selector_current.lifecycle_state='ACTIVE'
+			    )
+			  )
 			  AND ((set_current.cardinality_policy_id=policy.cardinality_policy_id
 			        AND set_current.cardinality_policy_generation=policy.policy_generation
 			        AND set_current.cardinality=policy.cardinality)
@@ -443,6 +458,9 @@ func assignHostGroupMembershipTx(ctx context.Context, tx pgx.Tx, membership Host
 }
 
 func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request HostGroupMembershipSetRequest) (HostGroupMembershipSet, error) {
+	if err := validateHostGroupMembershipSetRequest(request); err != nil {
+		return HostGroupMembershipSet{}, err
+	}
 	requestedMembers := append([]HostGroupMembership(nil), request.Members...)
 	sort.Slice(requestedMembers, func(i, j int) bool { return requestedMembers[i].HostID < requestedMembers[j].HostID })
 	requestedDigests := make([]hostGroupSnapshotMember, 0, len(requestedMembers))
@@ -459,13 +477,17 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 		SELECT publish_request_id,host_group_id,membership_set_generation,
 		       based_on_host_group_generation,canonical_member_set_digest,member_count,request_digest,
 		       COALESCE(cardinality_policy_id,''),COALESCE(cardinality_policy_generation,0),COALESCE(cardinality,''),
-		       COALESCE(hierarchy_id,''),COALESCE(hierarchy_generation,0)
+		       COALESCE(hierarchy_id,''),COALESCE(hierarchy_generation,0),
+		       COALESCE(selector_id,''),COALESCE(selector_generation,0),
+		       COALESCE(selector_evaluation_id,''),COALESCE(selector_evaluation_generation,0)
 		FROM kim.host_group_membership_set_evidence WHERE publish_request_id=$1
 	`, request.PublishRequestID).Scan(&existing.PublishRequestID, &existing.HostGroupID,
 		&existing.MembershipSetGeneration, &existing.BasedOnHostGroupGeneration,
 		&existing.CanonicalMemberSetDigest, &existing.MemberCount, &existingRequestDigest,
 		&existing.CardinalityPolicyID, &existing.CardinalityPolicyGeneration, &existing.Cardinality,
-		&existing.HierarchyID, &existing.HierarchyGeneration)
+		&existing.HierarchyID, &existing.HierarchyGeneration, &existing.SelectorID,
+		&existing.SelectorGeneration, &existing.SelectorEvaluationID,
+		&existing.SelectorEvaluationGeneration)
 	if err == nil {
 		if existingRequestDigest != requestDigest {
 			return HostGroupMembershipSet{}, ErrHostGroupConflict
@@ -504,33 +526,44 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 	} else if request.HierarchyGeneration == nil || *request.HierarchyGeneration != hierarchy.Generation {
 		return HostGroupMembershipSet{}, ErrHostGroupConflict
 	}
+	if err := validateSelectorMembershipSetRequestTx(ctx, tx, request, currentGroupGeneration, policy, hierarchy); err != nil {
+		return HostGroupMembershipSet{}, err
+	}
 	var currentSetGeneration uint64
 	requestedSetDigest := hostGroupMembershipSnapshotDigest(requestedDigests)
 	err = tx.QueryRow(ctx, `
 		SELECT evidence.publish_request_id,evidence.host_group_id,evidence.membership_set_generation,
 		       evidence.based_on_host_group_generation,evidence.canonical_member_set_digest,evidence.member_count,
 		       evidence.cardinality_policy_id,evidence.cardinality_policy_generation,evidence.cardinality,
-		       COALESCE(evidence.hierarchy_id,''),COALESCE(evidence.hierarchy_generation,0)
+		       COALESCE(evidence.hierarchy_id,''),COALESCE(evidence.hierarchy_generation,0),
+		       COALESCE(evidence.selector_id,''),COALESCE(evidence.selector_generation,0),
+		       COALESCE(evidence.selector_evaluation_id,''),COALESCE(evidence.selector_evaluation_generation,0)
 		FROM kim.host_group_membership_sets_current current_set
 		JOIN kim.host_group_membership_set_evidence evidence
 		  ON evidence.host_group_id=current_set.host_group_id
 		 AND evidence.membership_set_generation=current_set.membership_set_generation
 		WHERE evidence.host_group_id=$1 AND evidence.based_on_host_group_generation=$2
 		  AND evidence.source_type=$3 AND evidence.source_revision=$4
-		  AND evidence.selector_evaluation_generation IS NOT DISTINCT FROM $5
-		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $6
-		  AND evidence.canonical_member_set_digest=$7
-		  AND evidence.cardinality_policy_id=$8 AND evidence.cardinality_policy_generation=$9
-		  AND evidence.hierarchy_id IS NOT DISTINCT FROM $10
-		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $11
+		  AND evidence.selector_id IS NOT DISTINCT FROM $5
+		  AND evidence.selector_generation IS NOT DISTINCT FROM $6
+		  AND evidence.selector_evaluation_id IS NOT DISTINCT FROM $7
+		  AND evidence.selector_evaluation_generation IS NOT DISTINCT FROM $8
+		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $9
+		  AND evidence.canonical_member_set_digest=$10
+		  AND evidence.cardinality_policy_id=$11 AND evidence.cardinality_policy_generation=$12
+		  AND evidence.hierarchy_id IS NOT DISTINCT FROM $13
+		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $14
 	`, request.HostGroupID, request.BasedOnHostGroupGeneration, request.SourceType,
-		request.SourceRevision, request.SelectorEvaluationGeneration, request.HierarchyGeneration,
-		requestedSetDigest, policy.PolicyID, policy.Generation, nullableHierarchyID(hierarchy),
+		request.SourceRevision, nullableSelectorID(request), request.SelectorGeneration,
+		nullableSelectorEvaluationID(request), request.SelectorEvaluationGeneration,
+		request.HierarchyGeneration, requestedSetDigest, policy.PolicyID, policy.Generation, nullableHierarchyID(hierarchy),
 		nullableHierarchyGeneration(hierarchy)).Scan(&existing.PublishRequestID, &existing.HostGroupID,
 		&existing.MembershipSetGeneration, &existing.BasedOnHostGroupGeneration,
 		&existing.CanonicalMemberSetDigest, &existing.MemberCount, &existing.CardinalityPolicyID,
 		&existing.CardinalityPolicyGeneration, &existing.Cardinality,
-		&existing.HierarchyID, &existing.HierarchyGeneration)
+		&existing.HierarchyID, &existing.HierarchyGeneration, &existing.SelectorID,
+		&existing.SelectorGeneration, &existing.SelectorEvaluationID,
+		&existing.SelectorEvaluationGeneration)
 	if err == nil {
 		return existing, nil
 	}
@@ -601,27 +634,35 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 		SELECT evidence.publish_request_id,evidence.host_group_id,evidence.membership_set_generation,
 		       evidence.based_on_host_group_generation,evidence.canonical_member_set_digest,evidence.member_count,
 		       evidence.cardinality_policy_id,evidence.cardinality_policy_generation,evidence.cardinality,
-		       COALESCE(evidence.hierarchy_id,''),COALESCE(evidence.hierarchy_generation,0)
+		       COALESCE(evidence.hierarchy_id,''),COALESCE(evidence.hierarchy_generation,0),
+		       COALESCE(evidence.selector_id,''),COALESCE(evidence.selector_generation,0),
+		       COALESCE(evidence.selector_evaluation_id,''),COALESCE(evidence.selector_evaluation_generation,0)
 		FROM kim.host_group_membership_sets_current current_set
 		JOIN kim.host_group_membership_set_evidence evidence
 		  ON evidence.host_group_id=current_set.host_group_id
 		 AND evidence.membership_set_generation=current_set.membership_set_generation
 		WHERE evidence.host_group_id=$1 AND evidence.based_on_host_group_generation=$2
 		  AND evidence.source_type=$3 AND evidence.source_revision=$4
-		  AND evidence.selector_evaluation_generation IS NOT DISTINCT FROM $5
-		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $6
-		  AND evidence.canonical_member_set_digest=$7
-		  AND evidence.cardinality_policy_id=$8 AND evidence.cardinality_policy_generation=$9
-		  AND evidence.hierarchy_id IS NOT DISTINCT FROM $10
-		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $11
+		  AND evidence.selector_id IS NOT DISTINCT FROM $5
+		  AND evidence.selector_generation IS NOT DISTINCT FROM $6
+		  AND evidence.selector_evaluation_id IS NOT DISTINCT FROM $7
+		  AND evidence.selector_evaluation_generation IS NOT DISTINCT FROM $8
+		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $9
+		  AND evidence.canonical_member_set_digest=$10
+		  AND evidence.cardinality_policy_id=$11 AND evidence.cardinality_policy_generation=$12
+		  AND evidence.hierarchy_id IS NOT DISTINCT FROM $13
+		  AND evidence.hierarchy_generation IS NOT DISTINCT FROM $14
 	`, request.HostGroupID, request.BasedOnHostGroupGeneration, request.SourceType,
-		request.SourceRevision, request.SelectorEvaluationGeneration, request.HierarchyGeneration,
-		setDigest, policy.PolicyID, policy.Generation, nullableHierarchyID(hierarchy),
+		request.SourceRevision, nullableSelectorID(request), request.SelectorGeneration,
+		nullableSelectorEvaluationID(request), request.SelectorEvaluationGeneration,
+		request.HierarchyGeneration, setDigest, policy.PolicyID, policy.Generation, nullableHierarchyID(hierarchy),
 		nullableHierarchyGeneration(hierarchy)).Scan(&existing.PublishRequestID, &existing.HostGroupID,
 		&existing.MembershipSetGeneration, &existing.BasedOnHostGroupGeneration,
 		&existing.CanonicalMemberSetDigest, &existing.MemberCount, &existing.CardinalityPolicyID,
 		&existing.CardinalityPolicyGeneration, &existing.Cardinality,
-		&existing.HierarchyID, &existing.HierarchyGeneration)
+		&existing.HierarchyID, &existing.HierarchyGeneration, &existing.SelectorID,
+		&existing.SelectorGeneration, &existing.SelectorEvaluationID,
+		&existing.SelectorEvaluationGeneration)
 	if err == nil {
 		return existing, nil
 	}
@@ -651,12 +692,14 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 		INSERT INTO kim.host_group_membership_set_evidence (
 			host_group_id,membership_set_generation,based_on_host_group_generation,
 			publish_request_id,request_digest,source_type,source_revision,
+			selector_id,selector_generation,selector_evaluation_id,
 			selector_evaluation_generation,hierarchy_generation,
 			canonical_member_set_digest,member_count,validation_state,
 			cardinality_policy_id,cardinality_policy_generation,cardinality,hierarchy_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ACCEPTED',$12,$13,$14,$15)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACCEPTED',$15,$16,$17,$18)
 	`, request.HostGroupID, setGeneration, request.BasedOnHostGroupGeneration,
 		request.PublishRequestID, requestDigest, request.SourceType, request.SourceRevision,
+		nullableSelectorID(request), request.SelectorGeneration, nullableSelectorEvaluationID(request),
 		request.SelectorEvaluationGeneration, request.HierarchyGeneration, setDigest, memberCount,
 		policy.PolicyID, policy.Generation, policy.Cardinality, nullableHierarchyID(hierarchy))
 	if err != nil {
@@ -695,8 +738,9 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 			host_group_id,membership_set_generation,based_on_host_group_generation,
 			canonical_member_set_digest,member_count,validation_state,
 			cardinality_policy_id,cardinality_policy_generation,cardinality,
-			hierarchy_id,hierarchy_generation
-		) VALUES ($1,$2,$3,$4,$5,'ACCEPTED',$6,$7,$8,$9,$10)
+			hierarchy_id,hierarchy_generation,selector_id,selector_generation,
+			selector_evaluation_id,selector_evaluation_generation
+		) VALUES ($1,$2,$3,$4,$5,'ACCEPTED',$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (host_group_id) DO UPDATE SET
 			membership_set_generation=EXCLUDED.membership_set_generation,
 			based_on_host_group_generation=EXCLUDED.based_on_host_group_generation,
@@ -705,10 +749,16 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 			cardinality_policy_id=EXCLUDED.cardinality_policy_id,
 			cardinality_policy_generation=EXCLUDED.cardinality_policy_generation,
 			cardinality=EXCLUDED.cardinality,hierarchy_id=EXCLUDED.hierarchy_id,
-			hierarchy_generation=EXCLUDED.hierarchy_generation,updated_at=statement_timestamp()
+			hierarchy_generation=EXCLUDED.hierarchy_generation,
+			selector_id=EXCLUDED.selector_id,selector_generation=EXCLUDED.selector_generation,
+			selector_evaluation_id=EXCLUDED.selector_evaluation_id,
+			selector_evaluation_generation=EXCLUDED.selector_evaluation_generation,
+			updated_at=statement_timestamp()
 	`, request.HostGroupID, setGeneration, request.BasedOnHostGroupGeneration, setDigest, memberCount,
 		policy.PolicyID, policy.Generation, policy.Cardinality,
-		nullableHierarchyID(hierarchy), nullableHierarchyGeneration(hierarchy))
+		nullableHierarchyID(hierarchy), nullableHierarchyGeneration(hierarchy),
+		nullableSelectorID(request), request.SelectorGeneration,
+		nullableSelectorEvaluationID(request), request.SelectorEvaluationGeneration)
 	if err != nil {
 		return HostGroupMembershipSet{}, err
 	}
@@ -718,7 +768,31 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 		CanonicalMemberSetDigest:   setDigest, CardinalityPolicyID: policy.PolicyID,
 		CardinalityPolicyGeneration: policy.Generation, Cardinality: policy.Cardinality,
 		HierarchyID: hierarchy.HierarchyID, HierarchyGeneration: hierarchy.Generation,
-		MemberCount: memberCount}, nil
+		SelectorID: request.SelectorID, SelectorEvaluationID: request.SelectorEvaluationID,
+		SelectorGeneration:           nullableUint64Value(request.SelectorGeneration),
+		SelectorEvaluationGeneration: nullableUint64Value(request.SelectorEvaluationGeneration),
+		MemberCount:                  memberCount}, nil
+}
+
+func nullableSelectorID(request HostGroupMembershipSetRequest) any {
+	if request.SelectorID == "" {
+		return nil
+	}
+	return request.SelectorID
+}
+
+func nullableSelectorEvaluationID(request HostGroupMembershipSetRequest) any {
+	if request.SelectorEvaluationID == "" {
+		return nil
+	}
+	return request.SelectorEvaluationID
+}
+
+func nullableUint64Value(value *uint64) uint64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func nullableHierarchyID(hierarchy currentHostGroupHierarchy) any {
@@ -938,9 +1012,18 @@ func validateHostGroupMembership(membership HostGroupMembership) error {
 func validateHostGroupMembershipSetRequest(request HostGroupMembershipSetRequest) error {
 	if request.PublishRequestID == "" || request.HostGroupID == "" || request.BasedOnHostGroupGeneration == 0 ||
 		request.SourceRevision == "" || !validHostGroupMembershipSource(request.SourceType) ||
+		(request.SelectorGeneration != nil && *request.SelectorGeneration == 0) ||
 		(request.SelectorEvaluationGeneration != nil && *request.SelectorEvaluationGeneration == 0) ||
 		(request.HierarchyGeneration != nil && *request.HierarchyGeneration == 0) {
 		return errors.New("complete HostGroup membership set request is required")
+	}
+	selectorComplete := request.SelectorID != "" && request.SelectorGeneration != nil &&
+		request.SelectorEvaluationID != "" && request.SelectorEvaluationGeneration != nil
+	selectorAbsent := request.SelectorID == "" && request.SelectorGeneration == nil &&
+		request.SelectorEvaluationID == "" && request.SelectorEvaluationGeneration == nil
+	if (request.SourceType == "SELECTOR" && !selectorComplete) ||
+		(request.SourceType != "SELECTOR" && !selectorAbsent) {
+		return errors.New("selector membership provenance must be complete and source-bound")
 	}
 	seen := make(map[string]struct{}, len(request.Members))
 	for _, member := range request.Members {
@@ -1023,16 +1106,32 @@ func hostGroupMembershipSnapshotDigest(members []hostGroupSnapshotMember) string
 }
 
 func hostGroupMembershipSetRequestDigest(request HostGroupMembershipSetRequest, setDigest string) string {
-	selectorGeneration, hierarchyGeneration := "", ""
-	if request.SelectorEvaluationGeneration != nil {
-		selectorGeneration = fmt.Sprint(*request.SelectorEvaluationGeneration)
-	}
+	hierarchyGeneration := ""
 	if request.HierarchyGeneration != nil {
 		hierarchyGeneration = fmt.Sprint(*request.HierarchyGeneration)
 	}
+	// Keep the pre-042 digest byte-for-byte stable for non-selector publishers.
+	if request.SourceType != "SELECTOR" {
+		selectorEvaluationGeneration := ""
+		if request.SelectorEvaluationGeneration != nil {
+			selectorEvaluationGeneration = fmt.Sprint(*request.SelectorEvaluationGeneration)
+		}
+		return digestHostGroupFields(request.HostGroupID,
+			fmt.Sprint(request.BasedOnHostGroupGeneration), request.SourceType,
+			request.SourceRevision, selectorEvaluationGeneration, hierarchyGeneration, setDigest)
+	}
+	selectorGeneration, selectorEvaluationGeneration := "", ""
+	if request.SelectorGeneration != nil {
+		selectorGeneration = fmt.Sprint(*request.SelectorGeneration)
+	}
+	if request.SelectorEvaluationGeneration != nil {
+		selectorEvaluationGeneration = fmt.Sprint(*request.SelectorEvaluationGeneration)
+	}
 	return digestHostGroupFields(request.HostGroupID,
 		fmt.Sprint(request.BasedOnHostGroupGeneration), request.SourceType,
-		request.SourceRevision, selectorGeneration, hierarchyGeneration, setDigest)
+		request.SourceRevision, request.SelectorID, selectorGeneration,
+		request.SelectorEvaluationID, selectorEvaluationGeneration,
+		hierarchyGeneration, setDigest)
 }
 
 func hostGroupCardinalityPolicyDigest(policy HostGroupCardinalityPolicy) string {

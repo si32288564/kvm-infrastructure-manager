@@ -252,7 +252,10 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				  ON hierarchy_current.group_type=group_current.group_type
 				 AND hierarchy_current.dimension=group_current.dimension
 				 AND hierarchy_current.scope_type='SYSTEM' AND hierarchy_current.scope_id='system'
-				JOIN kim.host_group_memberships_current member USING (host_group_id)
+				LEFT JOIN kim.host_group_selectors_current selector_current
+				  ON selector_current.host_group_id=group_current.host_group_id
+				JOIN kim.host_group_memberships_current member
+				  ON member.host_group_id=group_current.host_group_id
 				WHERE group_current.host_group_id=$1 AND member.host_id=$2
 				  AND group_current.host_group_generation=$3
 				  AND set_current.membership_set_generation=$4
@@ -260,6 +263,15 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				  AND COALESCE(set_current.hierarchy_id,'')=$6
 				  AND COALESCE(set_current.hierarchy_generation,0)=$7
 				  AND group_current.lifecycle_state='ACTIVE' AND set_current.validation_state='ACCEPTED'
+				  AND (
+				    (selector_current.selector_id IS NULL AND set_current.selector_id IS NULL)
+				    OR (
+				      selector_current.selector_generation=set_current.selector_generation
+				      AND selector_current.host_group_id=group_current.host_group_id
+				      AND selector_current.based_on_host_group_generation=group_current.host_group_generation
+				      AND selector_current.lifecycle_state='ACTIVE'
+				    )
+				  )
 				  AND cardinality_policy.policy_state='ACTIVE'
 				  AND ((set_current.cardinality_policy_id=cardinality_policy.cardinality_policy_id
 				        AND set_current.cardinality_policy_generation=cardinality_policy.policy_generation
@@ -290,8 +302,11 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				  AND member.membership_state='ACTIVE'
 			)
 		`, request.PoolID, dry.HostID, dry.PoolGeneration, dry.MembershipSetGeneration,
-			dry.MembershipGeneration, dry.HierarchyID, dry.HierarchyGeneration).Scan(&membershipSetCurrent); err != nil || !membershipSetCurrent {
-			return ErrPlacementStale
+			dry.MembershipGeneration, dry.HierarchyID, dry.HierarchyGeneration).Scan(&membershipSetCurrent); err != nil {
+			return fmt.Errorf("revalidate HostGroup membership Set authority: %w", err)
+		}
+		if !membershipSetCurrent {
+			return fmt.Errorf("HostGroup membership Set authority changed: %w", ErrPlacementStale)
 		}
 		current, err := evaluatePlacementTx(ctx, tx, request, dry.HostID)
 		if err != nil {
@@ -301,7 +316,7 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return ErrPlacementIneligible
 		}
 		if current.RequestDigest != dry.RequestDigest || current.EvaluationDigest != dry.EvaluationDigest {
-			return ErrPlacementStale
+			return fmt.Errorf("placement evaluation authority changed: %w", ErrPlacementStale)
 		}
 		explanation, err := json.Marshal(map[string]any{"eligible": true, "score": current.Score, "reason_codes": current.ReasonCodes})
 		if err != nil {
@@ -463,6 +478,8 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		  ON hierarchy_current.group_type=host_group.group_type
 		 AND hierarchy_current.dimension=host_group.dimension
 		 AND hierarchy_current.scope_type='SYSTEM' AND hierarchy_current.scope_id='system'
+		LEFT JOIN kim.host_group_selectors_current selector_current
+		  ON selector_current.host_group_id=host_group.host_group_id
 		JOIN kim.placement_pools_current pool ON pool.pool_id=host_group.host_group_id
 		LEFT JOIN LATERAL (
 			SELECT sum(vcpus) vcpus, sum(memory_mib) memory_mib
@@ -471,6 +488,15 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 			  AND claim_state IN ('RESERVED','ALLOCATED','RELEASE_PENDING')
 		) claims ON true
 		WHERE database.singleton AND capability.host_id=$1
+		  AND (
+		    (selector_current.selector_id IS NULL AND membership_set.selector_id IS NULL)
+		    OR (
+		      selector_current.selector_generation=membership_set.selector_generation
+		      AND selector_current.host_group_id=host_group.host_group_id
+		      AND selector_current.based_on_host_group_generation=host_group.host_group_generation
+		      AND selector_current.lifecycle_state='ACTIVE'
+		    )
+		  )
 		  AND (
 		    (hierarchy_current.hierarchy_id IS NULL AND membership_set.hierarchy_id IS NULL)
 		    OR (membership_set.hierarchy_id=hierarchy_current.hierarchy_id

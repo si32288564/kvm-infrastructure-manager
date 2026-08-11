@@ -80,6 +80,6 @@ Result: PASS.
 
 - The materialized profile is SYSTEM/system and TREE/single-parent forest. Explicit DAG policy is not implemented.
 - Hierarchy membership inheritance is not implicit.
-- Selector proposal/materialization is not implemented.
+- Selector proposal/materialization is qualified separately in [P1-B06 Selector Materialization Authority Validation](p1-b06-selector-materialization-20260811.md).
 - Upgrade and Maintenance consumers are not yet bound to hierarchy-backed Membership Snapshots.
 - Population-wide EXACTLY_ONE completeness still depends on future Site/scope population authority.
