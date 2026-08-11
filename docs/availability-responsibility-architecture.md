@@ -418,4 +418,8 @@ Migration 048はclosed typed `AvailabilityPolicy` revision/current authority、g
 
 新規authoritative pathは`DryEvaluateAvailabilityPlacementScope`から`FinalAdmitAvailabilityPlacementScope`へexact resolution digestを渡す。Finalはcurrent binding、HostGroup、Membership Set、Policy revision/digest/lifecycle、resolution inputsを再検証し、別Policyへsilent re-resolutionしない。pre-048 Admissionと既存compatibility APIへ架空のAvailabilityPolicyをbackfillしない。
 
+Migration 049は既存VM responsibilityを変更する唯一のexplicit Rebind authorityを追加する。immutable Requestはsource Binding revision/digest、exact target Policy revision/digest、actor、authorization reference、reasonを固定する。RequestはintentであってBinding authorityではない。Decision transactionはcurrent Binding、historical Admission/allocation identity、target Policy current/lifecycle/closed responsibility-action schemaを再検証し、`ACCEPTED` Decision、next immutable Binding revision、current pointer switchを不可分にcommitする。direct exact-policy modeだけを実装し、HostGroupからcurrent assignmentを暗黙再解決しない。
+
+Policy、HostGroup membership、Group Policy BindingのdriftはRebindをtriggerしない。target Policy current switch/retirementはold requestをstale rejectし、new current revisionへsilent upliftしない。stale source requestをcurrent revisionから自動継続せず、distinct concurrent intentはone commit/one staleとなる。同一request identity/digestだけがresponse-loss後もoriginal Decision/Bindingへ収束する。RebindはPlacement Admissionではなくresourceを再claimせず、Failure Epoch、Recovery authorization、VM/network/storage mutationを一切発行しない。将来のFailure Epochはその時点のexact Binding revisionへbindする。
+
 この増分はfailure detection、fencing proof、Recovery Eligibility、Recovery Operationを発行しない。explicit Availability Rebind persistence/runtimeも後続gateであり、live Policy/Binding driftは既存VM Binding revisionを変更しない。

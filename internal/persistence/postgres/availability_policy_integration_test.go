@@ -230,4 +230,195 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if err := pool.QueryRow(ctx, `SELECT availability_policy_revision FROM kim.vm_availability_binding_evidence WHERE workload_id=$1`, r1.WorkloadID).Scan(&oldRevision); err != nil || oldRevision != 1 {
 		t.Fatalf("retirement rewrote history revision=%d err=%v", oldRevision, err)
 	}
+
+	// Explicit Rebind is the only path that advances an existing VM Binding.
+	policy5 := availabilityPolicyFixture("availability-rebind-target-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "EVACUATE", "ACTIVE")
+	d5, err := PublishAvailabilityPolicy(ctx, pool, policy5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sourceDigest string
+	if err := pool.QueryRow(ctx, `SELECT binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&sourceDigest); err != nil {
+		t.Fatal(err)
+	}
+	beforeCounts := make([]int, 5)
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.compute_allocation_claims),
+		(SELECT count(*) FROM kim.pci_vf_allocation_claims),
+		(SELECT count(*) FROM kim.network_identity_claims),
+		(SELECT count(*) FROM kim.volume_attachment_claims),
+		(SELECT count(*) FROM kim.vm_power_observation_evidence)`).Scan(&beforeCounts[0], &beforeCounts[1], &beforeCounts[2], &beforeCounts[3], &beforeCounts[4]); err != nil {
+		t.Fatal(err)
+	}
+	rebindRequest := VMAvailabilityRebindRequest{RebindID: "availability-rebind-1-" + suffix, WorkloadID: r1.WorkloadID,
+		ExpectedCurrentBindingRevision: 1, SourceBindingDigest: sourceDigest, TargetPolicyID: policy5.PolicyID,
+		TargetPolicyRevision: 1, TargetPolicyDigest: d5, RequestedBy: "operator-a", AuthorizedBy: "approver-a",
+		AuthorizationReference: "approval/availability/1", Reason: "move responsibility to infrastructure"}
+	recorded, err := RecordVMAvailabilityRebindRequest(ctx, pool, rebindRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay, err := RecordVMAvailabilityRebindRequest(ctx, pool, rebindRequest); err != nil || replay.RequestDigest != recorded.RequestDigest {
+		t.Fatalf("request replay=%+v err=%v", replay, err)
+	}
+	conflictRequest := rebindRequest
+	conflictRequest.TargetPolicyID = policyID
+	conflictRequest.TargetPolicyRevision = 4
+	conflictRequest.TargetPolicyDigest = digestBytes([]byte("different"))
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, conflictRequest); !errors.Is(err, ErrAvailabilityRebindConflict) {
+		t.Fatalf("request identity conflict=%v", err)
+	}
+	decision1, binding2, err := DecideVMAvailabilityRebind(ctx, pool, rebindRequest.RebindID, "decision-authority")
+	if err != nil || decision1.ResultCode != "ACCEPTED" || binding2.BindingRevision != 2 || binding2.SourceBindingRevision != 1 || binding2.PolicyRevision != 1 {
+		t.Fatalf("decision=%+v binding=%+v err=%v", decision1, binding2, err)
+	}
+	// A lost response replays the same decision and revision; it never creates rev3.
+	replayedDecision, replayedBinding, err := DecideVMAvailabilityRebind(ctx, pool, rebindRequest.RebindID, "decision-authority")
+	if err != nil || replayedDecision.DecisionDigest != decision1.DecisionDigest || replayedBinding.BindingDigest != binding2.BindingDigest {
+		t.Fatalf("decision replay=%+v binding=%+v err=%v", replayedDecision, replayedBinding, err)
+	}
+	var currentRevision uint64
+	var bindingCount, decisionCount int
+	if err := pool.QueryRow(ctx, `SELECT c.binding_revision,
+		(SELECT count(*) FROM kim.vm_availability_binding_evidence WHERE workload_id=$1),
+		(SELECT count(*) FROM kim.vm_availability_rebind_decision_evidence WHERE rebind_id=$2)
+		FROM kim.vm_availability_bindings_current c WHERE c.workload_id=$1`, r1.WorkloadID, rebindRequest.RebindID).Scan(&currentRevision, &bindingCount, &decisionCount); err != nil || currentRevision != 2 || bindingCount != 2 || decisionCount != 1 {
+		t.Fatalf("current=%d bindings=%d decisions=%d err=%v", currentRevision, bindingCount, decisionCount, err)
+	}
+	afterCounts := make([]int, 5)
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.compute_allocation_claims),
+		(SELECT count(*) FROM kim.pci_vf_allocation_claims),
+		(SELECT count(*) FROM kim.network_identity_claims),
+		(SELECT count(*) FROM kim.volume_attachment_claims),
+		(SELECT count(*) FROM kim.vm_power_observation_evidence)`).Scan(&afterCounts[0], &afterCounts[1], &afterCounts[2], &afterCounts[3], &afterCounts[4]); err != nil {
+		t.Fatal(err)
+	}
+	for i := range beforeCounts {
+		if beforeCounts[i] != afterCounts[i] {
+			t.Fatalf("Rebind caused side effect counts before=%v after=%v", beforeCounts, afterCounts)
+		}
+	}
+
+	// A request tied to rev2 becomes stale after another explicit transition.
+	policy6 := availabilityPolicyFixture("availability-rebind-target-6-"+suffix, 1, "MANUAL", "NO_AUTOMATIC_ACTION", "ACTIVE")
+	d6, err := PublishAvailabilityPolicy(ctx, pool, policy6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleRebind := VMAvailabilityRebindRequest{RebindID: "availability-rebind-stale-" + suffix, WorkloadID: r1.WorkloadID,
+		ExpectedCurrentBindingRevision: 2, SourceBindingDigest: binding2.BindingDigest, TargetPolicyID: policy6.PolicyID,
+		TargetPolicyRevision: 1, TargetPolicyDigest: d6, RequestedBy: "operator-b", AuthorizedBy: "approver-b",
+		AuthorizationReference: "approval/availability/2", Reason: "stale request qualification"}
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, staleRebind); err != nil {
+		t.Fatal(err)
+	}
+	policy7 := availabilityPolicyFixture("availability-rebind-target-7-"+suffix, 1, "WORKLOAD_MANAGED", "NO_AUTOMATIC_ACTION", "ACTIVE")
+	d7, err := PublishAvailabilityPolicy(ctx, pool, policy7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	winner := staleRebind
+	winner.RebindID = "availability-rebind-winner-" + suffix
+	winner.TargetPolicyID = policy7.PolicyID
+	winner.TargetPolicyDigest = d7
+	winner.Reason = "advance binding once"
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, winner); err != nil {
+		t.Fatal(err)
+	}
+	if _, binding3, err := DecideVMAvailabilityRebind(ctx, pool, winner.RebindID, "decision-authority"); err != nil || binding3.BindingRevision != 3 {
+		t.Fatalf("winner binding=%+v err=%v", binding3, err)
+	}
+	if _, _, err := DecideVMAvailabilityRebind(ctx, pool, staleRebind.RebindID, "decision-authority"); !errors.Is(err, ErrAvailabilityRebindStaleSource) {
+		t.Fatalf("stale source result=%v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT binding_revision FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&currentRevision); err != nil || currentRevision != 3 {
+		t.Fatalf("stale request amplified revision=%d err=%v", currentRevision, err)
+	}
+
+	// Distinct concurrent intents against the same source produce one transition.
+	var source2Digest string
+	if err := pool.QueryRow(ctx, `SELECT binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r2.WorkloadID).Scan(&source2Digest); err != nil {
+		t.Fatal(err)
+	}
+	concurrentPolicies := []AvailabilityPolicyRevision{
+		availabilityPolicyFixture("availability-concurrent-a-"+suffix, 1, "MANUAL", "NO_AUTOMATIC_ACTION", "ACTIVE"),
+		availabilityPolicyFixture("availability-concurrent-b-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "RESTART_ON_OTHER_HOST", "ACTIVE"),
+	}
+	concurrentRequests := make([]VMAvailabilityRebindRequest, 2)
+	for i, p := range concurrentPolicies {
+		d, err := PublishAvailabilityPolicy(ctx, pool, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		concurrentRequests[i] = VMAvailabilityRebindRequest{RebindID: fmt.Sprintf("availability-concurrent-%d-%s", i, suffix), WorkloadID: r2.WorkloadID,
+			ExpectedCurrentBindingRevision: 1, SourceBindingDigest: source2Digest, TargetPolicyID: p.PolicyID, TargetPolicyRevision: 1,
+			TargetPolicyDigest: d, RequestedBy: "operator-concurrent", AuthorizedBy: "approver-concurrent",
+			AuthorizationReference: "approval/availability/concurrent", Reason: "concurrent qualification"}
+		if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, concurrentRequests[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rebindWG sync.WaitGroup
+	rebindErrs := make([]error, 2)
+	rebindWG.Add(2)
+	for i := range concurrentRequests {
+		go func(i int) {
+			defer rebindWG.Done()
+			_, _, rebindErrs[i] = DecideVMAvailabilityRebind(ctx, pool, concurrentRequests[i].RebindID, "decision-authority")
+		}(i)
+	}
+	rebindWG.Wait()
+	accepted, stale := 0, 0
+	for _, e := range rebindErrs {
+		if e == nil {
+			accepted++
+		} else if errors.Is(e, ErrAvailabilityRebindStaleSource) {
+			stale++
+		} else {
+			t.Fatalf("unexpected concurrent result=%v", e)
+		}
+	}
+	if accepted != 1 || stale != 1 {
+		t.Fatalf("concurrent accepted=%d stale=%d errors=%v", accepted, stale, rebindErrs)
+	}
+	if err := pool.QueryRow(ctx, `SELECT binding_revision FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r2.WorkloadID).Scan(&currentRevision); err != nil || currentRevision != 2 {
+		t.Fatalf("concurrent current=%d err=%v", currentRevision, err)
+	}
+
+	// Exact target current switch never uplifts the request to a newer revision.
+	racePolicy := availabilityPolicyFixture("availability-race-target-"+suffix, 1, "MANUAL", "NO_AUTOMATIC_ACTION", "ACTIVE")
+	raceDigest, err := PublishAvailabilityPolicy(ctx, pool, racePolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source3Digest string
+	if err := pool.QueryRow(ctx, `SELECT binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, raceRequest.WorkloadID).Scan(&source3Digest); err == nil {
+		raceRebind := VMAvailabilityRebindRequest{RebindID: "availability-policy-race-rebind-" + suffix, WorkloadID: raceRequest.WorkloadID,
+			ExpectedCurrentBindingRevision: 1, SourceBindingDigest: source3Digest, TargetPolicyID: racePolicy.PolicyID,
+			TargetPolicyRevision: 1, TargetPolicyDigest: raceDigest, RequestedBy: "operator-race", AuthorizedBy: "approver-race",
+			AuthorizationReference: "approval/availability/race", Reason: "policy current race"}
+		if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, raceRebind); err != nil {
+			t.Fatal(err)
+		}
+		racePolicy2 := availabilityPolicyFixture(racePolicy.PolicyID, 2, "INFRASTRUCTURE_MANAGED", "EVACUATE", "ACTIVE")
+		var decideRaceErr, publishRaceErr error
+		rebindWG.Add(2)
+		go func() {
+			defer rebindWG.Done()
+			_, _, decideRaceErr = DecideVMAvailabilityRebind(ctx, pool, raceRebind.RebindID, "decision-authority")
+		}()
+		go func() { defer rebindWG.Done(); _, publishRaceErr = PublishAvailabilityPolicy(ctx, pool, racePolicy2) }()
+		rebindWG.Wait()
+		if publishRaceErr != nil {
+			t.Fatal(publishRaceErr)
+		}
+		if decideRaceErr != nil && !errors.Is(decideRaceErr, ErrAvailabilityRebindStaleTarget) {
+			t.Fatalf("policy race result=%v", decideRaceErr)
+		}
+		var uplifted int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.vm_availability_binding_evidence WHERE workload_id=$1 AND availability_policy_id=$2 AND availability_policy_revision=2`, raceRequest.WorkloadID, racePolicy.PolicyID).Scan(&uplifted); err != nil || uplifted != 0 {
+			t.Fatalf("silent uplift count=%d err=%v", uplifted, err)
+		}
+	}
 }

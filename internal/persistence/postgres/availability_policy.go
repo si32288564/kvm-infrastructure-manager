@@ -26,7 +26,9 @@ type VMAvailabilityBinding struct {
 	WorkloadID, AdmissionID, AllocationID, PolicyResolutionID string
 	PolicyID, PolicyDigest, Responsibility, HostFailureAction string
 	ResolutionInputDigest, BindingDigest                      string
+	BindingSource, SourceBindingDigest, RebindID              string
 	BindingRevision, PolicyRevision                           uint64
+	SourceBindingRevision, RebindDecisionGeneration           uint64
 }
 
 func validAvailabilityPolicy(policy AvailabilityPolicyRevision) bool {
@@ -153,7 +155,8 @@ func recordVMAvailabilityBindingTx(ctx context.Context, tx pgx.Tx, request Place
 		AllocationID: admission.AllocationID, PolicyResolutionID: resolution.ResolutionID,
 		PolicyID: resolution.EffectivePolicyID, PolicyRevision: resolution.EffectivePolicyRevision,
 		PolicyDigest: resolution.EffectivePolicyDigest, Responsibility: responsibility,
-		HostFailureAction: action, ResolutionInputDigest: resolution.InputDigest, BindingRevision: 1}
+		HostFailureAction: action, ResolutionInputDigest: resolution.InputDigest, BindingRevision: 1,
+		BindingSource: "FINAL_ADMISSION"}
 	raw, _ := json.Marshal(binding)
 	binding.BindingDigest = digestReleaseBytes(raw)
 	command, err := tx.Exec(ctx, `INSERT INTO kim.vm_availability_binding_evidence(

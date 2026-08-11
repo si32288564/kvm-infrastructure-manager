@@ -308,6 +308,8 @@
 | INV-AVR-011 | EVACUATEはVM単位Operationへ分解し、一VMの失敗/UNKNOWNを他VMの推測rollbackへ波及させない | FI-AVR-009 |
 | INV-AVR-012 | Fault/Event delivery failureを理由にAvailability responsibility/actionを変更しない | FI-AVR-010 |
 | INV-AVR-013 | heartbeat/Agent lossだけでHost source fencing完了を確定しない | FI-AVR-003 |
+| INV-AVR-014 | Policy/HostGroup/Group Policy Binding driftまたはoperator intentだけでVM Availability Bindingを変更しない。accepted explicit Rebind Decisionだけがexact source/targetを再検証し、next revisionとcurrent pointerを一transactionで一度だけ進める | AT-AVR-017, FI-AVR-011 |
+| INV-AVR-015 | Rebind response loss/replay、stale source、concurrent intentをnext revisionへ再解釈せず、historical Bindingをimmutableに保ち、Compute/PCI/Network/Storage/runtime mutationやRecovery authorizationを発行しない | AT-AVR-017, FI-AVR-011 |
 
 ## 12. Workload Resilience Intent
 

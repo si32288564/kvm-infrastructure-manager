@@ -103,7 +103,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | AVR-001, AVR-002, AVR-003, AVR-004 | availability-responsibility-architecture, host-grouping-architecture | ADR-0014, ADR-0015 | INV-AVR-001 | AT-AVR-001, AT-AVR-002, AT-AVR-003, AT-AVR-004 | Implemented (migration 048: immutable typed Policy、PLACEMENT_POOL Binding、responsibility/action DB constraint) |
 | AVR-005 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Implemented (generic many-to-many resolution、NO_ASSIGNMENT/conflict/stale Placement block) |
 | AVR-006 | availability-responsibility-architecture, placement-architecture, domain-model | ADR-0006, ADR-0015 | INV-AVR-002 | AT-AVR-006 | Implemented (Availability-aware Final Admission と VM Binding/claims の atomic commit) |
-| AVR-007 | availability-responsibility-architecture | ADR-0015 | INV-AVR-003 | AT-AVR-007, FI-AVR-002 | Partial (historical binding preservation実装、explicit Rebind authorityは後続) |
+| AVR-007 | availability-responsibility-architecture | ADR-0015 | INV-AVR-003, INV-AVR-014, INV-AVR-015 | AT-AVR-007, AT-AVR-017, FI-AVR-002, FI-AVR-011 | Implemented (migration 049: immutable Request/Decision、exact Policy/source fencing、atomic Binding revision/current switch、stable response-loss replay) |
 | AVR-008 | availability-responsibility-architecture, failure-model | ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-013 | AT-AVR-008, FI-AVR-003 | Planned |
 | AVR-009 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-004, INV-AVR-012 | AT-AVR-009, FI-AVR-004, FI-AVR-010 | Planned |
 | AVR-010 | availability-responsibility-architecture, security | ADR-0015 | INV-AVR-005 | AT-AVR-010, FI-AVR-005 | Planned |

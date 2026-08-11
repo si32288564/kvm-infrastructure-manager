@@ -124,6 +124,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-AVR-008 | recovery候補Hostを異responsibility Policyまたはfailure-domain違反Poolへ変更 | policy/domain incompatibility | candidate ineligible、silent fallback禁止 | bound/current Policy、domain path、reason | 責任変更、constraint無視 | compatible current candidateへfinal admission |
 | FI-AVR-009 | EVACUATE中に一VMをcapacity不足、一VMをUNKNOWN、一VMを成功させる | per-VM outcomes | plan partial/blocked、成功VM維持 | VM Operations/Attempts/reasons | 全体rollback、失敗VM成功扱い | 各VMがverified/blocked/escalated terminalへ収束 |
 | FI-AVR-010 | WORKLOAD_MANAGED Fault/Event sinkを停止する | outbox age/delivery failure | durable retry、responsibility維持 | event/outbox/Policy correlation | INFRA recovery fallback、event loss | sink復旧後同一eventを再送 |
+| FI-AVR-011 | Rebind commit response loss、同一sourceへの並行Rebind、target Policy current switch/retirementを競合させる | request/decision/current pointer outcome ambiguous | same requestは同じDecision/Bindingへ収束、distinct intentはone commit/one stale、exact targetまたはstaleだけ | Request/Decision/Binding digests、source/target revisions、current pointer | rev3 amplification、silent Policy uplift、partial Decision、resource/runtime mutation | current authorityを再読込し必要なら新しい明示Request |
 | FI-WRI-001 | active/standby memberを同時に同rack/feed候補へfinal admission | Domain Claim row conflict | 一方commit、他方rollback/reselection | constraint/member/claim generations | 両方same-domain commit | distinct candidateまたはbounded insufficient-domain failure |
 | FI-WRI-002 | candidate Hostのrackまたはpower evidenceを欠損/staleにする | domain evidence UNKNOWN | candidate ineligible、distinct countへ含めない | hierarchy/evidence generation、reason | unknownを新domain扱い | trusted current domain evidence |
 | FI-WRI-003 | distinct domain不足時にsoft score候補だけを提示 | hard constraint unsatisfied | Placement failure、claimなし | required/available domain summary | hard-to-soft fallback、same-domain commit | domain capacity追加またはexplicit constraint revision |
@@ -293,7 +294,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Agent | FI-AGENT-001..006 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..014 |
 | Host Grouping / Failure Domain | FI-HGR-001..015 |
-| Availability Responsibility / Managed Recovery | FI-AVR-001..010 |
+| Availability Responsibility / Managed Recovery | FI-AVR-001..011 |
 | Workload Resilience Intent | FI-WRI-001..009 |
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |

@@ -126,7 +126,7 @@
 | AVR-004 | AvailabilityPolicyをPLACEMENT_POOLだけからversioned GroupPolicyBindingで参照する | Must |
 | AVR-005 | binding欠損、stale、同priority conflictでHost Effective Availability Policyが一意に解決できないHostをREADY/Placement不適格にする | Must |
 | AVR-006 | Final AdmissionでPolicy/Pool/membership generationをVM/Allocationのimmutable AvailabilityBindingへ保存する | Must |
-| AVR-007 | Group/Policy変更だけで既存VMのAvailabilityBindingを変更せず、明示Rebind Operationと新revisionを要求する | Must |
+| AVR-007 | Group/Policy変更だけで既存VMのAvailabilityBindingを変更せず、exact source Bindingとexact target Policy revision、actor/approval/reasonへbindした明示Rebind Decisionだけが新Binding revisionとcurrent pointerを不可分に進める | Must |
 | AVR-008 | Host failureをfailure epochとして検出、確認、fence、policy decision、recover、verifyの証拠付きstateで管理する | Must |
 | AVR-009 | WORKLOAD_MANAGEDではFault/Eventを通知するがKIMから自動restart、evacuate、replacementを開始しない | Must |
 | AVR-010 | MANUALではauthorized Manual Recovery DecisionまでKIMから自動VM mutationを開始しない | Must |

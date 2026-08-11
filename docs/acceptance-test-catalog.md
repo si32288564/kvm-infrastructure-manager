@@ -125,6 +125,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-AVR-014 | EVACUATE planがVM別status/attempt/capacity failureを保持し、bounded concurrencyで実行する |
 | AT-AVR-015 | destinationのPool Policy compatibilityを含むdry/final admissionを再実行しsilent fallbackしない |
 | AT-AVR-016 | Fault/Recovery Eventがdurable outbox、correlation、policy version、redaction、再送contractを持つ |
+| AT-AVR-017 | explicit Rebind Request/Decisionがexact source Bindingとexact active target Policyを固定し、accepted Decision、next immutable Binding revision、current pointerをatomic commitする。same-ID replayは同じDecision/Bindingへ収束し、stale/concurrent intentはrevisionを増幅せずresource/runtime side effectを起こさない |
 
 ## 7. Workload Resilience Intent
 
