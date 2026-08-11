@@ -431,7 +431,7 @@ func EvaluateUpgradeCanary(ctx context.Context, db TxBeginner, request UpgradeCa
 		}
 		var succeeded, failed, unknown, pending int
 		if err := tx.QueryRow(ctx, `SELECT
-			count(*) FILTER (WHERE current.target_state='SUCCEEDED'),count(*) FILTER (WHERE current.target_state='FAILED'),
+			count(*) FILTER (WHERE current.target_state='SUCCEEDED'),count(*) FILTER (WHERE current.target_state IN ('FAILED','FENCED')),
 			count(*) FILTER (WHERE current.target_state='UNKNOWN'),count(*) FILTER (WHERE current.target_state IN ('PENDING','IN_PROGRESS'))
 			FROM kim.upgrade_targets_current current JOIN kim.upgrade_target_evidence evidence USING(target_id)
 			WHERE evidence.campaign_id=$1 AND evidence.plan_revision=$2 AND evidence.wave_id=$3`,

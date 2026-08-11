@@ -247,6 +247,25 @@ func ObserveUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTar
 				}
 				decision.Action = "APPLY_AUTHORIZED"
 			}
+		case "CONFLICTING":
+			quarantineID := fmt.Sprintf("upgrade-target:%s:conflict:%d:%s", request.TargetID,
+				request.AttemptGeneration, request.ObservedDigest)
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_target_execution_event_evidence(
+				event_id,target_id,attempt_generation,event_type,evidence_digest
+			) VALUES($1,$2,$3,'CONFLICT_QUARANTINED',$4) ON CONFLICT DO NOTHING`, quarantineID,
+				request.TargetID, request.AttemptGeneration, digestReleaseBytes([]byte(quarantineID))); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE kim.upgrade_target_executions_current SET execution_state='FENCED',
+				executor_owner=NULL,attempt_mode=NULL,claim_expires_at=NULL,maximum_expires_at=NULL,
+				updated_at=statement_timestamp() WHERE target_id=$1`, request.TargetID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE kim.upgrade_targets_current SET target_state='FENCED',
+				result_digest=NULL,updated_at=statement_timestamp() WHERE target_id=$1`, request.TargetID); err != nil {
+				return err
+			}
+			decision.Action = "FENCE_CONFLICTING"
 		default:
 			decision.Action = "BLOCKED"
 		}

@@ -160,6 +160,8 @@ Package install response や service restart response は成功 authority では
 
 Package database lock contention、`dpkg` interruption、response loss は package side effect 不在の証明ではありません。executor は同じ Attempt 内で `dpkg` を推測 retry せず、Lease expiry 後の successor だけが `READ_BACK_FIRST` を行います。current package status/version が source のままなら `ABSENT` として current claim から apply でき、unpacked / half-configured 等の不完全 status は `CONFLICTING` として自動 install、restart、rollback を停止します。package database または status を観測できない場合は `UNKNOWN` を維持します。
 
+`CONFLICTING` observation は単なる executor error ではありません。current claim transaction は immutable observation と `CONFLICT_QUARANTINED` event を保存し、Target/execution current projection を `FENCED` へ進めます。canary evaluation は `FENCED` を failure threshold へ算入し、該当 Campaign を `PAUSED` にします。FENCED 後は process restart や Lease expiry から Attempt を増やしません。`dpkg --configure -a`、再 install、downgrade/rollback は、それぞれ事前条件と read-back を持つ別の closed recovery Plan として承認・qualification されるまで発行しません。
+
 複数Feature Gateはversioned DAGとして`requires/conflicts_with/rollback_requires`を持ちます。publish時にcycleを拒否し、activationはtopological order、rollbackは依存closureの逆順で行います。Gate単体の互換性だけで、依存先が未active/rollback不能な状態を許可しません。
 
 FeatureGate rollback も current row を過去値へ戻す操作ではありません。current `ACTIVE / DRAINING` participant が rollback target schemaを理解できることを同じtransactionで再検証し、prior/new schema、schema generation、release authority generationをimmutable transition evidenceへ記録してからcurrent write schemaを進めます。同一 Site PostgreSQL HA failoverでは、このtransitionとdistrust/binding/Attempt evidenceを同期複製し、promotionをDR restoreやrelease authority rollbackとして扱いません。

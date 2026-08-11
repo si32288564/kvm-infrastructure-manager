@@ -1,8 +1,8 @@
 # P1-D03 Debian / systemd Component Upgrade Validation
 
 - Date: 2026-08-11
-- Test Contract: `AT-UPG-034/035`, `FI-UPG-024/025`
-- Invariant: `INV-UPG-027/028`
+- Test Contract: `AT-UPG-034〜036`, `FI-UPG-024〜026`
+- Invariant: `INV-UPG-027〜029`
 - Host: `kvm-base-g01-n001-p.core.s01.si1230.com`
 - Runtime: Ubuntu、systemd 259、standard `dpkg` / `dpkg-query` / `systemctl`、real Target executor transient units
 
@@ -29,6 +29,19 @@ verified v2 .deb digest
 → typed health version / ready / PID / boot ID / process start ticks read-back
 → Target SUCCEEDED
 → Campaign ROLLING / batch-1
+
+verified v3 .deb digest
+→ Target Attempt 1 / APPLY_ALLOWED
+→ dpkg unpack / blocking postinst started
+→ executor control-group SIGKILL
+→ dpkg status = install ok half-configured 3.0.0
+→ Lease expiry / TARGET_UNKNOWN
+→ Target Attempt 2 / READ_BACK_FIRST
+→ typed package status = CONFLICTING
+→ immutable CONFLICT_QUARANTINED evidence
+→ Target / execution = FENCED
+→ Campaign = PAUSED
+→ additional claim rejected
 ```
 
 ## Result
@@ -37,8 +50,8 @@ verified v2 .deb digest
 |---|---|
 | source package/service | `1.0.0 / active` |
 | target package | `2.0.0` |
-| target `.deb` SHA-256 | `390303c1e01a6df01733a3e176a59467e575ec8d5412ecf87f9917bf8ef0f654` |
-| running v2 binary SHA-256 | `49aa1b6fa8353def85d6018bcf7c42bf03f1b78f8bde665b4008e789715e0cfb` |
+| target `.deb` SHA-256 | `04b912fa01c43ffeb287191a7296eb6d7053a4fc30819b10caaa5e41341f3c3b` |
+| running v2 binary SHA-256 | `f8d62131842e1a2e9c95a5ac218404c2a875484e3f727de250d0596aef41c011` |
 | lock-contended Attempt package change | none (`1.0.0` / v2 install count `0`) |
 | Target Attempts | 3 |
 | `TARGET_UNKNOWN` | 2 |
@@ -46,6 +59,13 @@ verified v2 .deb digest
 | v2 package configure count | 1 |
 | accepted Target Result | 1 |
 | final Campaign | `ROLLING / batch-1` |
+| interrupted target `.deb` SHA-256 | `3831caac49bcad11166115ce813305f6ad2289b353dbcbcb2a988d2db88ec8c0` |
+| interrupted dpkg status | `install ok half-configured 3.0.0` |
+| interrupted Target Attempts | 2 (`APPLY_ALLOWED`、`READ_BACK_FIRST`) |
+| interrupted Target result/configure count | `0 / 0` |
+| conflict evidence | `CONFLICTING` observation + `CONFLICT_QUARANTINED` event |
+| terminal authority | Target/execution `FENCED`、Campaign `PAUSED` |
+| additional claim | rejected |
 
 The test detected and corrected an initial fixture hardening defect where `ProtectSystem=strict` made the health path read-only. The qualified unit uses a dedicated `RuntimeDirectory` and matching `ReadWritePaths`; it does not relax the rest of the filesystem sandbox.
 
@@ -66,4 +86,4 @@ make test-p1d03-systemd-package-upgrade
 
 ## Boundary
 
-This qualification proves the closed Debian/systemd Target backend、real package database lock recovery、and post-install Result-loss semantics with an isolated component. It does not yet certify interrupted unpack/configure recovery、production KIM package names、offline bundle installation、Agent self-upgrade、Campaign rollback、or distribution families other than the tested Ubuntu/Debian profile.
+This qualification proves the closed Debian/systemd Target backend、real package database lock recovery、post-install Result-loss semantics、and fail-closed quarantine of interrupted unpack/configure state with an isolated component. It does not authorize automatic `dpkg --configure -a`、reinstall、rollback、or rearm. Production KIM package names、explicit recovery Plan、offline bundle installation、Agent self-upgrade、Campaign rollback、and distribution families other than the tested Ubuntu/Debian profile remain unqualified.

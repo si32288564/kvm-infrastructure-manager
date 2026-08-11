@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -23,7 +24,7 @@ import (
 
 const defaultSystemdQualificationHost = "kvm-base-g01-n001-p.core.s01.si1230.com"
 
-func TestUpgradeTargetSystemdDebianPackageLockContentionKillReadBack(t *testing.T) {
+func TestUpgradeTargetSystemdDebianPackageFaultRecovery(t *testing.T) {
 	if testing.Short() || os.Getenv("KIM_RUN_REMOTE_SYSTEMD_PACKAGE_UPGRADE") != "1" {
 		t.Skip("KIM_RUN_REMOTE_SYSTEMD_PACKAGE_UPGRADE is not enabled")
 	}
@@ -43,13 +44,16 @@ func TestUpgradeTargetSystemdDebianPackageLockContentionKillReadBack(t *testing.
 	executorUnitA := packageName + "-executor-a.service"
 	executorUnitB := packageName + "-executor-b.service"
 	executorUnitC := packageName + "-executor-c.service"
+	executorUnitD := packageName + "-executor-d.service"
+	executorUnitE := packageName + "-executor-e.service"
 	lockUnit := packageName + "-dpkg-lock.service"
-	remoteCleanup := fmt.Sprintf("sudo -n systemctl stop %s %s %s %s %s >/dev/null 2>&1 || true; "+
+	remoteCleanup := fmt.Sprintf("sudo -n systemctl stop %s %s %s %s %s %s %s >/dev/null 2>&1 || true; "+
 		"sudo -n dpkg --purge %s >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload; "+
-		"sudo -n systemctl reset-failed %s %s %s %s >/dev/null 2>&1 || true; "+
+		"sudo -n systemctl reset-failed %s %s %s %s %s %s >/dev/null 2>&1 || true; "+
 		"sudo -n rm -rf %s %s %s", shellSafe(serviceName), shellSafe(executorUnitA), shellSafe(executorUnitB),
-		shellSafe(executorUnitC), shellSafe(lockUnit), shellSafe(packageName), shellSafe(executorUnitA),
-		shellSafe(executorUnitB), shellSafe(executorUnitC), shellSafe(lockUnit), shellSafe(remoteRoot),
+		shellSafe(executorUnitC), shellSafe(executorUnitD), shellSafe(executorUnitE), shellSafe(lockUnit),
+		shellSafe(packageName), shellSafe(executorUnitA), shellSafe(executorUnitB), shellSafe(executorUnitC),
+		shellSafe(executorUnitD), shellSafe(executorUnitE), shellSafe(lockUnit), shellSafe(remoteRoot),
 		shellSafe(filepath.Dir(healthPath)), shellSafe(filepath.Dir(installLog)))
 	t.Cleanup(func() { _, _ = remoteCommand(context.Background(), host, remoteCleanup) })
 	remoteMust(t, ctx, host, "mkdir -p "+shellSafe(remoteRoot))
@@ -63,18 +67,28 @@ func TestUpgradeTargetSystemdDebianPackageLockContentionKillReadBack(t *testing.
 		"./cmd/kim-upgrade-fixture-component", "-X main.version=1.0.0")
 	componentV2 := buildLinuxBinary(t, repositoryRoot, filepath.Join(buildDirectory, "component-v2"),
 		"./cmd/kim-upgrade-fixture-component", "-X main.version=2.0.0")
+	componentV3 := buildLinuxBinary(t, repositoryRoot, filepath.Join(buildDirectory, "component-v3"),
+		"./cmd/kim-upgrade-fixture-component", "-X main.version=3.0.0")
 	executorBinary := buildLinuxBinary(t, repositoryRoot, filepath.Join(buildDirectory, "kim-upgrade-target-executor"),
 		"./cmd/kim-upgrade-target-executor", "")
 	binaryDigestV2 := localFileDigest(t, componentV2)
-	stageV1 := createDebianFixtureStage(t, packageName, serviceName, binaryPath, healthPath, installLog, "1.0.0", componentV1)
-	stageV2 := createDebianFixtureStage(t, packageName, serviceName, binaryPath, healthPath, installLog, "2.0.0", componentV2)
+	binaryDigestV3 := localFileDigest(t, componentV3)
+	interruptMarker := remoteRoot + "/postinst-v3-started"
+	interruptRelease := remoteRoot + "/postinst-v3-release"
+	stageV1 := createDebianFixtureStage(t, packageName, serviceName, binaryPath, healthPath, installLog, "1.0.0", componentV1, "", "")
+	stageV2 := createDebianFixtureStage(t, packageName, serviceName, binaryPath, healthPath, installLog, "2.0.0", componentV2, "", "")
+	stageV3 := createDebianFixtureStage(t, packageName, serviceName, binaryPath, healthPath, installLog, "3.0.0", componentV3,
+		interruptMarker, interruptRelease)
 	remoteCopy(t, ctx, host, stageV1, remoteRoot+"/v1")
 	remoteCopy(t, ctx, host, stageV2, remoteRoot+"/v2")
+	remoteCopy(t, ctx, host, stageV3, remoteRoot+"/v3")
 	remoteCopy(t, ctx, host, executorBinary, remoteRoot+"/kim-upgrade-target-executor")
-	remoteMust(t, ctx, host, fmt.Sprintf("chmod 0755 %s/kim-upgrade-target-executor; dpkg-deb --build %s/v1 %s/v1.deb >/dev/null; dpkg-deb --build %s/v2 %s/v2.deb >/dev/null",
-		shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot)))
+	remoteMust(t, ctx, host, fmt.Sprintf("chmod 0755 %s/kim-upgrade-target-executor; dpkg-deb --build %s/v1 %s/v1.deb >/dev/null; dpkg-deb --build %s/v2 %s/v2.deb >/dev/null; dpkg-deb --build %s/v3 %s/v3.deb >/dev/null",
+		shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot), shellSafe(remoteRoot),
+		shellSafe(remoteRoot), shellSafe(remoteRoot)))
 	packageDigestV1 := strings.Fields(remoteMust(t, ctx, host, "sha256sum "+shellSafe(remoteRoot+"/v1.deb")))[0]
 	packageDigestV2 := strings.Fields(remoteMust(t, ctx, host, "sha256sum "+shellSafe(remoteRoot+"/v2.deb")))[0]
+	packageDigestV3 := strings.Fields(remoteMust(t, ctx, host, "sha256sum "+shellSafe(remoteRoot+"/v3.deb")))[0]
 
 	profile := targetexecutor.SystemdPackageProfile{SchemaVersion: "kim.upgrade.systemd-package-profile/v1",
 		ComponentType: "CONTROL_WORKER", ComponentID: packageName,
@@ -82,6 +96,8 @@ func TestUpgradeTargetSystemdDebianPackageLockContentionKillReadBack(t *testing.
 		HealthSchema: "kim.upgrade.fixture-health/v1",
 		Artifacts: map[string]targetexecutor.SystemdPackageArtifact{packageDigestV2: {
 			PackagePath: remoteRoot + "/v2.deb", PackageVersion: "2.0.0", BinaryDigest: binaryDigestV2,
+		}, packageDigestV3: {
+			PackagePath: remoteRoot + "/v3.deb", PackageVersion: "3.0.0", BinaryDigest: binaryDigestV3,
 		}},
 	}
 	profileRaw, err := json.Marshal(profile)
@@ -230,8 +246,103 @@ func TestUpgradeTargetSystemdDebianPackageLockContentionKillReadBack(t *testing.
 		t.Fatalf("attempts=%d readback=%d unknown=%d apply=%d results=%d installs=%d process=%s campaign=%s/%s",
 			attempts, readBackAttempts, unknownEvents, applyEvents, results, installEntries, processDigest, campaignState, waveID)
 	}
+
+	publishRollingManifest(t, ctx, pool, "kim-systemd-interrupted", "3.0.0", packageDigestV3, []string{postgres.OVNRuntimeWorkSchemaV1})
+	interruptedTarget := postgres.UpgradeTargetPlan{TargetID: "systemd-package-interrupted-" + nonce, WaveID: "canary",
+		ComponentType: "CONTROL_WORKER", ComponentID: packageName, TargetReleaseID: "kim-systemd-interrupted",
+		TargetManifestRevision: 1, TargetArtifactDigest: packageDigestV3}
+	interruptedBatch := postgres.UpgradeTargetPlan{TargetID: "systemd-package-interrupted-batch-" + nonce, WaveID: "batch-1",
+		ComponentType: "HOST_AGENT", ComponentID: "deferred-interrupted-agent-" + nonce,
+		TargetReleaseID: "kim-systemd-interrupted", TargetManifestRevision: 1, TargetArtifactDigest: packageDigestV3}
+	interruptedPlan := campaignPlan("systemd-package-interrupted-campaign-"+nonce, packageDigestV3, 0,
+		[]postgres.UpgradeTargetPlan{interruptedTarget, interruptedBatch})
+	interruptedPlan.SourceReleaseID = "kim-systemd-target"
+	interruptedPlan.TargetReleaseID = "kim-systemd-interrupted"
+	if _, err := postgres.PublishUpgradeCampaignPlan(ctx, pool, interruptedPlan); err != nil {
+		t.Fatal(err)
+	}
+	interruptedCoordinator := startProcess(t, coordinatorBinary, coordinatorArguments(databaseURL, interruptedPlan.CampaignID,
+		"systemd-interrupted-coordinator", digest("systemd-interrupted-evaluator"), "5s", "1m", "1s")...)
+	interruptedCoordinator.start(t)
+	defer interruptedCoordinator.stop()
+	eventually(t, 15*time.Second, func() bool {
+		var generation int
+		return pool.QueryRow(ctx, `SELECT coordinator_claim_generation FROM kim.upgrade_campaigns_current
+			WHERE campaign_id=$1 AND coordinator_owner='systemd-interrupted-coordinator'`, interruptedPlan.CampaignID).Scan(&generation) == nil && generation == 1
+	}, "Coordinator did not claim interrupted package Campaign")
+
+	startRemoteTargetExecutor(t, ctx, host, executorUnitD, remoteRoot+"/kim-upgrade-target-executor",
+		remoteDatabaseURL, interruptedPlan.CampaignID, interruptedTarget.TargetID, "systemd-target-d",
+		remoteRoot+"/profile.json", "0s")
+	eventuallyRemote(t, ctx, host, 20*time.Second, func(output string) bool { return strings.Contains(output, "postinst-started") },
+		"cat "+shellSafe(interruptMarker), "v3 postinst did not enter the interruption gate")
+	eventually(t, 10*time.Second, func() bool {
+		var attempt, renewals int
+		return pool.QueryRow(ctx, `SELECT attempt_generation FROM kim.upgrade_target_executions_current WHERE target_id=$1`,
+			interruptedTarget.TargetID).Scan(&attempt) == nil && attempt == 1 &&
+			pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_renewal_evidence WHERE target_id=$1`,
+				interruptedTarget.TargetID).Scan(&renewals) == nil && renewals > 0
+	}, "interrupted package Target did not retain Attempt 1 authority")
+	remoteMust(t, ctx, host, "sudo -n systemctl kill --kill-whom=all --signal=SIGKILL "+shellSafe(executorUnitD))
+	var interruptedPackageStatus string
+	eventuallyRemote(t, ctx, host, 10*time.Second, func(output string) bool {
+		interruptedPackageStatus = strings.TrimSpace(output)
+		return strings.Contains(interruptedPackageStatus, "half-configured") && strings.Contains(interruptedPackageStatus, "3.0.0")
+	}, fmt.Sprintf("dpkg-query -W -f='${Status} ${Version}' %s", shellSafe(packageName)),
+		"interrupted package did not enter half-configured state")
+
+	startRemoteTargetExecutor(t, ctx, host, executorUnitE, remoteRoot+"/kim-upgrade-target-executor",
+		remoteDatabaseURL, interruptedPlan.CampaignID, interruptedTarget.TargetID, "systemd-target-e",
+		remoteRoot+"/profile.json", "0s")
+	eventually(t, 20*time.Second, func() bool {
+		var targetState, executionState string
+		return pool.QueryRow(ctx, `SELECT target.target_state,execution.execution_state
+			FROM kim.upgrade_targets_current target JOIN kim.upgrade_target_executions_current execution USING(target_id)
+			WHERE target.target_id=$1`, interruptedTarget.TargetID).Scan(&targetState, &executionState) == nil &&
+			targetState == "FENCED" && executionState == "FENCED"
+	}, "conflicting package observation did not fence Target authority")
+	eventually(t, 20*time.Second, func() bool {
+		var state string
+		return pool.QueryRow(ctx, `SELECT campaign_state FROM kim.upgrade_campaigns_current WHERE campaign_id=$1`,
+			interruptedPlan.CampaignID).Scan(&state) == nil && state == "PAUSED"
+	}, "FENCED package Target did not pause the Campaign")
+	if _, err := postgres.ClaimUpgradeTarget(ctx, pool, postgres.UpgradeTargetClaimRequest{
+		CampaignID: interruptedPlan.CampaignID, TargetID: interruptedTarget.TargetID, Owner: "forbidden-retry",
+		Lease: 2 * time.Second, MaximumLifetime: 5 * time.Second,
+	}); !errors.Is(err, postgres.ErrUpgradeTargetClaimUnavailable) {
+		t.Fatalf("FENCED package Target was reclaimable: %v", err)
+	}
+	var interruptedAttempts, interruptedReadBack, interruptedUnknown, interruptedApply, interruptedQuarantine, interruptedResults int
+	if err := pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE attempt_mode='READ_BACK_FIRST')
+		FROM kim.upgrade_target_attempt_evidence WHERE target_id=$1`, interruptedTarget.TargetID).Scan(
+		&interruptedAttempts, &interruptedReadBack); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE event_type='TARGET_UNKNOWN'),
+		count(*) FILTER (WHERE event_type='APPLY_AUTHORIZED'),count(*) FILTER (WHERE event_type='CONFLICT_QUARANTINED')
+		FROM kim.upgrade_target_execution_event_evidence WHERE target_id=$1`, interruptedTarget.TargetID).Scan(
+		&interruptedUnknown, &interruptedApply, &interruptedQuarantine); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.upgrade_target_result_evidence WHERE target_id=$1`,
+		interruptedTarget.TargetID).Scan(&interruptedResults); err != nil {
+		t.Fatal(err)
+	}
+	v3InstallEntries, err := strconv.Atoi(strings.TrimSpace(remoteMust(t, ctx, host,
+		fmt.Sprintf("sudo -n awk '$1==\"3.0.0\"{count++} END{print count+0}' %s", shellSafe(installLog)))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interruptedAttempts != 2 || interruptedReadBack != 1 || interruptedUnknown != 1 || interruptedApply != 1 ||
+		interruptedQuarantine != 1 || interruptedResults != 0 || v3InstallEntries != 0 {
+		t.Fatalf("interrupted attempts=%d readback=%d unknown=%d apply=%d quarantine=%d results=%d installs=%d status=%s",
+			interruptedAttempts, interruptedReadBack, interruptedUnknown, interruptedApply, interruptedQuarantine,
+			interruptedResults, v3InstallEntries, interruptedPackageStatus)
+	}
 	t.Logf("systemd package recovery converged: package=%s digest=%s attempts=%d unknown=%d installs=%d process=%s campaign=%s/%s",
 		packageName, packageDigestV2, attempts, unknownEvents, installEntries, processDigest, campaignState, waveID)
+	t.Logf("interrupted package fenced: digest=%s status=%s attempts=%d quarantine=%d campaign=PAUSED",
+		packageDigestV3, interruptedPackageStatus, interruptedAttempts, interruptedQuarantine)
 }
 
 func buildLinuxBinary(t *testing.T, root, output, target, ldflags string) string {
@@ -250,7 +361,8 @@ func buildLinuxBinary(t *testing.T, root, output, target, ldflags string) string
 	return output
 }
 
-func createDebianFixtureStage(t *testing.T, packageName, serviceName, binaryPath, healthPath, installLog, version, binary string) string {
+func createDebianFixtureStage(t *testing.T, packageName, serviceName, binaryPath, healthPath, installLog, version, binary,
+	postinstGate, postinstRelease string) string {
 	t.Helper()
 	stage := filepath.Join(t.TempDir(), "package")
 	if err := os.MkdirAll(filepath.Join(stage, "DEBIAN"), 0o755); err != nil {
@@ -283,7 +395,12 @@ LockPersonality=true
 [Install]
 WantedBy=multi-user.target
 `, binaryPath, healthPath, packageName, packageName)
-	postinst := fmt.Sprintf("#!/bin/sh\nset -eu\ninstall -d -m 0755 %s\nprintf '%%s\\n' '%s' >> %s\n", filepath.Dir(installLog), version, installLog)
+	postinst := fmt.Sprintf("#!/bin/sh\nset -eu\ninstall -d -m 0755 %s\n", filepath.Dir(installLog))
+	if postinstGate != "" {
+		postinst += fmt.Sprintf("printf 'postinst-started\\n' > %s\nwhile [ ! -e %s ]; do sleep 0.1; done\n",
+			postinstGate, postinstRelease)
+	}
+	postinst += fmt.Sprintf("printf '%%s\\n' '%s' >> %s\n", version, installLog)
 	if err := os.WriteFile(filepath.Join(stage, "DEBIAN/control"), []byte(control), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -430,6 +430,7 @@
 | UPG-027 | 複数Feature Gateをrequires/conflicts/rollback dependencyのacyclic graphとして管理し順序付きactivation/rollbackを行う | Must |
 | UPG-028 | KIM-owned component package replacement は Target component identity、verified package digest、administrator-owned closed backend profile に bind し、package version、service state、configured executable path、running binary digest、typed health schema/process identity の current read-back が一致した場合だけ Target を成功へ進める | Must |
 | UPG-029 | package database lock contention、package manager interruption、または package operation response loss を「未適用」の証明にせず、prior Attempt を `UNKNOWN`、successor を `READ_BACK_FIRST` として current package status/evidence から再評価する | Must |
+| UPG-030 | unpacked / half-configured / triggers-pending 等の不完全 package status を `CONFLICTING` evidence として Target authority を terminal `FENCED` にし、明示 recovery plan なしの再 install、configure、restart、rollback、再 claim を禁止する | Must |
 
 ### 2.18 Time and Clock Semantics
 
