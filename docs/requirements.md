@@ -109,6 +109,7 @@
 | HGR-019 | Group Membership Snapshotをlive membership rowではなくaccepted membership set generationとcanonical digestへbindし、後続set変更から不変に保つ | Must |
 | HGR-020 | cardinality policyをgroup type、dimension、level、scopeのversioned authorityとして管理し、complete set publishを同scopeのsibling HostGroups全体でtransactionally直列化・検証する | Must |
 | HGR-021 | closed typed Selectorをversioned authorityとして管理し、current normalized Host evidenceからimmutable proposal evidenceを作成後、current Selector/input/Cardinality/Hierarchy/HostGroup generationを再検証したcomplete Membership Setだけをatomic materializeする | Must |
+| HGR-022 | HostGroup対象Upgradeをpurpose=UPGRADEのimmutable Membership Snapshotへbindし、Plan/Wave/TargetをSnapshot member evidenceから生成してlive membership変更・Coordinator recovery・Campaign resumeでtarget setを再生成しない | Must |
 
 ### 2.5 Availability Responsibility and Managed Recovery
 
@@ -436,6 +437,7 @@
 | UPG-029 | package database lock contention、package manager interruption、または package operation response loss を「未適用」の証明にせず、prior Attempt を `UNKNOWN`、successor を `READ_BACK_FIRST` として current package status/evidence から再評価する | Must |
 | UPG-030 | unpacked / half-configured / triggers-pending 等の不完全 package status を `CONFLICTING` evidence として Target authority を terminal `FENCED` にし、明示 recovery plan なしの再 install、configure、restart、rollback、再 claim を禁止する | Must |
 | UPG-031 | quarantined package の recovery を通常 Upgrade Attempt と分離した immutable Plan、明示 authorization、closed strategy、Recovery Attempt/Lease、typed read-back、Verification、明示 rearm で実行する。`CONFIGURE_EXISTING` は固定 package identity だけを configure し、汎用 `dpkg --configure -a`、任意 package/argv、reinstall、downgrade、rollback を含めない | Must |
+| UPG-032 | HostGroup-targeted Plan revisionをexact immutable UPGRADE Snapshot identity/digestへbindし、TargetからWave/Plan/Snapshot/Membership Set/member evidenceまで監査可能にする。Host eligibility driftはTarget evidenceを削除せずexecutionをfail closedにする | Must |
 
 ### 2.18 Time and Clock Semantics
 

@@ -98,6 +98,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-018 | SYSTEM scopeのcardinality policy evidence/currentをgeneration付きで管理し、parallel sibling publishで同一Hostをexclusive Groupへ割り当てる競合は一件だけcommitし、policy更新後はset再publishまでsnapshot/Placementをfail closedにする |
 | AT-HGR-019 | 同一type/dimensionのcomplete hierarchyをordered level、generation-bound node、single-parent relationとしてatomic publishし、cycle/level inversion/multi-parent/parallel stale publisherを拒否する。membership set、snapshot、Placement dry/finalはcurrent accepted hierarchy generationへbindする |
 | AT-HGR-020 | versioned closed typed Selectorをcurrent normalized Host evidenceへpure評価し、MATCHED/NOT_MATCHED/UNKNOWN/UNSUPPORTEDをimmutable evidence化する。materializationはinput/Selector/Cardinality/Hierarchy/HostGroup generationを再検証してcomplete Setをatomic publishし、semantic replayは一authorityへ収束する |
+| AT-HGR-021 | A/B/Cのaccepted Membership SetからUPGRADE Snapshotを作成しPlan/Wave/Targetへbindする。live SetをA/C/Dへ変更後もactive TargetをA/B/Cに保ち、Snapshot/Set raceはcomplete一世代だけを記録する |
 
 ## 6. Availability Responsibility and Recovery
 
@@ -402,6 +403,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-UPG-035 | 実 Ubuntu KVM Host で dpkg database lock を別 process が保持中に Target Attempt 1 を実行し、package/version/install evidence が不変であることを確認する。Lease expiry 後の Attempt 2 `READ_BACK_FIRST` だけが `ABSENT` を確認して verified package を 1 回 install し、Result loss 後の Attempt 3 も read-back だけで `SUCCEEDED` へ収束する |
 | AT-UPG-036 | 実 Ubuntu KVM Host の isolated package v3 `postinst` 開始後に executor control group を SIGKILL し、dpkg status が `half-configured` となることを確認する。Lease expiry 後の Attempt 2 は `READ_BACK_FIRST → CONFLICTING` として Target/execution を `FENCED`、Campaign を `PAUSED` にし、Result、configure 完了、automatic retry、Attempt 3 を生成しない |
 | AT-UPG-037 | `FENCED` package Target に immutable `CONFIGURE_EXISTING` Recovery Plan と authorization を作成し、Recovery Attempt 1 の `READ_BACK_FIRST` が同じ package の `PACKAGE_HALF_CONFIGURED` を確認した場合だけ closed `dpkg --configure <fixed-package>` を実行する。package/service/process/health read-back の `MATCHED` 後に Recovery を `VERIFIED` とするが Target/execution は `FENCED` のまま維持し、別 rearm authorization 後だけ `PENDING` へ戻す。Plan、Result、rearm response-loss replay は同じ evidence へ収束し、Campaign は明示 resume まで `PAUSED` を維持する |
+| AT-UPG-038 | HostGroup UPGRADE Snapshot-bound PlanをpublishしTargetからWave/Plan/Snapshot/Set/member provenanceを復元する。Coordinator recoveryとPAUSE/resume中のlive membership driftで同じTargetsを維持し、異Snapshot Plan raceは一方だけcomplete authorityとなり、FENCED Host executionを拒否する |
 | AT-OFFLINE-001 | network非接続環境で署名済みbundleからinstall/upgradeできる |
 | AT-DEPLOY-001 | Control Plane の署名済み containerized artifact を manifest と support profile に従って導入できる |
 | AT-DEPLOY-002 | Kubernetes を使用しない supported deployment でも同一 Control Plane binary、schema、authority semantics を維持する |

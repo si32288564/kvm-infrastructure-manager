@@ -28,12 +28,19 @@ type UpgradeTargetPlan struct {
 	TargetManifestRevision                                                              uint64
 }
 
+type UpgradeHostGroupSnapshotPlan struct {
+	SnapshotID, SnapshotDigest, WaveID, ComponentType string
+	TargetReleaseID, TargetArtifactDigest             string
+	TargetManifestRevision                            uint64
+}
+
 type UpgradeCampaignPlanRequest struct {
 	CampaignID, SourceReleaseID, TargetReleaseID, Strategy, SBOMSnapshotDigest string
 	PlanRevision, SourceManifestRevision, TargetManifestRevision               uint64
 	ComponentGraph, ProvenanceSnapshot                                         json.RawMessage
 	Waves                                                                      []UpgradeWavePlan
 	Targets                                                                    []UpgradeTargetPlan
+	HostGroupSnapshots                                                         []UpgradeHostGroupSnapshotPlan
 }
 
 type UpgradeCampaignPlan struct {
@@ -81,7 +88,8 @@ type UpgradeCanaryDecision struct {
 func PublishUpgradeCampaignPlan(ctx context.Context, db TxBeginner, request UpgradeCampaignPlanRequest) (UpgradeCampaignPlan, error) {
 	if request.CampaignID == "" || request.PlanRevision == 0 || request.SourceReleaseID == "" ||
 		request.SourceManifestRevision == 0 || request.TargetReleaseID == "" || request.TargetManifestRevision == 0 ||
-		request.Strategy != "CANARY_ROLLING" || !validDigest(request.SBOMSnapshotDigest) || len(request.Waves) == 0 || len(request.Targets) == 0 {
+		request.Strategy != "CANARY_ROLLING" || !validDigest(request.SBOMSnapshotDigest) || len(request.Waves) == 0 ||
+		(len(request.Targets) == 0 && len(request.HostGroupSnapshots) == 0) {
 		return UpgradeCampaignPlan{}, errors.New("complete immutable upgrade campaign plan is required")
 	}
 	componentGraph, componentGraphDigest, err := canonicalJSONObject(request.ComponentGraph)
@@ -100,9 +108,14 @@ func PublishUpgradeCampaignPlan(ctx context.Context, db TxBeginner, request Upgr
 	if err != nil {
 		return UpgradeCampaignPlan{}, fmt.Errorf("provenance snapshot: %w", err)
 	}
+	snapshotBindings, snapshotTargets, targetProvenance, err := loadUpgradeHostGroupSnapshotTargets(ctx, db, request)
+	if err != nil {
+		return UpgradeCampaignPlan{}, err
+	}
 	waves := append([]UpgradeWavePlan(nil), request.Waves...)
 	slices.SortFunc(waves, func(a, b UpgradeWavePlan) int { return a.WaveOrdinal - b.WaveOrdinal })
 	targets := append([]UpgradeTargetPlan(nil), request.Targets...)
+	targets = append(targets, snapshotTargets...)
 	slices.SortFunc(targets, func(a, b UpgradeTargetPlan) int {
 		if a.TargetID < b.TargetID {
 			return -1
@@ -163,13 +176,17 @@ func PublishUpgradeCampaignPlan(ctx context.Context, db TxBeginner, request Upgr
 		"target_release_id": request.TargetReleaseID, "target_manifest_revision": request.TargetManifestRevision,
 		"strategy": request.Strategy, "component_graph_digest": componentGraphDigest,
 		"provenance_snapshot_digest": provenanceDigest, "sbom_snapshot_digest": request.SBOMSnapshotDigest,
-		"waves": waves, "targets": targets}
+		"waves": waves, "targets": targets, "host_group_snapshots": snapshotBindings}
 	planRaw, _ := json.Marshal(planInput)
 	plan := UpgradeCampaignPlan{CampaignID: request.CampaignID, PlanRevision: request.PlanRevision,
 		PlanDigest: digestReleaseBytes(planRaw), ComponentGraphDigest: componentGraphDigest,
 		ProvenanceSnapshotDigest: provenanceDigest}
 	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
+			"upgrade-campaign-plan/"+request.CampaignID); err != nil {
 			return err
 		}
 		var releasesValid bool
@@ -211,6 +228,18 @@ func PublishUpgradeCampaignPlan(ctx context.Context, db TxBeginner, request Upgr
 				return err
 			}
 		}
+		for _, binding := range snapshotBindings {
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_plan_host_group_snapshot_evidence(
+				campaign_id,plan_revision,wave_id,source_snapshot_id,source_snapshot_digest,
+				source_host_group_id,source_membership_set_generation,component_type,target_release_id,
+				target_manifest_revision,target_artifact_digest,binding_digest
+			) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, request.CampaignID, request.PlanRevision,
+				binding.WaveID, binding.SnapshotID, binding.SnapshotDigest, binding.HostGroupID,
+				binding.MembershipSetGeneration, binding.ComponentType, binding.TargetReleaseID,
+				binding.TargetManifestRevision, binding.TargetArtifactDigest, binding.BindingDigest); err != nil {
+				return err
+			}
+		}
 		for _, target := range targets {
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_target_evidence(
 				target_id,campaign_id,plan_revision,wave_id,component_type,component_id,target_release_id,
@@ -226,6 +255,19 @@ func PublishUpgradeCampaignPlan(ctx context.Context, db TxBeginner, request Upgr
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_target_executions_current(target_id,execution_state)
 				VALUES($1,'PENDING')`, target.TargetID); err != nil {
 				return err
+			}
+			if provenance, ok := targetProvenance[target.TargetID]; ok {
+				if _, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_target_host_group_member_evidence(
+					target_id,campaign_id,plan_revision,wave_id,source_snapshot_id,source_snapshot_digest,
+					source_host_group_id,source_membership_set_generation,host_id,membership_generation,
+					membership_evidence_digest,provenance_digest
+				) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, target.TargetID, request.CampaignID,
+					request.PlanRevision, target.WaveID, provenance.SnapshotID, provenance.SnapshotDigest,
+					provenance.HostGroupID, provenance.MembershipSetGeneration, provenance.HostID,
+					provenance.MembershipGeneration, provenance.MembershipEvidenceDigest,
+					provenance.ProvenanceDigest); err != nil {
+					return err
+				}
 			}
 		}
 		command, err := tx.Exec(ctx, `INSERT INTO kim.upgrade_campaigns_current(

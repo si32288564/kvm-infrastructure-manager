@@ -56,6 +56,7 @@ func ClaimUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTarge
 		return UpgradeTargetClaim{}, ErrUpgradeTargetClaimUnavailable
 	}
 	var claim UpgradeTargetClaim
+	claimUnavailable := false
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
@@ -95,6 +96,30 @@ func ClaimUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTarge
 		}
 		if priorOwner != nil && priorExpiry != nil && priorExpiry.After(now) {
 			return ErrUpgradeTargetClaimUnavailable
+		}
+		var snapshotBound bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.upgrade_target_host_group_member_evidence
+			WHERE target_id=$1)`, request.TargetID).Scan(&snapshotBound); err != nil {
+			return err
+		}
+		if snapshotBound {
+			var eligible bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_operation_authorities_current
+				WHERE host_id=$1 AND authority_state='ARMED')`, componentID).Scan(&eligible); err != nil {
+				return err
+			}
+			if !eligible {
+				if _, err := tx.Exec(ctx, `UPDATE kim.upgrade_targets_current SET target_state='FENCED',
+					updated_at=statement_timestamp() WHERE target_id=$1`, request.TargetID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `UPDATE kim.upgrade_target_executions_current SET execution_state='FENCED',
+					updated_at=statement_timestamp() WHERE target_id=$1`, request.TargetID); err != nil {
+					return err
+				}
+				claimUnavailable = true
+				return nil
+			}
 		}
 		generation := priorAttempt + 1
 		mode := "APPLY_ALLOWED"
@@ -142,6 +167,9 @@ func ClaimUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTarge
 			ExpiresAt: expires, MaximumExpiresAt: maximum}
 		return nil
 	})
+	if err == nil && claimUnavailable {
+		return UpgradeTargetClaim{}, ErrUpgradeTargetClaimUnavailable
+	}
 	return claim, err
 }
 

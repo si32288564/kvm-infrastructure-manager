@@ -284,6 +284,7 @@
 | INV-HGR-017 | EXACTLY_ONE/ZERO_OR_ONE/MANYは単一Group内member数ではなく同一type/dimension/level/scopeのACTIVE sibling sets全体に対するHost別制約として、shared scope lock下で検証し、policy generation不一致setをauthorityへ進めない | AT-HGR-018, FI-HGR-011 |
 | INV-HGR-018 | hierarchyは同一type/dimension/scopeのcomplete accepted graphとしてimmutable evidenceを作成後にcurrent pointerをatomic switchし、current graphの全node generationとlevelがcurrent HostGroup authorityに一致しない限りmembership set、snapshot、Placement authorityを進めない | AT-HGR-019, FI-HGR-012 |
 | INV-HGR-019 | selector match/evaluationはmembership authorityではなく、UNKNOWNをNOT_MATCHEDへ縮退させず、current selector/input/cardinality/hierarchy/HostGroup generationへ再bindしたaccepted complete Membership Setだけがcurrent membershipを進める | AT-HGR-020, FI-HGR-013 |
+| INV-HGR-020 | HostGroup-targeted Upgrade Planはcurrent SetやSelectorを直接評価せず、exact immutable UPGRADE Snapshotとmember evidenceからTargetを一度だけ生成する。live membership drift、Coordinator recovery、PAUSE/RESUMEは既存Plan/Snapshot/Targetを変更しない | AT-HGR-021, FI-HGR-014 |
 
 ## 11. Availability Responsibility and Recovery
 
@@ -406,6 +407,7 @@
 | INV-UPG-028 | `dpkg` lock contention、process interruption、または response loss は package side effect 不在を意味しない。current Attempt は失敗応答から反対操作や別 artifact install を開始せず、Lease expiry 後の successor だけが `READ_BACK_FIRST` で status/version/process/health を観測する。`ABSENT` に限り current claim から apply でき、不完全 package status は `CONFLICTING`、観測不能は `UNKNOWN` として fail closed にする | AT-UPG-035, FI-UPG-025 |
 | INV-UPG-029 | current Target claim から受理した `CONFLICTING` observation は immutable evidence / `CONFLICT_QUARANTINED` event を追記し、Target と execution を同一 transaction で `FENCED` にする。FENCED Target を failure threshold へ算入して Campaign を fail closed にし、process restart、Lease expiry、同じ Plan の successor executor だけでは rearm または再 claim できない | AT-UPG-036, FI-UPG-026 |
 | INV-UPG-030 | package recovery は通常 Target Attempt と別の immutable Recovery Plan / generation / Attempt / Lease / Result authority を持つ。`CONFIGURE_EXISTING` は `PACKAGE_HALF_CONFIGURED` の current read-back と明示 authorization が揃う場合だけ固定 package identity へ発行し、Recovery `VERIFIED` だけでは Target または Campaign を rearm/resume しない。別の immutable rearm authorization transaction だけが Target を `PENDING` へ戻し、Campaign は `PAUSED` のまま維持する | AT-UPG-037, FI-UPG-027 |
+| INV-UPG-031 | HostGroup Snapshot binding、Wave、derived Target、current Campaign switchを一transactionでpublishしsemantic replayは同じevidenceへ収束する。Snapshot member Hostのcurrent mutation authorityが失効してもTarget identityを消さずTarget executionをFENCEDにする | AT-UPG-038, FI-UPG-028 |
 
 ## 18. Time and Clock Semantics
 
