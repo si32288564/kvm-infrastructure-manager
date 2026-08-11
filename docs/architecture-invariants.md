@@ -324,6 +324,10 @@
 | INV-AVR-027 | Recovery Eligibility Evaluationはexact historical Epoch/Binding/Policy/responsibility/action、proof usability、budget snapshot、source除外済みdestination snapshotを固定するpure evidenceであり、ELIGIBLEでもDecision、Budget Claim、Placement/resource claim、Job/Command/Lease、runtime mutationを生成しない | AT-AVR-021, FI-AVR-015 |
 | INV-AVR-028 | accepted Recovery Eligibility Decisionだけがexact Evaluation/Proof/budget/destination snapshotを再検証し、GLOBAL/PLANNING Budget Claimとatomic commitする。max=1の並行Decisionは一件だけを許し、response-loss/same-ID replayは同じDecision/Claimへ収束し、one Epochへ複数permissionを発行しない | AT-AVR-021, FI-AVR-015 |
 | INV-AVR-029 | WORKLOAD_MANAGED/MANUAL/未対応action、proof MISSING/STALE/UNKNOWN、typed budget欠損/失効/枯渇、source Hostだけ、destination Policy/Scope/resource driftをautomatic Recovery permissionへ縮退させない。Eligibility Decision/Budget ClaimはRecovery Operationまたはdestination reservationではなく、future Operationはcurrent usabilityを再検証する | AT-AVR-021, FI-AVR-015 |
+| INV-AVR-030 | Recovery Operation Requestはexplicit intentに限定し、Request/PlanだけではBudget consume、Placement/resource claim、Job/Command/Lease、backend mutationを生成しない。one Eligibility Decision/Epochは高々one immutable Operation/Planへbindする | AT-AVR-022, FI-AVR-016 |
+| INV-AVR-031 | Operation startはexact Epoch/Decision/Claim/historical Binding/Policy/actionとcurrent-usable Fencing/Storage Proof、fixed destination Planを再検証する。Host re-arm、Storage Claim ABA、Budget state drift、destination readiness/Scope/Policy drift時はBudget/Admission/Executionを一切commitしない | AT-AVR-022, FI-AVR-016 |
+| INV-AVR-032 | RESTART_ON_OTHER_HOST startだけがsource compute accounting release、existing Final Admission、Budget RESERVED→CONSUMED、closed typed destination-preparation Command、RUNNING transitionをone transactionでcommitする。selected destinationをsilent substituteせず、CONSUMEDはactive storm countへ残す | AT-AVR-022, FI-AVR-016 |
+| INV-AVR-033 | RUNNING、Lease expiry、Command success、preparation marker MATCHEDのいずれもRecovery VERIFIEDではない。ambiguous executionはUNKNOWNを保持しread-back後もVERIFYINGへ進むだけで、dangerous-stepはcurrent Fencing/Storage/Budget/Admissionを再評価する | AT-AVR-022, FI-AVR-016 |
 
 ## 12. Workload Resilience Intent
 

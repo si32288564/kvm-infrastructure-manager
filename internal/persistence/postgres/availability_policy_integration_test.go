@@ -920,7 +920,7 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if err := pool.QueryRow(ctx, `SELECT binding_revision,binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&safetySourceRevision, &safetySourceDigest); err != nil {
 		t.Fatal(err)
 	}
-	safetyAvailability := availabilityPolicyFixture("safety-availability-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "EVACUATE", "ACTIVE")
+	safetyAvailability := availabilityPolicyFixture("safety-availability-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "RESTART_ON_OTHER_HOST", "ACTIVE")
 	safetyAvailability.FailureConfirmationPolicyID, safetyAvailability.FailureConfirmationPolicyRevision, safetyAvailability.FailureConfirmationPolicyDigest = confirmationPolicy.PolicyID, 1, confirmationPolicy.PolicyDigest
 	safetyAvailability.FencingPolicyID, safetyAvailability.FencingPolicyRevision, safetyAvailability.FencingPolicyDigest = fencingPolicy.PolicyID, 1, fencingPolicy.PolicyDigest
 	safetyAvailability.StorageSafetyPolicyID, safetyAvailability.StorageSafetyPolicyRevision, safetyAvailability.StorageSafetyPolicyDigest = storageSafetyPolicy.PolicyID, 1, storageSafetyPolicy.PolicyDigest
@@ -1320,10 +1320,150 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 		t.Fatalf("Recovery permission atomicity decisions=%d claims=%d active=%d runtime/resource side effects=%d", decisions, budgetClaims, activeBudgetClaims, recoverySideEffects)
 	}
 
-	var recoveryAuthorityCount int
-	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.execution_jobs WHERE created_at>(SELECT recorded_at FROM kim.failure_fencing_proof_evidence WHERE proof_id=$1)) + (SELECT count(*) FROM kim.compute_allocation_claims WHERE created_at>(SELECT recorded_at FROM kim.failure_fencing_proof_evidence WHERE proof_id=$1))`, fencingProof.ProofID).Scan(&recoveryAuthorityCount); err != nil || recoveryAuthorityCount != 0 {
-		t.Fatalf("Safety proofs created Recovery/runtime authority count=%d err=%v", recoveryAuthorityCount, err)
+	// Recovery Request and immutable Plan remain separate from start authority.
+	// Planning fixes one exact destination but creates no Admission, Job, Command,
+	// or Budget consumption. The selected Host is never silently substituted.
+	recoveryOperationID := "recovery-operation-" + suffix
+	recoveryPlanID := "recovery-plan-" + suffix
+	recoveryRequest, err := RecordRecoveryOperationRequest(ctx, pool, recoveryOperationID, winnerDecision.DecisionID, winnerDecision.BudgetClaimID, "RESTART_ON_OTHER_HOST", "recovery-operator")
+	if err != nil {
+		t.Fatal(err)
 	}
+	if replay, err := RecordRecoveryOperationRequest(ctx, pool, recoveryOperationID, winnerDecision.DecisionID, winnerDecision.BudgetClaimID, "RESTART_ON_OTHER_HOST", "recovery-operator"); err != nil || replay.RequestDigest != recoveryRequest.RequestDigest {
+		t.Fatalf("Recovery Operation Request replay=%+v err=%v", replay, err)
+	}
+	recoveryOperation, recoveryPlan, err := PlanRecoveryOperation(ctx, pool, recoveryOperationID, recoveryPlanID, destinationHost)
+	if err != nil || recoveryOperation.LifecycleState != "PLANNED" || recoveryPlan.DestinationHostID != destinationHost || recoveryPlan.RecoveryAction != "RESTART_ON_OTHER_HOST" {
+		t.Fatalf("Recovery Plan operation=%+v plan=%+v err=%v", recoveryOperation, recoveryPlan, err)
+	}
+	if replayOperation, replayPlan, err := PlanRecoveryOperation(ctx, pool, recoveryOperationID, recoveryPlanID, destinationHost); err != nil || replayOperation.OperationDigest != recoveryOperation.OperationDigest || replayPlan.PlanDigest != recoveryPlan.PlanDigest {
+		t.Fatalf("Recovery Plan replay operation=%+v plan=%+v err=%v", replayOperation, replayPlan, err)
+	}
+	var beforeStartAdmissions, beforeStartJobs, beforeStartCommands int
+	var beforeStartBudgetState string
+	var beforeStartBudgetGeneration uint64
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.recovery_destination_admission_evidence),(SELECT count(*) FROM kim.execution_jobs WHERE resource_type='RECOVERY_OPERATION'),(SELECT count(*) FROM kim.execution_commands WHERE target_resource_id=$1),(SELECT claim_state FROM kim.recovery_budget_claims_current WHERE claim_id=$2),(SELECT state_generation FROM kim.recovery_budget_claims_current WHERE claim_id=$2)`, "recovery-operation:"+recoveryOperationID, winnerDecision.BudgetClaimID).Scan(&beforeStartAdmissions, &beforeStartJobs, &beforeStartCommands, &beforeStartBudgetState, &beforeStartBudgetGeneration); err != nil || beforeStartAdmissions != 0 || beforeStartJobs != 0 || beforeStartCommands != 0 || beforeStartBudgetState != "RESERVED" || beforeStartBudgetGeneration != 1 {
+		t.Fatalf("Request/Plan created start authority admissions=%d jobs=%d commands=%d budget=%s/%d err=%v", beforeStartAdmissions, beforeStartJobs, beforeStartCommands, beforeStartBudgetState, beforeStartBudgetGeneration, err)
+	}
+	rollbackStartFI := errors.New("rollback Recovery start FI")
+	assertBlockedStart := func(label, mutation string, args ...any) {
+		err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, mutation, args...); err != nil {
+				return err
+			}
+			_, startErr := StartRecoveryOperation(ctx, scopeTxBeginner{tx}, recoveryOperationID, "blocked-"+label+"-job-"+suffix, "blocked-"+label+"-command-"+suffix)
+			if !errors.Is(startErr, ErrRecoveryOperationStale) {
+				return fmt.Errorf("%s start error=%v", label, startErr)
+			}
+			var admissions, jobs int
+			var state string
+			var generation uint64
+			if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.recovery_destination_admission_evidence WHERE recovery_operation_id=$1),(SELECT count(*) FROM kim.execution_jobs WHERE resource_type='RECOVERY_OPERATION'),claim_state,state_generation FROM kim.recovery_budget_claims_current WHERE claim_id=$2`, recoveryOperationID, winnerDecision.BudgetClaimID).Scan(&admissions, &jobs, &state, &generation); err != nil || admissions != 0 || jobs != 0 {
+				return fmt.Errorf("%s leaked authority admissions=%d jobs=%d budget=%s/%d err=%v", label, admissions, jobs, state, generation, err)
+			}
+			return rollbackStartFI
+		})
+		if !errors.Is(err, rollbackStartFI) {
+			t.Fatalf("%s deterministic start FI=%v", label, err)
+		}
+	}
+	assertBlockedStart("fencing-stale", `UPDATE kim.host_operation_authorities_current SET authority_state='ARMED' WHERE host_id=$1`, host)
+	assertBlockedStart("storage-stale", `UPDATE kim.volume_attachment_claims SET claim_state='ACTIVE' WHERE attachment_id=$1`, attachmentID)
+	assertBlockedStart("budget-stale", `UPDATE kim.recovery_budget_claims_current SET claim_state='FENCED',state_generation=2 WHERE claim_id=$1`, winnerDecision.BudgetClaimID)
+	assertBlockedStart("destination-stale", `UPDATE kim.host_readiness_gates_current SET compliance_state='NON_COMPLIANT' WHERE host_id=$1`, destinationHost)
+
+	// Start atomically revalidates current safety, releases only the fenced
+	// source compute accounting authority, performs the ordinary destination
+	// Final Admission, consumes the Budget, and dispatches one closed typed
+	// destination-preparation Command. It does not claim recovery success.
+	recoveryJobID, recoveryCommandID := "recovery-job-"+suffix, "recovery-command-"+suffix
+	ordinaryRequest := recoveryPlan.DestinationRequest
+	ordinaryRequest.RequestID = "ordinary-placement-race-" + suffix
+	ordinaryDry, err := DryEvaluatePlacementScope(ctx, pool, ordinaryRequest)
+	if err != nil || ordinaryDry.Status != "READY" {
+		t.Fatalf("ordinary Placement race dry=%+v err=%v", ordinaryDry, err)
+	}
+	var ordinaryCandidate PlacementScopeCandidate
+	for _, candidate := range ordinaryDry.Candidates {
+		if candidate.HostID == destinationHost && candidate.Eligible {
+			ordinaryCandidate = candidate
+		}
+	}
+	if ordinaryCandidate.HostID == "" {
+		t.Fatalf("ordinary Placement race has no destination candidate: %+v", ordinaryDry.Candidates)
+	}
+	var recoveryStart RecoveryOperationStart
+	var recoveryStartErr, ordinaryPlacementErr error
+	var recoveryRaceWG sync.WaitGroup
+	recoveryRaceWG.Add(2)
+	go func() {
+		defer recoveryRaceWG.Done()
+		recoveryStart, recoveryStartErr = StartRecoveryOperation(ctx, pool, recoveryOperationID, recoveryJobID, recoveryCommandID)
+	}()
+	go func() {
+		defer recoveryRaceWG.Done()
+		_, ordinaryPlacementErr = FinalAdmitPlacementScope(ctx, pool, ordinaryDry, ordinaryRequest, ordinaryCandidate)
+	}()
+	recoveryRaceWG.Wait()
+	err = recoveryStartErr
+	if err != nil || recoveryStart.LifecycleState != "RUNNING" || recoveryStart.DestinationHostID != destinationHost || recoveryStart.BudgetStateGeneration != 2 || recoveryStart.OperationStateGeneration != 2 {
+		t.Fatalf("Recovery Operation start=%+v err=%v", recoveryStart, err)
+	}
+	if ordinaryPlacementErr == nil {
+		t.Fatal("ordinary Placement raced Recovery and committed a duplicate active workload claim")
+	}
+	var activeWorkloadClaims int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.compute_allocation_claims WHERE project_id=$1 AND workload_id=$2 AND claim_state IN ('RESERVED','ALLOCATED')`, ordinaryRequest.ProjectID, ordinaryRequest.WorkloadID).Scan(&activeWorkloadClaims); err != nil || activeWorkloadClaims != 1 {
+		t.Fatalf("Recovery/ordinary Placement race active claims=%d ordinaryErr=%v queryErr=%v", activeWorkloadClaims, ordinaryPlacementErr, err)
+	}
+	if replay, err := StartRecoveryOperation(ctx, pool, recoveryOperationID, recoveryJobID, recoveryCommandID); err != nil || replay.DestinationAdmissionID != recoveryStart.DestinationAdmissionID || replay.ExecutionCommandID != recoveryCommandID || replay.BudgetStateGeneration != 2 {
+		t.Fatalf("Recovery Operation start replay=%+v err=%v", replay, err)
+	}
+	var sourceComputeState, destinationComputeState, budgetConsumed, operationState, commandType, commandState string
+	var operationCount, planCount, destinationAdmissionCount, recoveryJobCount int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT claim_state FROM kim.compute_allocation_claims WHERE admission_id=$1),
+		(SELECT claim_state FROM kim.compute_allocation_claims WHERE admission_id=$2),
+		(SELECT claim_state FROM kim.recovery_budget_claims_current WHERE claim_id=$3),
+		(SELECT lifecycle_state FROM kim.recovery_operations_current WHERE recovery_operation_id=$4),
+		(SELECT command_type FROM kim.execution_commands WHERE command_id=$5),
+		(SELECT command_state FROM kim.execution_commands_current WHERE command_id=$5),
+		(SELECT count(*) FROM kim.recovery_operation_evidence WHERE recovery_operation_id=$4),
+		(SELECT count(*) FROM kim.recovery_plan_evidence WHERE recovery_operation_id=$4),
+		(SELECT count(*) FROM kim.recovery_destination_admission_evidence WHERE recovery_operation_id=$4),
+		(SELECT count(*) FROM kim.execution_jobs WHERE job_id=$6)`, admission.AdmissionID, recoveryStart.DestinationAdmissionID, winnerDecision.BudgetClaimID, recoveryOperationID, recoveryCommandID, recoveryJobID).Scan(&sourceComputeState, &destinationComputeState, &budgetConsumed, &operationState, &commandType, &commandState, &operationCount, &planCount, &destinationAdmissionCount, &recoveryJobCount); err != nil || sourceComputeState != "RELEASED" || destinationComputeState != "RESERVED" || budgetConsumed != "CONSUMED" || operationState != "RUNNING" || commandType != "HOST_AGENT_STATE_MARKER_ENSURE" || commandState != "PENDING" || operationCount != 1 || planCount != 1 || destinationAdmissionCount != 1 || recoveryJobCount != 1 {
+		t.Fatalf("Recovery start atomic state source=%s destination=%s budget=%s operation=%s command=%s/%s counts=%d/%d/%d/%d err=%v", sourceComputeState, destinationComputeState, budgetConsumed, operationState, commandType, commandState, operationCount, planCount, destinationAdmissionCount, recoveryJobCount, err)
+	}
+	if _, err := MaterializeRecoveryEligibilityDecision(ctx, pool, "recovery-eligibility-after-active-operation-"+suffix, eligibility[1-winnerIndex].EvaluationID, "recovery-authority/v1"); !errors.Is(err, ErrRecoveryEligibilityBudgetExhausted) {
+		t.Fatalf("CONSUMED active Recovery disappeared from Budget count: %v", err)
+	}
+	dangerous, err := EvaluateRecoveryDangerousStep(ctx, pool, "recovery-dangerous-step-current-"+suffix, recoveryOperationID, digestBytes([]byte("recovery-dangerous-step/v1")))
+	if err != nil || dangerous.ResultState != "AUTHORIZED" || dangerous.BudgetStateGeneration != 2 {
+		t.Fatalf("Recovery dangerous-step current safety=%+v err=%v", dangerous, err)
+	}
+
+	// Transport/Result ambiguity is UNKNOWN, not FAILED or proof of no side
+	// effect. A read-back MATCH moves only to VERIFYING; marker success never
+	// claims that the VM recovered.
+	if _, err := pool.Exec(ctx, `UPDATE kim.execution_commands_current SET command_state='UNKNOWN',current_attempt_index=1 WHERE command_id=$1`, recoveryCommandID); err != nil {
+		t.Fatal(err)
+	}
+	unknownOperation, err := RefreshRecoveryOperationExecution(ctx, pool, recoveryOperationID, "")
+	if err != nil || unknownOperation.LifecycleState != "UNKNOWN" {
+		t.Fatalf("Recovery UNKNOWN projection=%+v err=%v", unknownOperation, err)
+	}
+	recoveryVerificationID := "recovery-verification-" + suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '2 minutes',statement_timestamp()-interval '1 minute'); INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1); INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($4,$1,1,1,$5,'MATCHED',$6,jsonb_build_object('target_resource_id',$7,'state','MATCHED')); UPDATE kim.execution_commands_current SET command_state='SUCCEEDED',current_attempt_index=1 WHERE command_id=$1; UPDATE kim.execution_jobs SET job_state='SUCCEEDED' WHERE job_id=$8`, pgx.QueryExecModeSimpleProtocol, recoveryCommandID, destinationHost, digestBytes([]byte("recovery-token")), recoveryVerificationID, digestBytes([]byte("recovery-observation")), digestBytes([]byte("recovery-verifier")), "recovery-operation:"+recoveryOperationID, recoveryJobID); err != nil {
+		t.Fatal(err)
+	}
+	verifyingOperation, err := RefreshRecoveryOperationExecution(ctx, pool, recoveryOperationID, recoveryVerificationID)
+	if err != nil || verifyingOperation.LifecycleState != "VERIFYING" {
+		t.Fatalf("Recovery read-back projection=%+v err=%v", verifyingOperation, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT lifecycle_state FROM kim.recovery_operations_current WHERE recovery_operation_id=$1`, recoveryOperationID).Scan(&operationState); err != nil || operationState == "VERIFIED" {
+		t.Fatalf("preparation Command incorrectly claimed Recovery VERIFIED state=%s err=%v", operationState, err)
+	}
+
 	var postProofHostState string
 	var postProofHostGeneration uint64
 	if err := pool.QueryRow(ctx, `SELECT authority_state,authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, host).Scan(&postProofHostState, &postProofHostGeneration); err != nil || postProofHostState != preProofHostState || postProofHostGeneration != preProofHostGeneration {
@@ -1338,6 +1478,10 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	storageABAEvaluation, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-storage-aba-"+suffix, eligibilityEpochs[1-winnerIndex].FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
 	if err != nil || storageABAEvaluation.ResultState != "STORAGE_PROOF_STALE" || storageABAEvaluation.StorageUsability != "STALE" || storageABAEvaluation.FencingUsability != "USABLE" {
 		t.Fatalf("Storage ABA Eligibility=%+v err=%v", storageABAEvaluation, err)
+	}
+	storageABADangerous, err := EvaluateRecoveryDangerousStep(ctx, pool, "recovery-dangerous-step-storage-aba-"+suffix, recoveryOperationID, digestBytes([]byte("recovery-dangerous-step/v1")))
+	if err != nil || storageABADangerous.ResultState != "BLOCKED_STORAGE" || storageABADangerous.StorageUsability != "STALE" {
+		t.Fatalf("Storage ABA dangerous-step gate=%+v err=%v", storageABADangerous, err)
 	}
 
 	// The qualification fixtures above intentionally created VM, execution, and
@@ -1497,5 +1641,9 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	fencingABAEvaluation, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-fencing-aba-"+suffix, eligibilityEpochs[1-winnerIndex].FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
 	if err != nil || fencingABAEvaluation.ResultState != "FENCING_PROOF_STALE" || fencingABAEvaluation.FencingUsability != "STALE" {
 		t.Fatalf("Fencing ABA Eligibility=%+v err=%v", fencingABAEvaluation, err)
+	}
+	fencingABADangerous, err := EvaluateRecoveryDangerousStep(ctx, pool, "recovery-dangerous-step-fencing-aba-"+suffix, recoveryOperationID, digestBytes([]byte("recovery-dangerous-step/v1")))
+	if err != nil || fencingABADangerous.ResultState != "BLOCKED_FENCING" || fencingABADangerous.FencingUsability != "STALE" {
+		t.Fatalf("Fencing ABA dangerous-step gate=%+v err=%v", fencingABADangerous, err)
 	}
 }

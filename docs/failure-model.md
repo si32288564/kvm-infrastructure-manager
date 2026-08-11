@@ -282,6 +282,8 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 
 Recovery permissionはfailure factやproof rowの存在から推測しない。Migration 053のRecovery Eligibilityはhistorical Failure Epoch/Availability Bindingを固定したまま、current Host authority event、VM power evidence、Storage Attachment/Claim/Binding generationを再検証する。state名が元へ戻るABA、budget枯渇、destination drift、`WORKLOAD_MANAGED`/`MANUAL`はfail closedである。accepted Eligibility DecisionとPlanning Budget ClaimもRecovery Operation、dispatch、resource reservation、side effectではない。
 
+Migration 054でもhistorical `ELIGIBLE`をcurrent executable stateとみなさない。Operation start前のHost re-arm、Storage Claim ABA、Budget state drift、destination readiness/Scope/Policy driftはstart transaction全体をrollbackする。start後のtimeout/Lease expiry/Result lossはside effect absenceではなくOperation `UNKNOWN`であり、Budgetを`CONSUMED`のまま保持してexisting Execution read-backへ収束する。preparation successはRecovery successではない。
+
 ## 7. Verification and Fault Injection
 
 Phase 0で各failure classに以下を関連付けます。

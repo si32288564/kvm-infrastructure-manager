@@ -284,6 +284,8 @@ OVS-DPDK/vhost-user Portは [NFV Dataplane Resource Architecture](nfv-dataplane-
 
 ## 14. Host Failure, Recovery, and Migration
 
+Recovery destinationのPort/IP/MAC/BindingはEligibility candidate snapshotでは予約されない。Migration 054のOperation startはone immutable destination Planからnew resource identitiesを作り、既存Final Admission transactionだけでNetwork authorityをclaimする。失敗時に別Host/Portへsilent substitutionせず、actual network realizationは後続VM rematerialization stepsでexisting typed evidenceを通す。
+
 Host failure時もNetwork identity/Segment Claimは維持し、old Port Binding generationをfenceしてからnew Bindingを作ります。
 
 - Host heartbeat/SB chassis absenceだけでold binding解放を確定しない。

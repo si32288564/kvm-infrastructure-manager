@@ -163,3 +163,5 @@ Migration capabilityはHost capabilityだけから決めません。少なくと
 Recovery Eligibilityは既存Placement Scopeとdry eligibilityをread-only consumerとして再利用する。source Hostを除外し、candidateごとにScope、HostGroup/Membership Set、Host readiness/capability、ordinary Placement evaluation、effective AvailabilityPolicy provenanceをimmutable snapshotへ保存する。
 
 このsnapshotと`ELIGIBLE` DecisionはFinal Admissionではない。CPU/memory/HugePages、PCI、IP/MAC/Port、Storage capacity/Attachmentをclaimせず、ordinary Placementとのcapacity race後にcandidateが消えることは正常なstale/no-destination outcomeである。Decision materialization時はexact snapshotを再検証し、別candidate/current Policyへsilentに乗り換えない。future Recovery Placementは新しいcurrent Final Admission transactionで全resource authorityを取得する。
+
+Migration 054のRecovery PlanはEligibility candidateのうちone exact destination Hostとnew destination resource identitiesを固定するがreservationではない。Operation startは同じrequest/Hostを既存Placement ScopeとFinal Admissionへ渡し、ordinary Placementと同じCompute/PCI/Network/Storage transaction/unique constraintsを使用する。Recovery provenanceはseparate immutable associationからOperation/Epoch/Decisionへ辿り、Plan drift時に別Hostへsilent substitutionしない。
