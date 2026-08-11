@@ -456,4 +456,4 @@ KIMはdecommission時にOS wipe、firmware reset、物理破棄を暗黙実行�
 ```
 
 すべてのmutationはETag/If-Match、Idempotency-Key、Operation、Audit contractに従います。
-Failure Epoch consumerはHost identity、current session/credential、Host Operation Authority generationをevidence provenanceとして参照できますが、それらのloss/stale/fenced stateをphysical Host fencing proofへ昇格させません。Migration 050はfailure observationと`SUSPECTED` incident trackingだけを行い、Enrollment、readiness、Host authority、VM/runtime stateを変更しません。
+Failure Epoch consumerはHost identity、current session/credential、Host Operation Authority generationをevidence provenanceとして参照できますが、それらのloss/stale/fenced stateをphysical Host fencing proofへ昇格させません。Migration 050はfailure observationと`SUSPECTED` incident trackingを行い、Migration 051はtyped Confirmation Decisionによる`CONFIRMED` factまでを行います。どちらもEnrollment、readiness、Host authority、VM/runtime stateを変更しません。

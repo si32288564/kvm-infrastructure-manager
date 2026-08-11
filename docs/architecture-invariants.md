@@ -313,6 +313,9 @@
 | INV-AVR-016 | Failure Epoch openはcurrent VM Availability Binding revision/digestとそのexact Policy、Admission、allocation、source Host provenanceを一transactionで固定し、後続Rebind/Policy/HostGroup driftでhistorical responsibilityを書き換えない | AT-AVR-018, FI-AVR-012 |
 | INV-AVR-017 | failure signal、heartbeat/Agent loss、UNKNOWN observationをconfirmed failure、fencing proof、Recovery Eligibility/Operationへ昇格させず、typed confirmation-policy consumerがない間はSUSPECTEDだけを発行する | AT-AVR-018, FI-AVR-012 |
 | INV-AVR-018 | Epoch/Evidenceのsame-identity replayは同じimmutable evidenceへ収束し、late/stale evidenceはappendしても過去transitionを書き換えず、explicit incident keyのparallel openは一Epochへ収束する | AT-AVR-018, FI-AVR-012 |
+| INV-AVR-019 | confirmation Evaluationはexact Epoch generation、historical Availability Binding、typed Policy revision/digest、Evidence identities/generations/digestsを固定するpure evidenceであり、SATISFIEDだけではEpoch stateを変更しない | AT-AVR-019, FI-AVR-013 |
+| INV-AVR-020 | UNKNOWN、STALE、CONFLICTING、typed Policy欠損をpositive confirmationへ縮退させず、Decision時のPolicy/Evidence/Epoch driftをsilent re-evaluationまたはcurrent revisionへのupliftで解決しない | AT-AVR-019, FI-AVR-013 |
+| INV-AVR-021 | accepted Confirmation DecisionだけがSUSPECTED→CONFIRMED transition/currentをatomic commitし、same-ID replayやparallel Decisionでgenerationを増幅しない。CONFIRMEDはHost authority、fencing proof、Recovery Eligibility/Operation、resource/runtime mutationを生成しない | AT-AVR-019, FI-AVR-013 |
 
 ## 12. Workload Resilience Intent
 

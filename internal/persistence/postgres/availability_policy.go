@@ -18,8 +18,38 @@ type AvailabilityPolicyRevision struct {
 	FailureDomainConstraints, RecoveryBudgetPolicyReference             string
 	EscalationPolicy, NotificationPolicy, SupportTier                   string
 	LifecycleState, CreatedBy, ApprovedBy                               string
+	FailureConfirmationPolicyID, FailureConfirmationPolicyDigest        string
+	PolicyRevision                                                      uint64
+	FailureConfirmationPolicyRevision                                   uint64
+	MaxAttempts                                                         int
+}
+
+// availabilityPolicyDigestRevisionV1 preserves the pre-051 canonical digest
+// shape. The typed confirmation association is separate immutable authority;
+// adding it must not reinterpret historical Availability Policy evidence.
+type availabilityPolicyDigestRevisionV1 struct {
+	PolicyID, Responsibility, HostFailureAction                         string
+	FailureConfirmationPolicy, FencingRequirements, StorageRequirements string
+	NetworkDeviceRequirements, RecoveryEligibilityPolicy                string
+	FailureDomainConstraints, RecoveryBudgetPolicyReference             string
+	EscalationPolicy, NotificationPolicy, SupportTier                   string
+	LifecycleState, CreatedBy, ApprovedBy                               string
 	PolicyRevision                                                      uint64
 	MaxAttempts                                                         int
+}
+
+func availabilityPolicyDigestValue(policy AvailabilityPolicyRevision) string {
+	v1 := availabilityPolicyDigestRevisionV1{
+		PolicyID: policy.PolicyID, Responsibility: policy.Responsibility, HostFailureAction: policy.HostFailureAction,
+		FailureConfirmationPolicy: policy.FailureConfirmationPolicy, FencingRequirements: policy.FencingRequirements,
+		StorageRequirements: policy.StorageRequirements, NetworkDeviceRequirements: policy.NetworkDeviceRequirements,
+		RecoveryEligibilityPolicy: policy.RecoveryEligibilityPolicy, FailureDomainConstraints: policy.FailureDomainConstraints,
+		RecoveryBudgetPolicyReference: policy.RecoveryBudgetPolicyReference, EscalationPolicy: policy.EscalationPolicy,
+		NotificationPolicy: policy.NotificationPolicy, SupportTier: policy.SupportTier, LifecycleState: policy.LifecycleState,
+		CreatedBy: policy.CreatedBy, ApprovedBy: policy.ApprovedBy, PolicyRevision: policy.PolicyRevision, MaxAttempts: policy.MaxAttempts,
+	}
+	raw, _ := json.Marshal(v1)
+	return digestReleaseBytes(raw)
 }
 
 type VMAvailabilityBinding struct {
@@ -44,6 +74,10 @@ func validAvailabilityPolicy(policy AvailabilityPolicyRevision) bool {
 		policy.LifecycleState != "DEPRECATED" && policy.LifecycleState != "RETIRED" {
 		return false
 	}
+	hasConfirmationRef := policy.FailureConfirmationPolicyID != "" || policy.FailureConfirmationPolicyRevision != 0 || policy.FailureConfirmationPolicyDigest != ""
+	if hasConfirmationRef && (policy.FailureConfirmationPolicyID == "" || policy.FailureConfirmationPolicyRevision == 0 || policy.FailureConfirmationPolicyDigest == "") {
+		return false
+	}
 	return (policy.Responsibility == "INFRASTRUCTURE_MANAGED" &&
 		(policy.HostFailureAction == "RESTART_ON_OTHER_HOST" || policy.HostFailureAction == "EVACUATE")) ||
 		((policy.Responsibility == "WORKLOAD_MANAGED" || policy.Responsibility == "MANUAL") &&
@@ -54,8 +88,7 @@ func PublishAvailabilityPolicy(ctx context.Context, db TxBeginner, policy Availa
 	if !validAvailabilityPolicy(policy) {
 		return "", ErrAvailabilityPolicyConflict
 	}
-	raw, _ := json.Marshal(policy)
-	digest := digestReleaseBytes(raw)
+	digest := availabilityPolicyDigestValue(policy)
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
@@ -72,6 +105,7 @@ func PublishAvailabilityPolicy(ctx context.Context, db TxBeginner, policy Availa
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		revisionExists := err == nil
 		if err := publishGroupPolicyCatalogTx(ctx, tx, "AVAILABILITY_POLICY", policy.PolicyID, policy.PolicyRevision, digest, policy.LifecycleState); err != nil {
 			return err
 		}
@@ -89,6 +123,34 @@ func PublishAvailabilityPolicy(ctx context.Context, db TxBeginner, policy Availa
 				policy.NotificationPolicy, policy.SupportTier, policy.LifecycleState, policy.CreatedBy, policy.ApprovedBy, digest)
 			if err != nil {
 				return err
+			}
+		}
+		if policy.FailureConfirmationPolicyID != "" {
+			var lifecycle string
+			if err := tx.QueryRow(ctx, `SELECT lifecycle_state FROM kim.failure_confirmation_policies_current
+				WHERE policy_id=$1 AND policy_revision=$2 AND policy_digest=$3 FOR SHARE`, policy.FailureConfirmationPolicyID,
+				policy.FailureConfirmationPolicyRevision, policy.FailureConfirmationPolicyDigest).Scan(&lifecycle); err != nil || lifecycle != "ACTIVE" {
+				return ErrAvailabilityPolicyConflict
+			}
+			bindingRaw, _ := json.Marshal([]any{policy.PolicyID, policy.PolicyRevision, digest,
+				policy.FailureConfirmationPolicyID, policy.FailureConfirmationPolicyRevision, policy.FailureConfirmationPolicyDigest})
+			bindingDigest := digestReleaseBytes(bindingRaw)
+			if revisionExists {
+				var existing string
+				if err := tx.QueryRow(ctx, `SELECT binding_digest FROM kim.availability_policy_confirmation_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&existing); err != nil || existing != bindingDigest {
+					return ErrAvailabilityPolicyConflict
+				}
+			} else if _, err := tx.Exec(ctx, `INSERT INTO kim.availability_policy_confirmation_binding_evidence(
+				availability_policy_id,availability_policy_revision,availability_policy_digest,confirmation_policy_id,
+				confirmation_policy_revision,confirmation_policy_digest,binding_digest) VALUES($1,$2,$3,$4,$5,$6,$7)
+				`, policy.PolicyID, policy.PolicyRevision, digest, policy.FailureConfirmationPolicyID,
+				policy.FailureConfirmationPolicyRevision, policy.FailureConfirmationPolicyDigest, bindingDigest); err != nil {
+				return err
+			}
+		} else if revisionExists {
+			var associationCount int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.availability_policy_confirmation_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&associationCount); err != nil || associationCount != 0 {
+				return ErrAvailabilityPolicyConflict
 			}
 		}
 		command, err := tx.Exec(ctx, `INSERT INTO kim.availability_policies_current(policy_id,policy_revision,lifecycle_state,policy_digest)

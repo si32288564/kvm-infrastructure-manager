@@ -126,4 +126,4 @@ KIMは以下を暗黙にも代行しません。
 外部systemとのadapterが存在しても、このauthority境界は移動しません。境界変更にはRequirementsとAccepted ADRの同時更新が必要です。
 ## Failure evidence authority boundary
 
-Failure observationは何を誰がどのgenerationで観測したかを保持し、Failure Epochは一incidentのidentityとその時点のexact VM Availability Bindingを固定します。signal、Epoch、confirmation、fencing proof、Recovery Eligibility、Recovery Operationは別authorityです。Migration 050はtyped observationと`SUSPECTED` Epochまでを実装し、heartbeat/Agent lossや`UNKNOWN`をconfirmation/fencing/recoveryへ昇格させません。
+Failure observationは何を誰がどのgenerationで観測したかを保持し、Failure Epochは一incidentのidentityとその時点のexact VM Availability Bindingを固定します。signal、Epoch、confirmation、fencing proof、Recovery Eligibility、Recovery Operationは別authorityです。Migration 050はtyped observationと`SUSPECTED` Epochを実装し、Migration 051はexact typed Policy/Evidence snapshotのpure Evaluationとexplicit Decisionを分離して`CONFIRMED` factまでを実装します。heartbeat/Agent loss、`UNKNOWN`、`STALE`、`CONFLICTING`をconfirmationへ昇格させず、`CONFIRMED`からHost fencing、Recovery、resource/runtime mutationを暗黙生成しません。

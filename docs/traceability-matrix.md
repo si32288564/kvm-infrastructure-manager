@@ -104,7 +104,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | AVR-005 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Implemented (generic many-to-many resolution、NO_ASSIGNMENT/conflict/stale Placement block) |
 | AVR-006 | availability-responsibility-architecture, placement-architecture, domain-model | ADR-0006, ADR-0015 | INV-AVR-002 | AT-AVR-006 | Implemented (Availability-aware Final Admission と VM Binding/claims の atomic commit) |
 | AVR-007 | availability-responsibility-architecture | ADR-0015 | INV-AVR-003, INV-AVR-014, INV-AVR-015 | AT-AVR-007, AT-AVR-017, FI-AVR-002, FI-AVR-011 | Implemented (migration 049: immutable Request/Decision、exact Policy/source fencing、atomic Binding revision/current switch、stable response-loss replay) |
-| AVR-008 | availability-responsibility-architecture, failure-model, responsibility-boundaries, host-lifecycle-and-compliance-architecture | ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-013, INV-AVR-016, INV-AVR-017, INV-AVR-018 | AT-AVR-008, AT-AVR-018, FI-AVR-003, FI-AVR-012 | Partial (migration 050: typed append-only observation、exact Binding-bound SUSPECTED Epoch、replay/dedup/race実装。typed confirmation/fencing/recoveryは後続) |
+| AVR-008 | availability-responsibility-architecture, failure-model, responsibility-boundaries, host-lifecycle-and-compliance-architecture | ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-013, INV-AVR-016, INV-AVR-017, INV-AVR-018 | AT-AVR-008, AT-AVR-018, FI-AVR-003, FI-AVR-012 | Implemented through CONFIRMED fact authority (migration 050: typed observation/exact Binding-bound SUSPECTED Epoch。migration 051: typed confirmation consumer。fencing/recoveryは別Requirements) |
 | AVR-009 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-004, INV-AVR-012 | AT-AVR-009, FI-AVR-004, FI-AVR-010 | Planned |
 | AVR-010 | availability-responsibility-architecture, security | ADR-0015 | INV-AVR-005 | AT-AVR-010, FI-AVR-005 | Planned |
 | AVR-011, AVR-012 | availability-responsibility-architecture, failure-model, placement-architecture | ADR-0006, ADR-0010, ADR-0015 | INV-AVR-006, INV-AVR-007, INV-AVR-008, INV-AVR-013 | AT-AVR-011, AT-AVR-012, FI-AVR-003, FI-AVR-007, FI-AVR-008, XCT-AVR-001, XCT-AVR-002, XCT-AVR-003, XCT-AVR-004 | Planned |
@@ -112,6 +112,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | AVR-014 | availability-responsibility-architecture, execution-architecture | ADR-0007, ADR-0015 | INV-AVR-011 | AT-AVR-014, FI-AVR-009 | Planned |
 | AVR-015 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-AVR-008 | AT-AVR-015, FI-AVR-008 | Planned |
 | AVR-016 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-012 | AT-AVR-016, FI-AVR-010 | Planned |
+| AVR-017 | availability-responsibility-architecture, failure-model, responsibility-boundaries, host-lifecycle-and-compliance-architecture | ADR-0010, ADR-0015 | INV-AVR-019, INV-AVR-020, INV-AVR-021 | AT-AVR-019, FI-AVR-013 | Implemented (migration 051: closed typed Policy/exact AvailabilityPolicy binding、immutable Evaluation/input snapshot/Decision、atomic CONFIRMED transition、drift/replay/race fencing、no fencing/recovery side effect) |
 
 ## 8. Workload Resilience Intent
 

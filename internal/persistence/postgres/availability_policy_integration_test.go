@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func availabilityPolicyFixture(id string, revision uint64, responsibility, action, lifecycle string) AvailabilityPolicyRevision {
@@ -638,5 +640,325 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 		if failureCountsBefore[i] != failureCountsAfter[i] {
 			t.Fatalf("Failure Epoch caused runtime/resource mutation before=%v after=%v", failureCountsBefore, failureCountsAfter)
 		}
+	}
+
+	// A pre-051 Availability Policy has no typed confirmation authority. Its
+	// historical Epoch remains evaluable, but must fail closed without an
+	// invented default Policy or a CONFIRMED transition.
+	legacyEvaluation, err := EvaluateFailureConfirmation(ctx, pool, "legacy-confirmation-evaluation-"+suffix, epoch1.FailureEpochID, "confirmation-evaluator/v1", digestBytes([]byte("confirmation-evaluator/v1")))
+	if err != nil || legacyEvaluation.ResultState != "NO_CONFIRMATION_POLICY" {
+		t.Fatalf("legacy confirmation evaluation=%+v err=%v", legacyEvaluation, err)
+	}
+	if replay, err := EvaluateFailureConfirmation(ctx, pool, legacyEvaluation.EvaluationID, epoch1.FailureEpochID, legacyEvaluation.EvaluatorVersion, legacyEvaluation.EvaluatorDigest); err != nil || replay.EvaluationDigest != legacyEvaluation.EvaluationDigest {
+		t.Fatalf("legacy evaluation replay=%+v err=%v", replay, err)
+	}
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "legacy-confirmation-decision-"+suffix, legacyEvaluation.EvaluationID, "failure-authority/v1"); !errors.Is(err, ErrFailureConfirmationBlocked) {
+		t.Fatalf("legacy Epoch confirmation=%v", err)
+	}
+
+	confirmationPolicy := FailureConfirmationPolicy{
+		PolicyID: "host-connectivity-confirmation-" + suffix, PolicyRevision: 1,
+		ApplicableFailureClass: "HOST_CONNECTIVITY_LOSS", ConfirmationMode: "ALL_REQUIRED_EVIDENCE",
+		RequireDistinctSources: true, LifecycleState: "ACTIVE", CreatedBy: "fixture", ApprovedBy: "fixture",
+		Requirements: []FailureConfirmationRequirement{
+			{Ordinal: 1, EvidenceType: "AGENT_CONNECTIVITY_LOSS", ObservedState: "ABSENT", FreshnessState: "CURRENT", SourceType: "CONTROL_PLANE"},
+			{Ordinal: 2, EvidenceType: "HOST_OPERATION_AUTHORITY_STATE", ObservedState: "PRESENT", FreshnessState: "CURRENT", SourceType: "CONTROL_PLANE"},
+		},
+	}
+	confirmationPolicy, err = PublishFailureConfirmationPolicy(ctx, pool, confirmationPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay, err := PublishFailureConfirmationPolicy(ctx, pool, confirmationPolicy); err != nil || replay.PolicyDigest != confirmationPolicy.PolicyDigest {
+		t.Fatalf("confirmation Policy replay=%+v err=%v", replay, err)
+	}
+	legacyAttach := p1
+	legacyAttach.FailureConfirmationPolicyID = confirmationPolicy.PolicyID
+	legacyAttach.FailureConfirmationPolicyRevision = confirmationPolicy.PolicyRevision
+	legacyAttach.FailureConfirmationPolicyDigest = confirmationPolicy.PolicyDigest
+	if legacyDigest := availabilityPolicyDigestValue(legacyAttach); legacyDigest != d1 {
+		t.Fatalf("pre-051 Availability Policy digest changed old=%s new=%s", d1, legacyDigest)
+	}
+	if _, err := PublishAvailabilityPolicy(ctx, pool, legacyAttach); err == nil {
+		t.Fatalf("typed confirmation association backfilled into historical Availability Policy: %v", err)
+	}
+
+	// Move the test VM through the only explicit path to an Availability Policy
+	// that references the exact typed confirmation Policy revision.
+	var typedSourceRevision uint64
+	var typedSourceDigest string
+	if err := pool.QueryRow(ctx, `SELECT binding_revision,binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&typedSourceRevision, &typedSourceDigest); err != nil {
+		t.Fatal(err)
+	}
+	typedAvailability := availabilityPolicyFixture("typed-confirmation-availability-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "EVACUATE", "ACTIVE")
+	typedAvailability.FailureConfirmationPolicyID = confirmationPolicy.PolicyID
+	typedAvailability.FailureConfirmationPolicyRevision = confirmationPolicy.PolicyRevision
+	typedAvailability.FailureConfirmationPolicyDigest = confirmationPolicy.PolicyDigest
+	typedAvailabilityDigest, err := PublishAvailabilityPolicy(ctx, pool, typedAvailability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typedRebind := VMAvailabilityRebindRequest{RebindID: "typed-confirmation-rebind-" + suffix, WorkloadID: r1.WorkloadID,
+		ExpectedCurrentBindingRevision: typedSourceRevision, SourceBindingDigest: typedSourceDigest,
+		TargetPolicyID: typedAvailability.PolicyID, TargetPolicyRevision: typedAvailability.PolicyRevision, TargetPolicyDigest: typedAvailabilityDigest,
+		RequestedBy: "operator", AuthorizedBy: "availability-authority", AuthorizationReference: "approval/typed-confirmation", Reason: "bind typed confirmation policy"}
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, typedRebind); err != nil {
+		t.Fatal(err)
+	}
+	_, typedBinding, err := DecideVMAvailabilityRebind(ctx, pool, typedRebind.RebindID, "availability-authority")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observationGeneration := uint64(1000)
+	openConfirmationEpoch := func(label, agentState, freshness string) (FailureEpoch, FailureObservation) {
+		var currentBindingRevision uint64
+		var currentBindingDigest string
+		if queryErr := pool.QueryRow(ctx, `SELECT binding_revision,binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&currentBindingRevision, &currentBindingDigest); queryErr != nil {
+			t.Fatalf("load current Binding for %s: %v", label, queryErr)
+		}
+		observationGeneration++
+		agent := FailureObservation{EvidenceID: label + "-agent-" + suffix, EvidenceType: "AGENT_CONNECTIVITY_LOSS",
+			SourceType: "CONTROL_PLANE", SourceHostID: host, SourceSessionGeneration: 1,
+			SourceCredentialBindingRevision: 1, ObservationGeneration: observationGeneration,
+			ObservedState: agentState, FreshnessState: freshness, ObservedAt: time.Now().UTC(), PayloadDigest: digestBytes([]byte(label + "/agent"))}
+		epoch, openErr := OpenFailureEpoch(ctx, pool, OpenFailureEpochRequest{OpenRequestID: label + "-open-" + suffix,
+			FailureEpochID: label + "-epoch-" + suffix, IncidentKey: label + "-incident-" + suffix, WorkloadID: r1.WorkloadID,
+			FailureClass: "HOST_CONNECTIVITY_LOSS", RequestedBy: "failure-detector/v1",
+			ExpectedBindingRevision: currentBindingRevision, ExpectedBindingDigest: currentBindingDigest, Trigger: agent})
+		if openErr != nil {
+			t.Fatalf("open %s: %v", label, openErr)
+		}
+		return epoch, agent
+	}
+	appendAuthorityEvidence := func(epoch FailureEpoch, label, state, freshness string) FailureObservation {
+		observationGeneration++
+		o := FailureObservation{EvidenceID: label + "-authority-" + suffix, EvidenceType: "HOST_OPERATION_AUTHORITY_STATE",
+			SourceType: "CONTROL_PLANE", SourceHostID: host, SourceHostAuthorityGeneration: epoch.SourceHostAuthorityGeneration,
+			ObservationGeneration: observationGeneration, ObservedState: state, FreshnessState: freshness,
+			ObservedAt: time.Now().UTC(), PayloadDigest: digestBytes([]byte(label + "/authority/" + state + "/" + freshness))}
+		appended, appendErr := AppendFailureObservation(ctx, pool, epoch.FailureEpochID, o)
+		if appendErr != nil {
+			t.Fatalf("append %s: %v", label, appendErr)
+		}
+		return appended
+	}
+	evaluate := func(epoch FailureEpoch, label string) FailureConfirmationEvaluation {
+		e, evaluateErr := EvaluateFailureConfirmation(ctx, pool, label+"-evaluation-"+suffix, epoch.FailureEpochID, "confirmation-evaluator/v1", digestBytes([]byte("confirmation-evaluator/v1")))
+		if evaluateErr != nil {
+			t.Fatalf("evaluate %s: %v", label, evaluateErr)
+		}
+		return e
+	}
+
+	// Basic positive authority: Evaluation is immutable and pure; only the
+	// explicit Decision appends the second transition and switches current.
+	basicEpoch, _ := openConfirmationEpoch("confirmation-basic", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(basicEpoch, "confirmation-basic", "PRESENT", "CURRENT")
+	basicEvaluation := evaluate(basicEpoch, "confirmation-basic")
+	if basicEvaluation.ResultState != "SATISFIED" || basicEvaluation.PolicyRevision != 1 {
+		t.Fatalf("basic evaluation=%+v", basicEvaluation)
+	}
+	if replay, err := EvaluateFailureConfirmation(ctx, pool, basicEvaluation.EvaluationID, basicEpoch.FailureEpochID, basicEvaluation.EvaluatorVersion, basicEvaluation.EvaluatorDigest); err != nil || replay.EvaluationDigest != basicEvaluation.EvaluationDigest {
+		t.Fatalf("basic evaluation replay=%+v err=%v", replay, err)
+	}
+	var basicState string
+	var basicTransitions int
+	if err := pool.QueryRow(ctx, `SELECT c.epoch_state,(SELECT count(*) FROM kim.failure_epoch_transition_evidence t WHERE t.failure_epoch_id=c.failure_epoch_id) FROM kim.failure_epochs_current c WHERE c.failure_epoch_id=$1`, basicEpoch.FailureEpochID).Scan(&basicState, &basicTransitions); err != nil || basicState != "SUSPECTED" || basicTransitions != 1 {
+		t.Fatalf("pure evaluation state=%s transitions=%d err=%v", basicState, basicTransitions, err)
+	}
+	basicDecision, confirmedEpoch, err := ConfirmFailureEpoch(ctx, pool, "confirmation-basic-decision-"+suffix, basicEvaluation.EvaluationID, "failure-authority/v1")
+	if err != nil || confirmedEpoch.EpochState != "CONFIRMED" || confirmedEpoch.TransitionGeneration != 2 {
+		t.Fatalf("basic Decision=%+v epoch=%+v err=%v", basicDecision, confirmedEpoch, err)
+	}
+	if replayDecision, replayEpoch, err := ConfirmFailureEpoch(ctx, pool, basicDecision.DecisionID, basicEvaluation.EvaluationID, basicDecision.DecidedBy); err != nil || replayDecision.DecisionDigest != basicDecision.DecisionDigest || replayEpoch.TransitionGeneration != 2 {
+		t.Fatalf("Decision replay=%+v epoch=%+v err=%v", replayDecision, replayEpoch, err)
+	}
+
+	// UNKNOWN, STALE, and contradictory CURRENT evidence have different
+	// immutable outcomes and can never authorize a Decision.
+	unknownEpoch, _ := openConfirmationEpoch("confirmation-unknown", "UNKNOWN", "CURRENT")
+	appendAuthorityEvidence(unknownEpoch, "confirmation-unknown", "PRESENT", "CURRENT")
+	unknownEvaluation := evaluate(unknownEpoch, "confirmation-unknown")
+	if unknownEvaluation.ResultState != "UNKNOWN" {
+		t.Fatalf("UNKNOWN evaluation=%+v", unknownEvaluation)
+	}
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "confirmation-unknown-decision-"+suffix, unknownEvaluation.EvaluationID, "failure-authority/v1"); !errors.Is(err, ErrFailureConfirmationBlocked) {
+		t.Fatalf("UNKNOWN Decision=%v", err)
+	}
+	staleEpoch, _ := openConfirmationEpoch("confirmation-stale", "ABSENT", "STALE")
+	appendAuthorityEvidence(staleEpoch, "confirmation-stale", "PRESENT", "CURRENT")
+	staleEvaluation := evaluate(staleEpoch, "confirmation-stale")
+	if staleEvaluation.ResultState != "STALE_EVIDENCE" {
+		t.Fatalf("STALE evaluation=%+v", staleEvaluation)
+	}
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "confirmation-stale-decision-"+suffix, staleEvaluation.EvaluationID, "failure-authority/v1"); !errors.Is(err, ErrFailureConfirmationBlocked) {
+		t.Fatalf("STALE Decision=%v", err)
+	}
+	conflictEpoch, _ := openConfirmationEpoch("confirmation-conflict", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(conflictEpoch, "confirmation-conflict", "PRESENT", "CURRENT")
+	observationGeneration++
+	conflicting := FailureObservation{EvidenceID: "confirmation-conflict-agent-present-" + suffix, EvidenceType: "AGENT_CONNECTIVITY_LOSS",
+		SourceType: "CONTROL_PLANE", SourceHostID: host, SourceSessionGeneration: 1, SourceCredentialBindingRevision: 1,
+		ObservationGeneration: observationGeneration, ObservedState: "PRESENT", FreshnessState: "CURRENT", ObservedAt: time.Now().UTC(), PayloadDigest: digestBytes([]byte("conflicting agent evidence"))}
+	if _, err := AppendFailureObservation(ctx, pool, conflictEpoch.FailureEpochID, conflicting); err != nil {
+		t.Fatal(err)
+	}
+	conflictEvaluation := evaluate(conflictEpoch, "confirmation-conflict")
+	if conflictEvaluation.ResultState != "CONFLICTING_INPUT" {
+		t.Fatalf("CONFLICTING evaluation=%+v", conflictEvaluation)
+	}
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "confirmation-conflict-decision-"+suffix, conflictEvaluation.EvaluationID, "failure-authority/v1"); !errors.Is(err, ErrFailureConfirmationBlocked) {
+		t.Fatalf("CONFLICTING Decision=%v", err)
+	}
+
+	// Late evidence never rewrites E1. It makes E1 stale at Decision and
+	// requires a new immutable Evaluation.
+	driftEpoch, _ := openConfirmationEpoch("confirmation-evidence-drift", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(driftEpoch, "confirmation-evidence-drift", "PRESENT", "CURRENT")
+	driftEvaluation := evaluate(driftEpoch, "confirmation-evidence-drift")
+	appendAuthorityEvidence(driftEpoch, "confirmation-evidence-drift-late", "PRESENT", "CURRENT")
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "confirmation-evidence-drift-decision-"+suffix, driftEvaluation.EvaluationID, "failure-authority/v1"); !errors.Is(err, ErrFailureConfirmationStale) {
+		t.Fatalf("evidence drift Decision=%v", err)
+	}
+
+	// Two Decisions for one SUSPECTED Epoch serialize at the Epoch authority:
+	// exactly one transition commits and the other becomes stale.
+	parallelEpoch, _ := openConfirmationEpoch("confirmation-parallel", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(parallelEpoch, "confirmation-parallel", "PRESENT", "CURRENT")
+	parallelEvaluation := evaluate(parallelEpoch, "confirmation-parallel")
+	var parallelDecisionErr [2]error
+	rebindWG.Add(2)
+	for i := range parallelDecisionErr {
+		i := i
+		go func() {
+			defer rebindWG.Done()
+			_, _, parallelDecisionErr[i] = ConfirmFailureEpoch(ctx, pool, fmt.Sprintf("confirmation-parallel-decision-%d-%s", i, suffix), parallelEvaluation.EvaluationID, "failure-authority/v1")
+		}()
+	}
+	rebindWG.Wait()
+	parallelSuccess, parallelStale := 0, 0
+	for _, decisionErr := range parallelDecisionErr {
+		if decisionErr == nil {
+			parallelSuccess++
+		} else if errors.Is(decisionErr, ErrFailureConfirmationStale) {
+			parallelStale++
+		} else {
+			t.Fatalf("parallel Decision error=%v", decisionErr)
+		}
+	}
+	if parallelSuccess != 1 || parallelStale != 1 {
+		t.Fatalf("parallel Decision outcomes success=%d stale=%d errors=%v", parallelSuccess, parallelStale, parallelDecisionErr)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.failure_epoch_transition_evidence WHERE failure_epoch_id=$1 AND to_state='CONFIRMED'`, parallelEpoch.FailureEpochID).Scan(&basicTransitions); err != nil || basicTransitions != 1 {
+		t.Fatalf("parallel CONFIRMED transitions=%d err=%v", basicTransitions, err)
+	}
+
+	// A later explicit Availability Rebind may race with Confirmation, but the
+	// historical Epoch and its Decision remain bound to the old Binding.
+	historicalEpoch, _ := openConfirmationEpoch("confirmation-rebind-race", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(historicalEpoch, "confirmation-rebind-race", "PRESENT", "CURRENT")
+	historicalEvaluation := evaluate(historicalEpoch, "confirmation-rebind-race")
+	nextAvailability := availabilityPolicyFixture("post-epoch-availability-"+suffix, 1, "MANUAL", "NO_AUTOMATIC_ACTION", "ACTIVE")
+	nextAvailability.FailureConfirmationPolicyID = confirmationPolicy.PolicyID
+	nextAvailability.FailureConfirmationPolicyRevision = confirmationPolicy.PolicyRevision
+	nextAvailability.FailureConfirmationPolicyDigest = confirmationPolicy.PolicyDigest
+	nextAvailabilityDigest, err := PublishAvailabilityPolicy(ctx, pool, nextAvailability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historicalRebind := VMAvailabilityRebindRequest{RebindID: "confirmation-history-rebind-" + suffix, WorkloadID: r1.WorkloadID,
+		ExpectedCurrentBindingRevision: typedBinding.BindingRevision, SourceBindingDigest: typedBinding.BindingDigest,
+		TargetPolicyID: nextAvailability.PolicyID, TargetPolicyRevision: 1, TargetPolicyDigest: nextAvailabilityDigest,
+		RequestedBy: "operator", AuthorizedBy: "availability-authority", AuthorizationReference: "approval/history", Reason: "confirmation history race"}
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, historicalRebind); err != nil {
+		t.Fatal(err)
+	}
+	var historyConfirmErr, historyRebindErr error
+	rebindWG.Add(2)
+	go func() {
+		defer rebindWG.Done()
+		_, _, historyConfirmErr = ConfirmFailureEpoch(ctx, pool, "confirmation-history-decision-"+suffix, historicalEvaluation.EvaluationID, "failure-authority/v1")
+	}()
+	go func() {
+		defer rebindWG.Done()
+		_, _, historyRebindErr = DecideVMAvailabilityRebind(ctx, pool, historicalRebind.RebindID, "availability-authority")
+	}()
+	rebindWG.Wait()
+	if historyConfirmErr != nil || historyRebindErr != nil {
+		t.Fatalf("Confirmation/Rebind race confirm=%v rebind=%v", historyConfirmErr, historyRebindErr)
+	}
+	var historicalConfirmationBinding uint64
+	if err := pool.QueryRow(ctx, `SELECT e.availability_binding_revision FROM kim.failure_confirmation_decision_evidence d JOIN kim.failure_confirmation_evaluation_evidence e ON e.evaluation_id=d.evaluation_id WHERE d.decision_id=$1`, "confirmation-history-decision-"+suffix).Scan(&historicalConfirmationBinding); err != nil || historicalConfirmationBinding != typedBinding.BindingRevision {
+		t.Fatalf("historical Confirmation binding=%d want=%d err=%v", historicalConfirmationBinding, typedBinding.BindingRevision, err)
+	}
+
+	// Policy current revision switching races with Decision. The only allowed
+	// outcomes are a complete rev1 Decision or stale rejection; no rev2 uplift.
+	policyDriftEpoch, _ := openConfirmationEpoch("confirmation-policy-drift", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(policyDriftEpoch, "confirmation-policy-drift", "PRESENT", "CURRENT")
+	policyDriftEvaluation := evaluate(policyDriftEpoch, "confirmation-policy-drift")
+	confirmationPolicyV2 := confirmationPolicy
+	confirmationPolicyV2.PolicyRevision = 2
+	confirmationPolicyV2.PolicyDigest = ""
+	confirmationPolicyV2.RequirementsDigest = ""
+	var policyDecisionErr, policyPublishErr error
+	rebindWG.Add(2)
+	go func() {
+		defer rebindWG.Done()
+		_, _, policyDecisionErr = ConfirmFailureEpoch(ctx, pool, "confirmation-policy-drift-decision-"+suffix, policyDriftEvaluation.EvaluationID, "failure-authority/v1")
+	}()
+	go func() {
+		defer rebindWG.Done()
+		_, policyPublishErr = PublishFailureConfirmationPolicy(ctx, pool, confirmationPolicyV2)
+	}()
+	rebindWG.Wait()
+	if policyPublishErr != nil || (policyDecisionErr != nil && !errors.Is(policyDecisionErr, ErrFailureConfirmationStale)) {
+		t.Fatalf("Policy/Decision race publish=%v decision=%v", policyPublishErr, policyDecisionErr)
+	}
+	var decisionPolicyRevision uint64
+	err = pool.QueryRow(ctx, `SELECT confirmation_policy_revision FROM kim.failure_confirmation_decision_evidence WHERE decision_id=$1`, "confirmation-policy-drift-decision-"+suffix).Scan(&decisionPolicyRevision)
+	if policyDecisionErr == nil {
+		if err != nil || decisionPolicyRevision != 1 {
+			t.Fatalf("Policy uplift revision=%d err=%v", decisionPolicyRevision, err)
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("stale Decision unexpectedly persisted err=%v", err)
+	}
+
+	// Historical reconstruction uses only immutable evidence. Confirmation has
+	// no Host authority, resource, power, Job, fencing, or Recovery side effect.
+	var auditRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.failure_epoch_transition_evidence t
+		JOIN kim.failure_confirmation_decision_evidence d ON d.decision_id=t.confirmation_decision_id
+		JOIN kim.failure_confirmation_evaluation_evidence e ON e.evaluation_id=d.evaluation_id
+		JOIN kim.failure_confirmation_policy_revision_evidence p ON p.policy_id=d.confirmation_policy_id AND p.policy_revision=d.confirmation_policy_revision AND p.policy_digest=d.confirmation_policy_digest
+		JOIN kim.failure_confirmation_evaluation_input_evidence i ON i.evaluation_id=e.evaluation_id
+		JOIN kim.failure_observation_evidence o ON o.evidence_id=i.evidence_id AND o.evidence_generation=i.evidence_generation AND o.evidence_digest=i.evidence_digest
+		JOIN kim.failure_epoch_evidence f ON f.failure_epoch_id=d.failure_epoch_id
+		JOIN kim.vm_availability_binding_evidence b ON b.workload_id=f.workload_id AND b.binding_revision=f.availability_binding_revision AND b.binding_digest=f.availability_binding_digest
+		JOIN kim.availability_policy_revision_evidence a ON a.policy_id=f.availability_policy_id AND a.policy_revision=f.availability_policy_revision AND a.policy_digest=f.availability_policy_digest
+		WHERE d.decision_id=$1 AND t.to_state='CONFIRMED'`, basicDecision.DecisionID).Scan(&auditRows); err != nil || auditRows != 2 {
+		t.Fatalf("Confirmation audit chain rows=%d err=%v", auditRows, err)
+	}
+	failureCountsFinal := make([]int, 6)
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.compute_allocation_claims),
+		(SELECT count(*) FROM kim.pci_vf_allocation_claims),
+		(SELECT count(*) FROM kim.network_identity_claims),
+		(SELECT count(*) FROM kim.volume_attachment_claims),
+		(SELECT count(*) FROM kim.vm_power_observation_evidence),
+		(SELECT count(*) FROM kim.execution_jobs)`).Scan(&failureCountsFinal[0], &failureCountsFinal[1], &failureCountsFinal[2], &failureCountsFinal[3], &failureCountsFinal[4], &failureCountsFinal[5]); err != nil {
+		t.Fatal(err)
+	}
+	for i := range failureCountsAfter {
+		if failureCountsAfter[i] != failureCountsFinal[i] {
+			t.Fatalf("Failure Confirmation caused runtime/resource mutation before=%v after=%v", failureCountsAfter, failureCountsFinal)
+		}
+	}
+	var hostAuthorityState string
+	var hostAuthorityGeneration uint64
+	if err := pool.QueryRow(ctx, `SELECT authority_state,authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, host).Scan(&hostAuthorityState, &hostAuthorityGeneration); err != nil || hostAuthorityState != "ARMED" || hostAuthorityGeneration != 1 {
+		t.Fatalf("Failure Confirmation changed Host authority state=%s generation=%d err=%v", hostAuthorityState, hostAuthorityGeneration, err)
 	}
 }

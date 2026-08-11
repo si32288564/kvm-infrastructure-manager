@@ -204,6 +204,7 @@ Availability Binding、member slot、Resilience constraintが不整合/UNKNOWN�
 - adapter response loss:idempotencyで同じGroup/member/Operationを回収。
 - hierarchy drift:existing workload維持、VIOLATED/UNKNOWN event、暗黙migrationなし。
 - Group delete with members/claims:delete拒否、DRAINING維持。
+- Failure Epoch `CONFIRMED`:workload/member replacementやdomain claim再割当のauthorityではない。fencing、source ownership、Recovery Eligibilityとexplicit operationを別途要求する。
 
 ## 12. API Resources
 

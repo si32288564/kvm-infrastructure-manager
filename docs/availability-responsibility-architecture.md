@@ -426,4 +426,10 @@ Migration 050は`AGENT_CONNECTIVITY_LOSS`、`HOST_OPERATION_AUTHORITY_STATE`、`
 
 Migration 050が発行する初期transitionはcanonical `SUSPECTED`だけである。`failure_confirmation_policy` text slotはruntime解釈せず、`PRESENT/ABSENT/UNKNOWN/CONFLICTING` observationのいずれからもautomatic `CONFIRMED`を発行しない。heartbeat/Agent lossはfailure observationであってsource fencing proofではない。Epoch/EvidenceはAvailability Binding、Compute/PCI/Network/Storage claims、VM power、Execution/Recovery authorityを変更しない。後続RebindやPolicy/HostGroup driftもEpochが固定したhistorical responsibilityを書き換えない。
 
+Migration 051はfirst-class FailureConfirmationPolicy revisionを追加する。Phase 1で実装するmodeはclosed `ALL_REQUIRED_EVIDENCE`だけで、requirementはevidence type、positive observed state、`CURRENT` freshness、source typeを固定する。AvailabilityPolicy revisionはpolicy ID/revision/digestをexactに参照し、pre-051 revisionへdefaultをbackfillしない。typed referenceがないhistorical EpochのEvaluationは`NO_CONFIRMATION_POLICY`でfail closedになる。
+
+Confirmation Evaluationはexact Epoch generation/transition、historical VM Availability Binding、Policy revision/digest、latest evidence generation、各evidence ID/generation/digest/source identityをimmutableに固定するpure authorityである。結果は`SATISFIED`、`NOT_SATISFIED`、`UNKNOWN`、`CONFLICTING_INPUT`、`STALE_EVIDENCE`、`STALE_POLICY`、`STALE_EPOCH`、`NO_CONFIRMATION_POLICY`を区別する。same-source row重複をsource diversityとして数えず、late evidenceやPolicy switchを既存Evaluationへ取り込まない。
+
+explicit Confirmation Decision transactionだけがexact Evaluationを再検証し、Decision evidence、`SUSPECTED → CONFIRMED` transition、current Epoch projectionを不可分にcommitする。Evaluation response replayとDecision response replayはoriginal evidenceへ収束し、parallel Decisionは一transitionだけを発行する。後続Availability RebindはEpoch/Decisionのhistorical Bindingを変更しない。`CONFIRMED`はfailure fact authorityに限定し、Host authority変更、fencing proof、Recovery Eligibility/Operation、Job/Command、resource claim、VM power mutationを発行しない。
+
 この増分はfailure detection、fencing proof、Recovery Eligibility、Recovery Operationを発行しない。explicit Availability Rebind persistence/runtimeも後続gateであり、live Policy/Binding driftは既存VM Binding revisionを変更しない。

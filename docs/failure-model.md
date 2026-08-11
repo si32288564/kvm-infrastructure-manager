@@ -160,7 +160,9 @@ schema compatibility failure、migration/backfill interruption、missing partiti
 - Recover:再起動後full inventory。再作成はsource fencingとstorage/network条件を必須とする。
 - Prohibited:heartbeat lossだけで同じdiskを別Hostへattachしない。
 
-Migration 050ではfailure signalをclosed typed append-only observationとして記録し、explicit incident keyごとのFailure Epochをcurrent VM Availability Binding/Policy/Admission/allocationへbindする。自動confirmation policy consumerは未実装であり、Epochは`SUSPECTED`から開始する。`UNKNOWN`、heartbeat loss、Agent connectivity loss、Host unreachableは`CONFIRMED`やfencing proofではなく、Recovery Operationを発行しない。late evidenceはhistoryへ追加するだけで過去transitionを変更しない。
+Migration 050ではfailure signalをclosed typed append-only observationとして記録し、explicit incident keyごとのFailure Epochをcurrent VM Availability Binding/Policy/Admission/allocationへbindする。Epochは`SUSPECTED`から開始し、late evidenceはhistoryへ追加するだけで過去transitionを変更しない。
+
+Migration 051のtyped confirmation consumerは、exact AvailabilityPolicyから参照されたclosed Policy revisionとexact evidence snapshotをimmutable Evaluationへ固定する。`UNKNOWN`、`STALE`、`CONFLICTING`、typed Policy欠損はpositive confirmationではない。`SATISFIED` Evaluationだけでもstateを変更せず、explicit Decision transactionだけが`CONFIRMED` transitionを発行する。Decision時のevidence/Policy driftはstaleでありnew inputへsilent re-evaluateしない。`CONFIRMED`は障害factであってsource fencing、Host authority変更、Recovery Eligibility/Operationではない。
 
 Host failure confirmed後はVM Availability Bindingで責任を分岐します。`WORKLOAD_MANAGED`はFault/Eventを送るが自動restartしません。`MANUAL`は明示Decisionを待ちます。`INFRASTRUCTURE_MANAGED`だけがfencing proof、single-writer、restart-on-other-host eligibility、Failure Domain、transactional admissionを満たしてRecovery Operationを開始できます。Policy/Binding/fencing/attachmentがUNKNOWNならBLOCKEDを維持します。
 

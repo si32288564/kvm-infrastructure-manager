@@ -136,6 +136,7 @@
 | AVR-014 | EVACUATEをHost-scoped planからVM単位Operationへ分解し、部分成功、capacity不足、個別BLOCKEDを表現する | Must |
 | AVR-015 | recovery destinationでcurrent Placement Pool/Policy compatibility、Compliance、capacity、Failure Domainを再評価しsilent fallbackしない | Must |
 | AVR-016 | Host failure/recovery Eventをresponsibilityにかかわらずdurableに通知し、delivery failureでresponsibilityを変更しない | Must |
+| AVR-017 | exact AvailabilityPolicy revisionからclosed typed FailureConfirmationPolicy revisionを参照し、exact Epoch/Policy/Evidence snapshotのimmutable Evaluationとexplicit Decisionを分離する。UNKNOWN/STALE/CONFLICTINGはCONFIRMEDへ進めず、accepted DecisionだけがSUSPECTED→CONFIRMED transitionを不可分にcommitし、fencing/recovery authorityを生成しない | Must |
 
 ### 2.6 Workload Resilience Intent
 

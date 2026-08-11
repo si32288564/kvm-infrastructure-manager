@@ -126,6 +126,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-AVR-010 | WORKLOAD_MANAGED Fault/Event sinkを停止する | outbox age/delivery failure | durable retry、responsibility維持 | event/outbox/Policy correlation | INFRA recovery fallback、event loss | sink復旧後同一eventを再送 |
 | FI-AVR-011 | Rebind commit response loss、同一sourceへの並行Rebind、target Policy current switch/retirementを競合させる | request/decision/current pointer outcome ambiguous | same requestは同じDecision/Bindingへ収束、distinct intentはone commit/one stale、exact targetまたはstaleだけ | Request/Decision/Binding digests、source/target revisions、current pointer | rev3 amplification、silent Policy uplift、partial Decision、resource/runtime mutation | current authorityを再読込し必要なら新しい明示Request |
 | FI-AVR-012 | heartbeat/Agent lossのUNKNOWN/late/replayed evidence、duplicate incident open、Failure Epoch openとAvailability Rebindを競合 | signal freshness・epoch/binding outcome ambiguous | SUSPECTED維持、same identity/incidentへ収束、Epochはcomplete old/new Bindingまたはstaleのみ | Epoch/Binding/Policy/evidence/transition digests、source generations | UNKNOWN→CONFIRMED、connectivity loss→FENCED、mixed Binding/Policy、duplicate Epoch、Recovery/mutation | typed confirmation/fencing authorityを待ちcurrent evidenceで別transition |
+| FI-AVR-013 | Confirmation Evaluation後にlate/conflicting evidence、Policy current switch、Availability Rebind、二つのparallel Decision、Evaluation/Decision response lossを競合させる | exact confirmation input/commit outcome ambiguous | complete old Decisionまたはstale rejectだけ。UNKNOWN/STALE/CONFLICTINGはSUSPECTED維持、same-ID replayは同じEvaluation/Decision/transitionへ収束 | Epoch/Binding/Policy/Evidence/Evaluation/Decision/transition identities、generations、digests | silent reevaluation/uplift、duplicate CONFIRMED、historical Binding rewrite、Host fence、Recovery/Job/Claim発行 | current exact inputsに対するnew Evaluationとexplicit Decision、または後続fencing gate |
 | FI-WRI-001 | active/standby memberを同時に同rack/feed候補へfinal admission | Domain Claim row conflict | 一方commit、他方rollback/reselection | constraint/member/claim generations | 両方same-domain commit | distinct candidateまたはbounded insufficient-domain failure |
 | FI-WRI-002 | candidate Hostのrackまたはpower evidenceを欠損/staleにする | domain evidence UNKNOWN | candidate ineligible、distinct countへ含めない | hierarchy/evidence generation、reason | unknownを新domain扱い | trusted current domain evidence |
 | FI-WRI-003 | distinct domain不足時にsoft score候補だけを提示 | hard constraint unsatisfied | Placement failure、claimなし | required/available domain summary | hard-to-soft fallback、same-domain commit | domain capacity追加またはexplicit constraint revision |
@@ -295,7 +296,7 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | Agent | FI-AGENT-001..006 |
 | Host / Lifecycle / Compliance | FI-HOST-001..002, FI-HLC-001..014 |
 | Host Grouping / Failure Domain | FI-HGR-001..015 |
-| Availability Responsibility / Managed Recovery | FI-AVR-001..012 |
+| Availability Responsibility / Managed Recovery | FI-AVR-001..013 |
 | Workload Resilience Intent | FI-WRI-001..009 |
 | Recovery Storm Control | FI-RCV-001..013 |
 | libvirt / QEMU | FI-LIBVIRT-001..002 |
