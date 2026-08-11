@@ -83,6 +83,7 @@
 | HLC-025 | Session Authorization を current Enrollment、Credential Binding、transport session generation、Host capability generation の全てへ bind し、不足または不一致時は PENDING、STALE、FENCED とする | Must |
 | HLC-026 | mTLS authentication、current Credential Binding、current Session Authorization、current capability だけでは Host mutation authority を発行しない | Must |
 | HLC-027 | Host Operation Authority は Enrollment、Credential、session、capability、Baseline Assignment、preflight、Compliance、policy を一 transaction で検証した明示 arming だけで generation を進め、依存 generation 変更は fence のみ行う | Must |
+| HLC-028 | UpgradeとMaintenanceのtyped disruptive Host operationを共通Host-scoped claimで排他し、Lease expiryやprocess lossをside effect不在または別domain mutation許可の証明にしない | Must |
 
 ### 2.4 Host Grouping
 
@@ -110,6 +111,7 @@
 | HGR-020 | cardinality policyをgroup type、dimension、level、scopeのversioned authorityとして管理し、complete set publishを同scopeのsibling HostGroups全体でtransactionally直列化・検証する | Must |
 | HGR-021 | closed typed Selectorをversioned authorityとして管理し、current normalized Host evidenceからimmutable proposal evidenceを作成後、current Selector/input/Cardinality/Hierarchy/HostGroup generationを再検証したcomplete Membership Setだけをatomic materializeする | Must |
 | HGR-022 | HostGroup対象Upgradeをpurpose=UPGRADEのimmutable Membership Snapshotへbindし、Plan/Wave/TargetをSnapshot member evidenceから生成してlive membership変更・Coordinator recovery・Campaign resumeでtarget setを再生成しない | Must |
+| HGR-023 | HostGroup対象Maintenanceをpurpose=MAINTENANCEのimmutable Membership Snapshotへbindし、独立Plan/Wave/typed Targetをatomic publishしてlive membership変更・Coordinator recovery・pause/resumeでtarget setを再生成しない | Must |
 
 ### 2.5 Availability Responsibility and Managed Recovery
 

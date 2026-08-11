@@ -71,7 +71,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HLC-020, HLC-021 | host-lifecycle-and-compliance-architecture, extensibility-architecture | ADR-0011, ADR-0013 | INV-HLC-015, INV-HLC-016 | AT-HLC-019, AT-HLC-020, FI-HLC-010, XCT-HLC-005, XCT-HLC-006 | Planned |
 | HLC-022 | host-lifecycle-and-compliance-architecture, responsibility-boundaries, security | ADR-0011, ADR-0013 | INV-HLC-017, INV-HLC-018 | AT-HLC-021, AT-HLC-022, FI-HLC-011, FI-HLC-012, XCT-HLC-007 | Planned |
 | HLC-023, HLC-024, HLC-025 | host-lifecycle-and-compliance-architecture, pki-and-trust-lifecycle-architecture, agent-protocol | ADR-0013, ADR-0023, ADR-0024 | INV-HLC-019, INV-HLC-020 | AT-HLC-023, AT-HLC-024, FI-HLC-013 | Implemented |
-| HLC-026, HLC-027 | host-lifecycle-and-compliance-architecture, agent-protocol, execution-architecture | ADR-0007, ADR-0013, ADR-0023 | INV-HLC-021, INV-HLC-022, INV-HLC-023 | AT-HLC-025, AT-HLC-026, FI-HLC-013 | Implemented (Command Lease coupling remains P1-B) |
+| HLC-026, HLC-027, HLC-028 | host-lifecycle-and-compliance-architecture, agent-protocol, execution-architecture | ADR-0007, ADR-0013, ADR-0023 | INV-HLC-021, INV-HLC-022, INV-HLC-023, INV-HLC-024 | AT-HLC-025, AT-HLC-026, AT-HLC-027, FI-HLC-013, FI-HLC-014 | Implemented (Host armingとUpgrade/Maintenance cross-domain disruptive claimを実装。broader maintenance backendは継続) |
 
 ## 6. Host Grouping
 
@@ -86,12 +86,13 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | HGR-010 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-008 | AT-HGR-008 | Planned |
 | HGR-011 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-009 | AT-HGR-009, FI-HGR-006 | Planned |
 | HGR-012 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-010, FI-HGR-005 | Partial (immutable membership snapshot implemented; Baseline rollout binding pending) |
-| HGR-013 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-011, FI-HGR-005, FI-HGR-008 | Partial (immutable membership snapshot implemented; maintenance/concurrency consumer pending) |
+| HGR-013 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010, INV-HGR-021 | AT-HGR-011, AT-HGR-022, FI-HGR-005, FI-HGR-008, FI-HGR-015 | Partial (MAINTENANCE Snapshot consumerとglobal Wave concurrencyを実装。failure-domain/minimum-ready/drain completion gateは継続) |
 | HGR-014 | host-grouping-architecture, security | ADR-0014 | INV-HGR-011 | AT-HGR-012 | Planned |
 | HGR-016 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-012 | AT-HGR-014 | Planned |
 | HGR-017 | host-grouping-architecture, availability-responsibility-architecture, placement-architecture | ADR-0014, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Planned |
 | HGR-018, HGR-019 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-015, INV-HGR-016 | AT-HGR-016, AT-HGR-017, FI-HGR-009, FI-HGR-010 | Implemented (whole-set generation、atomic publish、Placement/snapshot binding、legacy backfill) |
 | HGR-022, UPG-032 | host-grouping-architecture, upgrade-and-compatibility-architecture | ADR-0014, ADR-0021 | INV-HGR-020, INV-UPG-031 | AT-HGR-021, AT-UPG-038, FI-HGR-014, FI-UPG-028 | Implemented (UPGRADE Snapshot provenance/digest、transactional Plan binding、Snapshot-derived immutable Targets、recovery/resume target stability、Host eligibility fencing) |
+| HGR-023 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-021 | AT-HGR-022, FI-HGR-015 | Implemented (purpose分離、atomic Plan/Wave/Target、provenance、drift/recovery/resume stability、Host fencing) |
 
 ## 7. Availability Responsibility / Managed Recovery
 

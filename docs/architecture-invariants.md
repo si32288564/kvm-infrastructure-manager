@@ -260,6 +260,7 @@
 | INV-HLC-021 | Session Authorization が AUTHORIZED でも explicit Host Operation Authority arming 前に mutation を許可しない | AT-HLC-025 |
 | INV-HLC-022 | reconnect、credential renewal/rekey、Enrollment、capability、Baseline/preflight/Compliance の変更は既存 Host authority を fence できるが、同一または新 generation を暗黙 arm しない | FI-HLC-013 |
 | INV-HLC-023 | Host Operation Authority は全 current dependency generation と policy/actor を一 transaction で固定し、mutation authorization 時にも同じ binding を再検証する | AT-HLC-026 |
+| INV-HLC-024 | Upgrade/Maintenanceの一方がcurrent disruptive Host claimを持つ間、他domainはside effectを開始せず、Lease expiryだけでclaimを解放しない | AT-HLC-027, FI-HLC-014 |
 
 ## 10. Host Grouping
 
@@ -285,6 +286,7 @@
 | INV-HGR-018 | hierarchyは同一type/dimension/scopeのcomplete accepted graphとしてimmutable evidenceを作成後にcurrent pointerをatomic switchし、current graphの全node generationとlevelがcurrent HostGroup authorityに一致しない限りmembership set、snapshot、Placement authorityを進めない | AT-HGR-019, FI-HGR-012 |
 | INV-HGR-019 | selector match/evaluationはmembership authorityではなく、UNKNOWNをNOT_MATCHEDへ縮退させず、current selector/input/cardinality/hierarchy/HostGroup generationへ再bindしたaccepted complete Membership Setだけがcurrent membershipを進める | AT-HGR-020, FI-HGR-013 |
 | INV-HGR-020 | HostGroup-targeted Upgrade Planはcurrent SetやSelectorを直接評価せず、exact immutable UPGRADE Snapshotとmember evidenceからTargetを一度だけ生成する。live membership drift、Coordinator recovery、PAUSE/RESUMEは既存Plan/Snapshot/Targetを変更しない | AT-HGR-021, FI-HGR-014 |
+| INV-HGR-021 | Maintenanceはexact immutable MAINTENANCE Snapshotから独立Plan/Wave/Targetを一度だけatomic publishし、UPGRADE Snapshotを受理せず、live drift/recovery/pause/resumeでTarget identityを変更しない | AT-HGR-022, FI-HGR-015 |
 
 ## 11. Availability Responsibility and Recovery
 

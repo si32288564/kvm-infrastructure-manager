@@ -73,6 +73,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HLC-024 | session authorization が current Enrollment、Credential Binding、session generation、capability generation を保持し、capability 欠損時は PENDING_CAPABILITY になる |
 | AT-HLC-025 | authenticated/authorized session と READY gate が揃っても explicit arming 前は Host mutation authority row/generation が存在しない |
 | AT-HLC-026 | explicit arming transaction が Enrollment、Credential、session、capability、Baseline、preflight、Compliance、policy を固定し、current mutation authorization が全 binding を再検証する |
+| AT-HLC-027 | 同一Hostのactive Maintenance HOST_DRAIN claimとUpgrade Target claimを競合させ、一方だけがtyped mutation authorityを取得し他方をside effect前に拒否する |
 
 ## 5. Host Grouping
 
@@ -99,6 +100,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-019 | 同一type/dimensionのcomplete hierarchyをordered level、generation-bound node、single-parent relationとしてatomic publishし、cycle/level inversion/multi-parent/parallel stale publisherを拒否する。membership set、snapshot、Placement dry/finalはcurrent accepted hierarchy generationへbindする |
 | AT-HGR-020 | versioned closed typed Selectorをcurrent normalized Host evidenceへpure評価し、MATCHED/NOT_MATCHED/UNKNOWN/UNSUPPORTEDをimmutable evidence化する。materializationはinput/Selector/Cardinality/Hierarchy/HostGroup generationを再検証してcomplete Setをatomic publishし、semantic replayは一authorityへ収束する |
 | AT-HGR-021 | A/B/Cのaccepted Membership SetからUPGRADE Snapshotを作成しPlan/Wave/Targetへbindする。live SetをA/C/Dへ変更後もactive TargetをA/B/Cに保ち、Snapshot/Set raceはcomplete一世代だけを記録する |
+| AT-HGR-022 | A/B/Cのaccepted SetからMAINTENANCE Snapshotと独立Plan/Wave/Targetsをatomic publishし、A/C/D drift、recovery、pause/resume後もA/B/Cとdigestを維持する。purpose mismatch、concurrency、Host fenceもfail closedにする |
 
 ## 6. Availability Responsibility and Recovery
 

@@ -120,6 +120,10 @@ func ClaimUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTarge
 				claimUnavailable = true
 				return nil
 			}
+			if err := acquireHostDisruptiveOperationClaimTx(ctx, tx, componentID, "UPGRADE", request.CampaignID,
+				request.TargetID, "COMPONENT_UPGRADE"); err != nil {
+				return err
+			}
 		}
 		generation := priorAttempt + 1
 		mode := "APPLY_ALLOWED"
@@ -324,12 +328,25 @@ func CompleteUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTa
 		if _, err := requireCurrentUpgradeTargetClaim(ctx, tx, request.TargetID, request.Owner, request.AttemptGeneration); err != nil {
 			return err
 		}
+		var campaignID, componentID string
+		var snapshotBound bool
+		if err := tx.QueryRow(ctx, `SELECT target.campaign_id,target.component_id,
+			EXISTS(SELECT 1 FROM kim.upgrade_target_host_group_member_evidence provenance WHERE provenance.target_id=target.target_id)
+			FROM kim.upgrade_target_evidence target WHERE target.target_id=$1`, request.TargetID).Scan(
+			&campaignID, &componentID, &snapshotBound); err != nil {
+			return err
+		}
 		if request.Outcome == "SUCCEEDED" {
 			var matched bool
 			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.upgrade_target_observation_evidence
 				WHERE target_id=$1 AND attempt_generation=$2 AND observation_state='MATCHED' AND observed_digest=$3)`,
 				request.TargetID, request.AttemptGeneration, request.ObservedDigest).Scan(&matched); err != nil || !matched {
 				return ErrUpgradeTargetObservationConflict
+			}
+		}
+		if snapshotBound {
+			if err := releaseHostDisruptiveOperationClaimTx(ctx, tx, componentID, "UPGRADE", campaignID, request.TargetID); err != nil {
+				return err
 			}
 		}
 		resultID := fmt.Sprintf("upgrade-target-result:%s:%d:%s", request.TargetID, request.AttemptGeneration, request.ResultDigest)
@@ -355,12 +372,11 @@ func CompleteUpgradeTarget(ctx context.Context, db TxBeginner, request UpgradeTa
 			digestReleaseBytes([]byte(eventID))); err != nil {
 			return err
 		}
-		var campaignID string
 		var coordinatorGeneration int64
-		if err := tx.QueryRow(ctx, `SELECT target.campaign_id,attempt.coordinator_claim_generation
+		if err := tx.QueryRow(ctx, `SELECT attempt.coordinator_claim_generation
 			FROM kim.upgrade_target_evidence target JOIN kim.upgrade_target_attempt_evidence attempt
 			 ON attempt.target_id=target.target_id AND attempt.attempt_generation=$2 WHERE target.target_id=$1`,
-			request.TargetID, request.AttemptGeneration).Scan(&campaignID, &coordinatorGeneration); err != nil {
+			request.TargetID, request.AttemptGeneration).Scan(&coordinatorGeneration); err != nil {
 			return err
 		}
 		campaignEventID := fmt.Sprintf("upgrade:%s:target:%s:%s", campaignID, request.TargetID, request.ResultDigest)
