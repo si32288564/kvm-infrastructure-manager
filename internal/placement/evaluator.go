@@ -95,6 +95,8 @@ type AuthoritySnapshot struct {
 	DatabaseMode                                                            string
 	HostID, PoolID                                                          string
 	PoolGeneration, MembershipSetGeneration, MembershipGeneration           uint64
+	HierarchyID                                                             string
+	HierarchyGeneration                                                     uint64
 	PoolPolicyID                                                            string
 	PoolPolicyGeneration                                                    uint64
 	PoolState, MembershipState                                              string
@@ -127,6 +129,8 @@ type Evaluation struct {
 	Score                                                         int64
 	EvaluationDigest                                              string
 	PoolGeneration, MembershipSetGeneration, MembershipGeneration uint64
+	HierarchyID                                                   string
+	HierarchyGeneration                                           uint64
 	PoolPolicyID                                                  string
 	PoolPolicyGeneration                                          uint64
 	CapabilityGeneration                                          uint64
@@ -202,7 +206,8 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		FlavorShapeDigest: request.FlavorShapeDigest,
 		PoolGeneration:    authority.PoolGeneration, MembershipSetGeneration: authority.MembershipSetGeneration,
 		MembershipGeneration: authority.MembershipGeneration,
-		PoolPolicyID:         authority.PoolPolicyID, PoolPolicyGeneration: authority.PoolPolicyGeneration,
+		HierarchyID:          authority.HierarchyID, HierarchyGeneration: authority.HierarchyGeneration,
+		PoolPolicyID: authority.PoolPolicyID, PoolPolicyGeneration: authority.PoolPolicyGeneration,
 		CapabilityGeneration:         authority.CapabilityGeneration,
 		BaselineAssignmentGeneration: authority.BaselineAssignmentGeneration,
 		PreflightGeneration:          authority.PreflightGeneration, ComplianceGeneration: authority.ComplianceGeneration,

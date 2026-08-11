@@ -56,7 +56,7 @@ HostGroupMembershipSet
 ├─ based_on_host_group_generation
 ├─ source_type / source_revision
 ├─ selector_evaluation_generation (optional)
-├─ hierarchy_generation (optional)
+├─ hierarchy_id / hierarchy_generation (current graphが存在する場合は必須)
 ├─ canonical_member_set_digest / member_count
 ├─ validation_state
 └─ immutable set member evidence
@@ -68,6 +68,15 @@ HostGroupRelation
 ├─ dimension / parent_level / child_level
 ├─ hierarchy_generation
 └─ actor / reason / audit
+
+HostGroupHierarchySet
+├─ hierarchy_id / hierarchy_generation
+├─ group_type / dimension / scope
+├─ ordered level evidence
+├─ HostGroup generation-bound node evidence
+├─ parent/child relation evidence
+├─ canonical node/relation digests
+└─ accepted current pointer
 ```
 
 ### Group Types
@@ -137,7 +146,7 @@ complete set proposal
 
 最後のpublishは一つのPostgreSQL transactionです。unknown Host、digest/request conflict、stale Group/set generation、invalid lifecycle、transaction failureのいずれでもold current set全体を維持し、mixed generationを公開しません。同じrequest identity/semantic digestのreplayは元のset evidenceへ収束します。
 
-member除外は過去evidenceを削除せず、new set内の`REMOVED` tombstoneとして保持します。selector/hierarchyは今回のfoundationでは実装せず、optional provenance generationだけをset evidenceへ予約します。
+member除外は過去evidenceを削除せず、new set内の`REMOVED` tombstoneとして保持します。selectorは後続実装ですが、hierarchy authorityが存在するclassではcomplete setをcurrent hierarchy ID/generationへ必ずbindします。hierarchy更新やnode HostGroup generation drift後は、new hierarchyに対するcomplete set再publishまでsnapshot/Placement authorityをfail closedにします。
 selector評価はpureで、`SelectorEvaluation`としてinput generation、selector version、result set、reasonを保存します。resultをPostgreSQL transactionでmembership generationへmaterializeして初めてauthorityになります。selector engineや外部sourceの停止時にlast resultを無期限でcurrentにせず、freshness policy超過後はstale/UNKNOWNにします。
 
 membership add/removeはETag、authorization、audit、idempotencyを必要とします。同じHost集合でも順序に依存しないcanonical digestを持ちます。
@@ -153,6 +162,10 @@ Hierarchyは同じgroup type/dimension内の異なるlevel間に明示されたp
 - parent変更中に不整合なpartial graphを公開しない。
 
 Failure Domainでは`physical-location: site > rack > chassis`のような階層を表現できますが、異なるfailure dimension（physical-locationとpower-path等）は別graphです。
+
+Phase 1の最初のmaterialized profileは`SYSTEM/system + TREE`です。TREEは一つのrootだけを強制する意味ではなく、各non-root nodeがちょうど一つのparentを持つsingle-parent forestです。DAGを暗黙許可しません。publisherはcomplete ordered levels、complete node set、complete relation setを提示し、shared hierarchy scope lock下でcurrent generationを比較してimmutable evidenceを作成後、current pointerを一度だけ切り替えます。cycleはstrict level-rank increaseにより不可能で、level inversion、missing parent、multi-parent、cross type/dimension、inactive/stale HostGroup nodeを拒否します。
+
+同一publish requestのresponse loss replayはcaller proposal identityから元のimmutable evidenceを回収し、後続HostGroup generation driftを理由に過去のaccepted responseを作り直しません。一方、新しいmembership/snapshot/Placement authorityはcurrent graph全nodeがcurrent HostGroup generation/level/lifecycleと一致する場合だけ進めます。
 
 ## 7. Placement Integration
 

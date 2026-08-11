@@ -15,6 +15,14 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
 )
 
+type nestedTestTxBeginner struct {
+	pgx.Tx
+}
+
+func (beginner nestedTestTxBeginner) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
+	return beginner.Tx.Begin(ctx)
+}
+
 func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	databaseURL := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if databaseURL == "" {
@@ -343,6 +351,55 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("stale HostGroup Final Admission left partial authority: %v", counts)
 	}
 	if err := AssignHostPlacementPool(ctx, pool, HostPlacementMembership{HostID: hostID, PoolID: poolID, Generation: 3, State: "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
+
+	hierarchyTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hierarchyDB := nestedTestTxBeginner{Tx: hierarchyTx}
+	preHierarchy, err := DryEvaluatePlacement(ctx, hierarchyDB, request, hostID)
+	if err != nil || !preHierarchy.Eligible {
+		t.Fatalf("pre-hierarchy dry evaluation/error = %#v/%v", preHierarchy, err)
+	}
+	hierarchyRequest := HostGroupHierarchyRequest{
+		PublishRequestID: "placement-hierarchy-1-" + suffix,
+		HierarchyID:      "placement-hierarchy-" + suffix,
+		GroupType:        "PLACEMENT_POOL", Dimension: "service-class",
+		ScopeType: "SYSTEM", ScopeID: "system", GraphMode: "TREE",
+		ExpectedCurrentGeneration: 0, Levels: []string{"pool"}, NodeGroupIDs: []string{poolID},
+	}
+	hierarchy1, err := PublishHostGroupHierarchy(ctx, hierarchyDB, hierarchyRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FinalAdmitPlacement(ctx, hierarchyDB, request, preHierarchy); !errors.Is(err, ErrPlacementStale) {
+		t.Fatalf("unbound membership set after hierarchy publish admission error = %v", err)
+	}
+	if counts := placementMutationCounts(t, ctx, hierarchyTx); counts != before {
+		t.Fatalf("hierarchy publish stale admission left partial authority: %v", counts)
+	}
+	if err := AssignHostPlacementPool(ctx, hierarchyDB, HostPlacementMembership{HostID: hostID, PoolID: poolID, Generation: 3, State: "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
+	hierarchyCurrent, err := DryEvaluatePlacement(ctx, hierarchyDB, request, hostID)
+	if err != nil || !hierarchyCurrent.Eligible || hierarchyCurrent.HierarchyGeneration != 1 {
+		t.Fatalf("hierarchy-bound dry evaluation/error = %#v/%v", hierarchyCurrent, err)
+	}
+	hierarchyRequest.PublishRequestID = "placement-hierarchy-2-" + suffix
+	hierarchyRequest.HierarchyID = "placement-hierarchy-2-" + suffix
+	hierarchyRequest.ExpectedCurrentGeneration = hierarchy1.HierarchyGeneration
+	if _, err := PublishHostGroupHierarchy(ctx, hierarchyDB, hierarchyRequest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FinalAdmitPlacement(ctx, hierarchyDB, request, hierarchyCurrent); !errors.Is(err, ErrPlacementStale) {
+		t.Fatalf("stale hierarchy generation admission error = %v", err)
+	}
+	if counts := placementMutationCounts(t, ctx, hierarchyTx); counts != before {
+		t.Fatalf("stale hierarchy Final Admission left partial authority: %v", counts)
+	}
+	if err := hierarchyTx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
 

@@ -248,11 +248,17 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				 AND cardinality_policy.dimension=group_current.dimension
 				 AND cardinality_policy.level=group_current.level
 				 AND cardinality_policy.scope_type='SYSTEM' AND cardinality_policy.scope_id='system'
+				LEFT JOIN kim.host_group_hierarchy_sets_current hierarchy_current
+				  ON hierarchy_current.group_type=group_current.group_type
+				 AND hierarchy_current.dimension=group_current.dimension
+				 AND hierarchy_current.scope_type='SYSTEM' AND hierarchy_current.scope_id='system'
 				JOIN kim.host_group_memberships_current member USING (host_group_id)
 				WHERE group_current.host_group_id=$1 AND member.host_id=$2
 				  AND group_current.host_group_generation=$3
 				  AND set_current.membership_set_generation=$4
 				  AND member.membership_set_generation=$4 AND member.membership_generation=$5
+				  AND COALESCE(set_current.hierarchy_id,'')=$6
+				  AND COALESCE(set_current.hierarchy_generation,0)=$7
 				  AND group_current.lifecycle_state='ACTIVE' AND set_current.validation_state='ACCEPTED'
 				  AND cardinality_policy.policy_state='ACTIVE'
 				  AND ((set_current.cardinality_policy_id=cardinality_policy.cardinality_policy_id
@@ -260,9 +266,31 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				        AND set_current.cardinality=cardinality_policy.cardinality)
 				       OR (set_current.cardinality_policy_id IS NULL
 				           AND cardinality_policy.policy_generation=1 AND cardinality_policy.cardinality='MANY'))
+				  AND (
+				    (hierarchy_current.hierarchy_id IS NULL AND set_current.hierarchy_id IS NULL)
+				    OR (set_current.hierarchy_id=hierarchy_current.hierarchy_id
+				        AND set_current.hierarchy_generation=hierarchy_current.hierarchy_generation
+				        AND EXISTS (
+				          SELECT 1 FROM kim.host_group_hierarchy_node_evidence node
+				          WHERE node.hierarchy_id=hierarchy_current.hierarchy_id
+				            AND node.hierarchy_generation=hierarchy_current.hierarchy_generation
+				            AND node.host_group_id=group_current.host_group_id
+				            AND node.host_group_generation=group_current.host_group_generation
+				            AND node.level=group_current.level
+				        )
+				        AND NOT EXISTS (
+				          SELECT 1 FROM kim.host_group_hierarchy_node_evidence graph_node
+				          JOIN kim.host_groups_current graph_group ON graph_group.host_group_id=graph_node.host_group_id
+				          WHERE graph_node.hierarchy_id=hierarchy_current.hierarchy_id
+				            AND graph_node.hierarchy_generation=hierarchy_current.hierarchy_generation
+				            AND (graph_node.host_group_generation<>graph_group.host_group_generation
+				                 OR graph_node.level<>graph_group.level OR graph_group.lifecycle_state<>'ACTIVE')
+				        ))
+				  )
 				  AND member.membership_state='ACTIVE'
 			)
-		`, request.PoolID, dry.HostID, dry.PoolGeneration, dry.MembershipSetGeneration, dry.MembershipGeneration).Scan(&membershipSetCurrent); err != nil || !membershipSetCurrent {
+		`, request.PoolID, dry.HostID, dry.PoolGeneration, dry.MembershipSetGeneration,
+			dry.MembershipGeneration, dry.HierarchyID, dry.HierarchyGeneration).Scan(&membershipSetCurrent); err != nil || !membershipSetCurrent {
 			return ErrPlacementStale
 		}
 		current, err := evaluatePlacementTx(ctx, tx, request, dry.HostID)
@@ -289,6 +317,7 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				admission_id, request_id, request_digest, evaluation_digest,
 				project_id, workload_id, host_id, pool_id, pool_generation,
 				pool_policy_id, pool_policy_generation, membership_set_generation, membership_generation,
+				hierarchy_id,hierarchy_generation,
 				image_id, image_revision, flavor_id,
 				flavor_revision, flavor_shape_digest, capability_generation,
 				baseline_assignment_generation, preflight_generation,
@@ -296,11 +325,12 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				network_requirements, network_requirements_digest,
 				storage_requirements, storage_requirements_digest,
 				decision_state, explanation
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,'ACCEPTED',$29)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,'ACCEPTED',$31)
 		`, admission.AdmissionID, request.RequestID, current.RequestDigest, current.EvaluationDigest,
 			request.ProjectID, request.WorkloadID, current.HostID, current.PoolID,
 			current.PoolGeneration, current.PoolPolicyID, current.PoolPolicyGeneration, current.MembershipSetGeneration,
-			current.MembershipGeneration, current.ImageID, current.ImageRevision,
+			current.MembershipGeneration, nullablePlacementHierarchyID(current), nullablePlacementHierarchyGeneration(current),
+			current.ImageID, current.ImageRevision,
 			current.FlavorID, current.FlavorRevision, current.FlavorShapeDigest,
 			current.CapabilityGeneration, current.BaselineAssignmentGeneration,
 			current.PreflightGeneration, current.ComplianceGeneration,
@@ -394,6 +424,8 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		       host_group.host_group_generation, pool.policy_id, pool.policy_generation,
 		       membership_set.membership_set_generation,
 		       membership.membership_generation,
+		       COALESCE(membership_set.hierarchy_id,''),
+		       COALESCE(membership_set.hierarchy_generation,0),
 		       host_group.lifecycle_state, membership.membership_state,
 		       capability.observation_generation, capability.projection_state,
 		       gates.gate_state, gates.preflight_state, gates.compliance_state,
@@ -427,6 +459,10 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		       AND membership_set.cardinality=cardinality_policy.cardinality)
 		      OR (membership_set.cardinality_policy_id IS NULL
 		          AND cardinality_policy.policy_generation=1 AND cardinality_policy.cardinality='MANY'))
+		LEFT JOIN kim.host_group_hierarchy_sets_current hierarchy_current
+		  ON hierarchy_current.group_type=host_group.group_type
+		 AND hierarchy_current.dimension=host_group.dimension
+		 AND hierarchy_current.scope_type='SYSTEM' AND hierarchy_current.scope_id='system'
 		JOIN kim.placement_pools_current pool ON pool.pool_id=host_group.host_group_id
 		LEFT JOIN LATERAL (
 			SELECT sum(vcpus) vcpus, sum(memory_mib) memory_mib
@@ -435,9 +471,31 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 			  AND claim_state IN ('RESERVED','ALLOCATED','RELEASE_PENDING')
 		) claims ON true
 		WHERE database.singleton AND capability.host_id=$1
+		  AND (
+		    (hierarchy_current.hierarchy_id IS NULL AND membership_set.hierarchy_id IS NULL)
+		    OR (membership_set.hierarchy_id=hierarchy_current.hierarchy_id
+		        AND membership_set.hierarchy_generation=hierarchy_current.hierarchy_generation
+		        AND EXISTS (
+		          SELECT 1 FROM kim.host_group_hierarchy_node_evidence node
+		          WHERE node.hierarchy_id=hierarchy_current.hierarchy_id
+		            AND node.hierarchy_generation=hierarchy_current.hierarchy_generation
+		            AND node.host_group_id=host_group.host_group_id
+		            AND node.host_group_generation=host_group.host_group_generation
+		            AND node.level=host_group.level
+		        )
+		        AND NOT EXISTS (
+		          SELECT 1 FROM kim.host_group_hierarchy_node_evidence graph_node
+		          JOIN kim.host_groups_current graph_group ON graph_group.host_group_id=graph_node.host_group_id
+		          WHERE graph_node.hierarchy_id=hierarchy_current.hierarchy_id
+		            AND graph_node.hierarchy_generation=hierarchy_current.hierarchy_generation
+		            AND (graph_node.host_group_generation<>graph_group.host_group_generation
+		                 OR graph_node.level<>graph_group.level OR graph_group.lifecycle_state<>'ACTIVE')
+		        ))
+		  )
 	`, hostID, request.PoolID).Scan(&authority.DatabaseMode, &authority.HostID, &authority.PoolID,
 		&authority.PoolGeneration, &authority.PoolPolicyID, &authority.PoolPolicyGeneration,
-		&authority.MembershipSetGeneration, &authority.MembershipGeneration, &authority.PoolState,
+		&authority.MembershipSetGeneration, &authority.MembershipGeneration,
+		&authority.HierarchyID, &authority.HierarchyGeneration, &authority.PoolState,
 		&authority.MembershipState, &authority.CapabilityGeneration, &authority.CapabilityState,
 		&authority.ReadinessState, &authority.PreflightState, &authority.ComplianceState,
 		&authority.ReadinessCapabilityGeneration, &authority.BaselineAssignmentGeneration, &authority.PreflightGeneration,
@@ -492,6 +550,20 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		return placement.Evaluation{}, err
 	}
 	return placement.Evaluate(evaluationRequest, authority)
+}
+
+func nullablePlacementHierarchyID(evaluation placement.Evaluation) any {
+	if evaluation.HierarchyGeneration == 0 {
+		return nil
+	}
+	return evaluation.HierarchyID
+}
+
+func nullablePlacementHierarchyGeneration(evaluation placement.Evaluation) any {
+	if evaluation.HierarchyGeneration == 0 {
+		return nil
+	}
+	return evaluation.HierarchyGeneration
 }
 
 func loadPCIDeviceAuthority(ctx context.Context, row QueryRower, hostID string, required placement.PCIRequirement) (placement.PCIDeviceAuthority, bool, error) {
