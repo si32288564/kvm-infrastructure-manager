@@ -316,6 +316,10 @@
 | INV-AVR-019 | confirmation Evaluationはexact Epoch generation、historical Availability Binding、typed Policy revision/digest、Evidence identities/generations/digestsを固定するpure evidenceであり、SATISFIEDだけではEpoch stateを変更しない | AT-AVR-019, FI-AVR-013 |
 | INV-AVR-020 | UNKNOWN、STALE、CONFLICTING、typed Policy欠損をpositive confirmationへ縮退させず、Decision時のPolicy/Evidence/Epoch driftをsilent re-evaluationまたはcurrent revisionへのupliftで解決しない | AT-AVR-019, FI-AVR-013 |
 | INV-AVR-021 | accepted Confirmation DecisionだけがSUSPECTED→CONFIRMED transition/currentをatomic commitし、same-ID replayやparallel Decisionでgenerationを増幅しない。CONFIRMEDはHost authority、fencing proof、Recovery Eligibility/Operation、resource/runtime mutationを生成しない | AT-AVR-019, FI-AVR-013 |
+| INV-AVR-022 | CONFIRMED、heartbeat/Agent loss、Host authority lossのいずれもFencing Proofではない。closed `KIM_AUTHORITY_FENCED_AND_LIBVIRT_SHUTOFF` evaluationはexact Host authority FENCED eventとstandard libvirt SHUTOFF/MATCHED evidenceの両方を要求する | AT-AVR-020, FI-AVR-014 |
+| INV-AVR-023 | Fencing EvaluationとFencing Proofを分離し、positive explicit ProofだけがCONFIRMED→FENCED transitionのcause authorityになる。UNKNOWN/NOT_PROVEN/CONFLICTING/STALEはFENCEDへ進めない | AT-AVR-020, FI-AVR-014 |
+| INV-AVR-024 | Local LVM Storage Safety Evaluationはexact Attachment evidence、Claim state generation、Binding/observation generationを固定し、DETACHED、RELEASED、BOUND、MATCHED、device absent、holder closedの全条件を要求する。Storage ProofはFencing Proofと独立である | AT-AVR-020, FI-AVR-014 |
+| INV-AVR-025 | safety Evaluation/Proofのsame-ID replayとparallel materializationはoriginal evidenceへ収束し、Policy/Evidence/Epoch driftはexact-old complete commitまたはstale rejectだけを許す。後続Rebindはhistorical Epoch/Binding provenanceを書き換えず、両proofもRecovery authorityやJob/Command/Claimを生成しない | AT-AVR-020, FI-AVR-014 |
 
 ## 12. Workload Resilience Intent
 

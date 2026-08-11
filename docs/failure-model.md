@@ -164,6 +164,8 @@ Migration 050ではfailure signalをclosed typed append-only observationとし�
 
 Migration 051のtyped confirmation consumerは、exact AvailabilityPolicyから参照されたclosed Policy revisionとexact evidence snapshotをimmutable Evaluationへ固定する。`UNKNOWN`、`STALE`、`CONFLICTING`、typed Policy欠損はpositive confirmationではない。`SATISFIED` Evaluationだけでもstateを変更せず、explicit Decision transactionだけが`CONFIRMED` transitionを発行する。Decision時のevidence/Policy driftはstaleでありnew inputへsilent re-evaluateしない。`CONFIRMED`は障害factであってsource fencing、Host authority変更、Recovery Eligibility/Operationではない。
 
+Migration 052では`CONFIRMED != FENCED`をpersistence transitionにも適用する。connectivity lossはFencing inputではなく、positive bounded source-execution proofにはHost authorityのexplicit `FENCED` eventと同じsource VMのlibvirt `SHUTOFF/MATCHED` read-backを要求する。UNKNOWN/NOT_PROVENは`FENCED`へ縮退しない。Local LVM Storage Safetyは別Evaluation/Proofであり、Attachment/Claim/Bindingのexact generationとdevice/holder absenceを要求する。Fencingだけ、Storage Safetyだけ、または両方の存在もRecovery authorityを意味しない。
+
 Host failure confirmed後はVM Availability Bindingで責任を分岐します。`WORKLOAD_MANAGED`はFault/Eventを送るが自動restartしません。`MANUAL`は明示Decisionを待ちます。`INFRASTRUCTURE_MANAGED`だけがfencing proof、single-writer、restart-on-other-host eligibility、Failure Domain、transactional admissionを満たしてRecovery Operationを開始できます。Policy/Binding/fencing/attachmentがUNKNOWNならBLOCKEDを維持します。
 
 NF側HAのmember Placementではrack/power等のDomain Claimをtransactionalに競合制御し、domain不足/UNKNOWNをsilent relaxしません。domain driftはVIOLATED/UNKNOWNとして通知し、既存VMを暗黙migrationしません。

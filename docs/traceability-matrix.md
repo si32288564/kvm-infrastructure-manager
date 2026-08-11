@@ -113,6 +113,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | AVR-015 | availability-responsibility-architecture, placement-architecture | ADR-0006, ADR-0015 | INV-AVR-008 | AT-AVR-015, FI-AVR-008 | Planned |
 | AVR-016 | availability-responsibility-architecture, responsibility-boundaries | ADR-0015 | INV-AVR-012 | AT-AVR-016, FI-AVR-010 | Planned |
 | AVR-017 | availability-responsibility-architecture, failure-model, responsibility-boundaries, host-lifecycle-and-compliance-architecture | ADR-0010, ADR-0015 | INV-AVR-019, INV-AVR-020, INV-AVR-021 | AT-AVR-019, FI-AVR-013 | Implemented (migration 051: closed typed Policy/exact AvailabilityPolicy binding、immutable Evaluation/input snapshot/Decision、atomic CONFIRMED transition、drift/replay/race fencing、no fencing/recovery side effect) |
+| AVR-018 | availability-responsibility-architecture, failure-model, responsibility-boundaries, host-lifecycle-and-compliance-architecture, storage-attachment-fencing-architecture | ADR-0010, ADR-0015, ADR-0019 | INV-AVR-022, INV-AVR-023, INV-AVR-024, INV-AVR-025 | AT-AVR-020, FI-AVR-014 | Implemented (migration 052: independent closed typed Fencing/Local LVM Storage Safety Policy、exact historical bindings、pure Evaluations、explicit positive Proofs、authority-aware FENCED transition、generation drift/replay/concurrency fencing、no Recovery/runtime side effect) |
 
 ## 8. Workload Resilience Intent
 

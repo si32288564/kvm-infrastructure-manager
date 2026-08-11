@@ -284,6 +284,8 @@ mutationはidempotency key、ETag/generation、Operationを要求します。Eve
 
 ## 18. Verification Contract
 
+Migration 052のPhase 1 Storage Safety authorityはLocal LVMだけを対象とし、Failure Epochのexact AdmissionからAttachment evidence setを構成します。positive `SAFE`にはcurrent Attachmentが`DETACHED`、single-writer Claimが`RELEASED`、Bindingが`BOUND`、typed read-backが`MATCHED`、device absent、holder closedであることを要求します。Evaluation inputはClaim state generationとBinding/observation generationを固定するため、stateの変更後復帰（ABA）もold Evaluationの再利用を許しません。Storage Safety Proofはsource compute Fencing Proofと独立し、Volume existence/readabilityだけをSAFEにせず、Claim解放、new attachment、Recovery Eligibility/Operationを発行しません。
+
 - concurrent single-writer Attachment Claim
 - attach/detach side effect後のresponse lossとUNKNOWN/read-back
 - stale/delayed libvirt、Ceph watcher/lock、LVM holder observation

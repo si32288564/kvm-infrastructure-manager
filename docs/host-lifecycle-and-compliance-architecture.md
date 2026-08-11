@@ -457,3 +457,5 @@ KIMはdecommission時にOS wipe、firmware reset、物理破棄を暗黙実行�
 
 すべてのmutationはETag/If-Match、Idempotency-Key、Operation、Audit contractに従います。
 Failure Epoch consumerはHost identity、current session/credential、Host Operation Authority generationをevidence provenanceとして参照できますが、それらのloss/stale/fenced stateをphysical Host fencing proofへ昇格させません。Migration 050はfailure observationと`SUSPECTED` incident trackingを行い、Migration 051はtyped Confirmation Decisionによる`CONFIRMED` factまでを行います。どちらもEnrollment、readiness、Host authority、VM/runtime stateを変更しません。
+
+Migration 052のclosed fencing proofは既存Host authority mutationを代替しません。explicit Host authority `FENCED` eventとstandard libvirt VM `SHUTOFF/MATCHED` evidenceを別々に参照し、その組合せが満たすKIM execution boundaryだけを証明します。これはBMC power-offやstorage fencingの証明ではなく、Proof materialization自体もHost authority/session/readinessを変更しません。

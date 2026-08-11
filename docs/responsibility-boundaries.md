@@ -127,3 +127,5 @@ KIMは以下を暗黙にも代行しません。
 ## Failure evidence authority boundary
 
 Failure observationは何を誰がどのgenerationで観測したかを保持し、Failure Epochは一incidentのidentityとその時点のexact VM Availability Bindingを固定します。signal、Epoch、confirmation、fencing proof、Recovery Eligibility、Recovery Operationは別authorityです。Migration 050はtyped observationと`SUSPECTED` Epochを実装し、Migration 051はexact typed Policy/Evidence snapshotのpure Evaluationとexplicit Decisionを分離して`CONFIRMED` factまでを実装します。heartbeat/Agent loss、`UNKNOWN`、`STALE`、`CONFLICTING`をconfirmationへ昇格させず、`CONFIRMED`からHost fencing、Recovery、resource/runtime mutationを暗黙生成しません。
+
+Migration 052はFailure Fencing ProofとLocal LVM Storage Safety Proofをさらに分離します。Fencingはsource execution停止のbounded positive authority、Storage Safetyはsource Attachment/holder/single-writer ownershipのpositive authorityです。一方のproofで他方を推測せず、EvaluationをProofへ、proof集合をRecovery Eligibility/Operationへ暗黙昇格させません。

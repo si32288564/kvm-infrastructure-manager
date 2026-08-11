@@ -19,8 +19,11 @@ type AvailabilityPolicyRevision struct {
 	EscalationPolicy, NotificationPolicy, SupportTier                   string
 	LifecycleState, CreatedBy, ApprovedBy                               string
 	FailureConfirmationPolicyID, FailureConfirmationPolicyDigest        string
+	FencingPolicyID, FencingPolicyDigest                                string
+	StorageSafetyPolicyID, StorageSafetyPolicyDigest                    string
 	PolicyRevision                                                      uint64
 	FailureConfirmationPolicyRevision                                   uint64
+	FencingPolicyRevision, StorageSafetyPolicyRevision                  uint64
 	MaxAttempts                                                         int
 }
 
@@ -76,6 +79,14 @@ func validAvailabilityPolicy(policy AvailabilityPolicyRevision) bool {
 	}
 	hasConfirmationRef := policy.FailureConfirmationPolicyID != "" || policy.FailureConfirmationPolicyRevision != 0 || policy.FailureConfirmationPolicyDigest != ""
 	if hasConfirmationRef && (policy.FailureConfirmationPolicyID == "" || policy.FailureConfirmationPolicyRevision == 0 || policy.FailureConfirmationPolicyDigest == "") {
+		return false
+	}
+	hasFencingRef := policy.FencingPolicyID != "" || policy.FencingPolicyRevision != 0 || policy.FencingPolicyDigest != ""
+	if hasFencingRef && (policy.FencingPolicyID == "" || policy.FencingPolicyRevision == 0 || policy.FencingPolicyDigest == "") {
+		return false
+	}
+	hasStorageSafetyRef := policy.StorageSafetyPolicyID != "" || policy.StorageSafetyPolicyRevision != 0 || policy.StorageSafetyPolicyDigest != ""
+	if hasStorageSafetyRef && (policy.StorageSafetyPolicyID == "" || policy.StorageSafetyPolicyRevision == 0 || policy.StorageSafetyPolicyDigest == "") {
 		return false
 	}
 	return (policy.Responsibility == "INFRASTRUCTURE_MANAGED" &&
@@ -150,6 +161,48 @@ func PublishAvailabilityPolicy(ctx context.Context, db TxBeginner, policy Availa
 		} else if revisionExists {
 			var associationCount int
 			if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.availability_policy_confirmation_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&associationCount); err != nil || associationCount != 0 {
+				return ErrAvailabilityPolicyConflict
+			}
+		}
+		if policy.FencingPolicyID != "" {
+			var lifecycle string
+			if err := tx.QueryRow(ctx, `SELECT lifecycle_state FROM kim.failure_fencing_policies_current WHERE policy_id=$1 AND policy_revision=$2 AND policy_digest=$3 FOR SHARE`, policy.FencingPolicyID, policy.FencingPolicyRevision, policy.FencingPolicyDigest).Scan(&lifecycle); err != nil || lifecycle != "ACTIVE" {
+				return ErrAvailabilityPolicyConflict
+			}
+			bindingRaw, _ := json.Marshal([]any{policy.PolicyID, policy.PolicyRevision, digest, policy.FencingPolicyID, policy.FencingPolicyRevision, policy.FencingPolicyDigest})
+			bindingDigest := digestReleaseBytes(bindingRaw)
+			if revisionExists {
+				var existing string
+				if err := tx.QueryRow(ctx, `SELECT binding_digest FROM kim.availability_policy_fencing_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&existing); err != nil || existing != bindingDigest {
+					return ErrAvailabilityPolicyConflict
+				}
+			} else if _, err := tx.Exec(ctx, `INSERT INTO kim.availability_policy_fencing_binding_evidence(availability_policy_id,availability_policy_revision,availability_policy_digest,fencing_policy_id,fencing_policy_revision,fencing_policy_digest,binding_digest) VALUES($1,$2,$3,$4,$5,$6,$7)`, policy.PolicyID, policy.PolicyRevision, digest, policy.FencingPolicyID, policy.FencingPolicyRevision, policy.FencingPolicyDigest, bindingDigest); err != nil {
+				return err
+			}
+		} else if revisionExists {
+			var associationCount int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.availability_policy_fencing_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&associationCount); err != nil || associationCount != 0 {
+				return ErrAvailabilityPolicyConflict
+			}
+		}
+		if policy.StorageSafetyPolicyID != "" {
+			var lifecycle string
+			if err := tx.QueryRow(ctx, `SELECT lifecycle_state FROM kim.storage_safety_policies_current WHERE policy_id=$1 AND policy_revision=$2 AND policy_digest=$3 FOR SHARE`, policy.StorageSafetyPolicyID, policy.StorageSafetyPolicyRevision, policy.StorageSafetyPolicyDigest).Scan(&lifecycle); err != nil || lifecycle != "ACTIVE" {
+				return ErrAvailabilityPolicyConflict
+			}
+			bindingRaw, _ := json.Marshal([]any{policy.PolicyID, policy.PolicyRevision, digest, policy.StorageSafetyPolicyID, policy.StorageSafetyPolicyRevision, policy.StorageSafetyPolicyDigest})
+			bindingDigest := digestReleaseBytes(bindingRaw)
+			if revisionExists {
+				var existing string
+				if err := tx.QueryRow(ctx, `SELECT binding_digest FROM kim.availability_policy_storage_safety_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&existing); err != nil || existing != bindingDigest {
+					return ErrAvailabilityPolicyConflict
+				}
+			} else if _, err := tx.Exec(ctx, `INSERT INTO kim.availability_policy_storage_safety_binding_evidence(availability_policy_id,availability_policy_revision,availability_policy_digest,storage_safety_policy_id,storage_safety_policy_revision,storage_safety_policy_digest,binding_digest) VALUES($1,$2,$3,$4,$5,$6,$7)`, policy.PolicyID, policy.PolicyRevision, digest, policy.StorageSafetyPolicyID, policy.StorageSafetyPolicyRevision, policy.StorageSafetyPolicyDigest, bindingDigest); err != nil {
+				return err
+			}
+		} else if revisionExists {
+			var associationCount int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.availability_policy_storage_safety_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&associationCount); err != nil || associationCount != 0 {
 				return ErrAvailabilityPolicyConflict
 			}
 		}
