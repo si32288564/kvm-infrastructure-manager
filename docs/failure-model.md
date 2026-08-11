@@ -280,6 +280,8 @@ HostGroup selector/source failure、exclusive membership conflict、hierarchy cy
 | Time/clock failure | 既存workload/dataplane維持 | auth/placement/dispatch/GC等をscope別停止 | healthy clock+new generationから再評価 | offset/uncertainty/continuityまたはside effect不明 |
 | PKI/trust failure | 既存workload/dataplane維持 | affected session/privileged mutation停止 | current trust/revocation/identity evidenceからreissue/rejoin | issuer/key/session/resource fencing不明 |
 
+Recovery permissionはfailure factやproof rowの存在から推測しない。Migration 053のRecovery Eligibilityはhistorical Failure Epoch/Availability Bindingを固定したまま、current Host authority event、VM power evidence、Storage Attachment/Claim/Binding generationを再検証する。state名が元へ戻るABA、budget枯渇、destination drift、`WORKLOAD_MANAGED`/`MANUAL`はfail closedである。accepted Eligibility DecisionとPlanning Budget ClaimもRecovery Operation、dispatch、resource reservation、side effectではない。
+
 ## 7. Verification and Fault Injection
 
 Phase 0で各failure classに以下を関連付けます。

@@ -21,9 +21,11 @@ type AvailabilityPolicyRevision struct {
 	FailureConfirmationPolicyID, FailureConfirmationPolicyDigest        string
 	FencingPolicyID, FencingPolicyDigest                                string
 	StorageSafetyPolicyID, StorageSafetyPolicyDigest                    string
+	RecoveryBudgetPolicyID, RecoveryBudgetPolicyDigest                  string
 	PolicyRevision                                                      uint64
 	FailureConfirmationPolicyRevision                                   uint64
 	FencingPolicyRevision, StorageSafetyPolicyRevision                  uint64
+	RecoveryBudgetPolicyRevision                                        uint64
 	MaxAttempts                                                         int
 }
 
@@ -87,6 +89,10 @@ func validAvailabilityPolicy(policy AvailabilityPolicyRevision) bool {
 	}
 	hasStorageSafetyRef := policy.StorageSafetyPolicyID != "" || policy.StorageSafetyPolicyRevision != 0 || policy.StorageSafetyPolicyDigest != ""
 	if hasStorageSafetyRef && (policy.StorageSafetyPolicyID == "" || policy.StorageSafetyPolicyRevision == 0 || policy.StorageSafetyPolicyDigest == "") {
+		return false
+	}
+	hasRecoveryBudgetRef := policy.RecoveryBudgetPolicyID != "" || policy.RecoveryBudgetPolicyRevision != 0 || policy.RecoveryBudgetPolicyDigest != ""
+	if hasRecoveryBudgetRef && (policy.RecoveryBudgetPolicyID == "" || policy.RecoveryBudgetPolicyRevision == 0 || policy.RecoveryBudgetPolicyDigest == "") {
 		return false
 	}
 	return (policy.Responsibility == "INFRASTRUCTURE_MANAGED" &&
@@ -203,6 +209,27 @@ func PublishAvailabilityPolicy(ctx context.Context, db TxBeginner, policy Availa
 		} else if revisionExists {
 			var associationCount int
 			if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.availability_policy_storage_safety_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&associationCount); err != nil || associationCount != 0 {
+				return ErrAvailabilityPolicyConflict
+			}
+		}
+		if policy.RecoveryBudgetPolicyID != "" {
+			var lifecycle string
+			if err := tx.QueryRow(ctx, `SELECT lifecycle_state FROM kim.recovery_budget_policies_current WHERE policy_id=$1 AND policy_revision=$2 AND policy_digest=$3 FOR SHARE`, policy.RecoveryBudgetPolicyID, policy.RecoveryBudgetPolicyRevision, policy.RecoveryBudgetPolicyDigest).Scan(&lifecycle); err != nil || lifecycle != "ACTIVE" {
+				return ErrAvailabilityPolicyConflict
+			}
+			bindingRaw, _ := json.Marshal([]any{policy.PolicyID, policy.PolicyRevision, digest, policy.RecoveryBudgetPolicyID, policy.RecoveryBudgetPolicyRevision, policy.RecoveryBudgetPolicyDigest})
+			bindingDigest := digestReleaseBytes(bindingRaw)
+			if revisionExists {
+				var existing string
+				if err := tx.QueryRow(ctx, `SELECT binding_digest FROM kim.availability_policy_recovery_budget_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&existing); err != nil || existing != bindingDigest {
+					return ErrAvailabilityPolicyConflict
+				}
+			} else if _, err := tx.Exec(ctx, `INSERT INTO kim.availability_policy_recovery_budget_binding_evidence(availability_policy_id,availability_policy_revision,availability_policy_digest,recovery_budget_policy_id,recovery_budget_policy_revision,recovery_budget_policy_digest,binding_digest) VALUES($1,$2,$3,$4,$5,$6,$7)`, policy.PolicyID, policy.PolicyRevision, digest, policy.RecoveryBudgetPolicyID, policy.RecoveryBudgetPolicyRevision, policy.RecoveryBudgetPolicyDigest, bindingDigest); err != nil {
+				return err
+			}
+		} else if revisionExists {
+			var associationCount int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.availability_policy_recovery_budget_binding_evidence WHERE availability_policy_id=$1 AND availability_policy_revision=$2`, policy.PolicyID, policy.PolicyRevision).Scan(&associationCount); err != nil || associationCount != 0 {
 				return ErrAvailabilityPolicyConflict
 			}
 		}

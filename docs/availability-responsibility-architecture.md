@@ -197,6 +197,28 @@ Faultを`ACTION_REQUIRED`として保持し、自動VM mutationを開始しま�
 
 一つでもUNKNOWNならautomatic recoveryを開始しません。既存のVM定義、Volume attachment、Allocationを推測cleanupしません。
 
+Recovery Eligibilityはpermission authorityであり、次を分離する。
+
+```text
+Recovery Eligibility Evaluation
+  = exact historical/current inputsのpure snapshot
+
+Recovery Eligibility Decision
+  = recovery planningを開始してよいexplicit permission
+
+Recovery Budget Claim (GLOBAL / PLANNING)
+  = bounded planning admission
+
+Recovery Operation / Final Admission
+  = 後続の別mutation/resource authority
+```
+
+`ELIGIBLE Evaluation`だけではDecisionまたはBudget Claimを作らない。positive Decision transactionはexact Epoch transition、historical Availability Binding/Policy/responsibility/action、Confirmation Decision、current-usable Fencing/Storage Proof、typed RecoveryBudgetPolicy、destination snapshotを再検証し、DecisionとBudget Claimだけをatomic commitする。Budget Claimはdispatch、Placement、resource reservation、Job/Command/Leaseではない。
+
+Fencing/Storage Proofはimmutable historical evidenceであり、存在だけではcurrent usableにならない。Host authority event/generation、VM power observation、Attachment observation、Claim state generation、Binding generationを再検証する。`FENCED → ARMED → FENCED`または`RELEASED → ACTIVE → RELEASED`のABA後は、現在のstate名が一致しても旧Proofを`STALE`とする。
+
+destinationは既存Placement Scope/eligibilityのread-only pathから評価し、source Hostを除外する。candidate snapshotはScope、HostGroup/Membership Set、Host readiness/capability、ordinary Placement evaluation、effective AvailabilityPolicy provenanceをimmutableに保持する。candidateが存在してもcapacity/IP/PCI/network/storageを予約しないため、future Recovery Operation/Final Admissionはcurrent inputsを再検証する。
+
 ## 9. Execution and Idempotency
 
 ```text
@@ -437,3 +459,9 @@ Migration 052はFencingとStorage Safetyを別のtyped authorityとして追加�
 Phase 1 Storage Safetyは`LOCAL_LVM / SOURCE_DETACHED_NO_HOLDER`に限定する。EvaluationはFailure Epochのexact Admissionに属するAttachment evidence、single-writer Claim state generation、Binding/observation generationをsnapshotし、`DETACHED + RELEASED + BOUND + MATCHED + device absent + holder closed`をすべて要求する。Storage Safety ProofはFencing Proofと独立で、Epoch stateを進めない。policy/evidence generation driftはsilent uplift/reinterpretationせずstale rejectし、same-ID replayとparallel materializationはoriginal evidenceへ収束する。後続RebindはEpochが固定したBinding/Policyを変更しない。両proofが存在してもRecovery Eligibility/Operation、restart/evacuation、Job/Command/Lease、resource claimを生成しない。
 
 Migration 052はfailure detection、Recovery Eligibility、Recovery Operationを発行しない。live Policy/Binding driftはhistorical Failure Epochまたは既存VM Binding revisionを変更しない。
+
+Migration 053はclosed typed `RecoveryBudgetPolicy`を追加する。Phase 1 profileは`GLOBAL / PLANNING / max_active_recoveries`だけであり、AvailabilityPolicy revisionからexact ID/revision/digest associationで参照する。pre-053 AvailabilityPolicy/Epochをrewriteせず、typed associationがない場合は`NO_RECOVERY_BUDGET_POLICY`でfail closedにする。
+
+Recovery Eligibility Evaluationはexact historical Epoch/Binding/Policy、responsibility/action、Confirmation Decision、Fencing/Storage Proof identitiesとcurrent usability、budget snapshot、read-only destination candidate snapshotをimmutableに記録する。結果はproofの`MISSING / STALE / UNKNOWN`、responsibility block、budget欠損/失効/枯渇、destination欠損を区別する。`WORKLOAD_MANAGED`と`MANUAL`をautomatic permissionへ昇格させない。
+
+explicit Recovery Eligibility Decision transactionだけが同じinputsを再検証し、accepted Decisionとgeneration 1 `RESERVED` Budget Claimを不可分にcommitする。Budget Policy rowとcanonical scope advisory lockにより`max_active_recoveries=1`の並行Epochは一件だけを許す。同一Decision replayは同じDecision/Claimへ収束し、一Failure Epochへ複数Decisionを発行しない。Migration 053はRecovery Operation、Recovery Plan、Final Admission、destination resource claim、Job、Command、Lease、restart、evacuationを実装しない。Claim release/consumptionはfuture Recovery Operationのterminal/verification semanticsへ延期する。

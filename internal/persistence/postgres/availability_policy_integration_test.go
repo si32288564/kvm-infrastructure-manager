@@ -902,6 +902,13 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	recoveryBudgetPolicy, err := PublishRecoveryBudgetPolicy(ctx, pool, RecoveryBudgetPolicy{PolicyID: "recovery-budget-policy-" + suffix, PolicyRevision: 1, ScopeType: "GLOBAL", Phase: "PLANNING", MaxActiveRecoveries: 1, LifecycleState: "ACTIVE", CreatedBy: "fixture", ApprovedBy: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay, err := PublishRecoveryBudgetPolicy(ctx, pool, recoveryBudgetPolicy); err != nil || replay.PolicyDigest != recoveryBudgetPolicy.PolicyDigest {
+		t.Fatalf("Recovery Budget Policy replay=%+v err=%v", replay, err)
+	}
 	if replay, err := PublishFailureFencingPolicy(ctx, pool, fencingPolicy); err != nil || replay.PolicyDigest != fencingPolicy.PolicyDigest {
 		t.Fatalf("Fencing Policy replay=%+v err=%v", replay, err)
 	}
@@ -917,6 +924,7 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	safetyAvailability.FailureConfirmationPolicyID, safetyAvailability.FailureConfirmationPolicyRevision, safetyAvailability.FailureConfirmationPolicyDigest = confirmationPolicy.PolicyID, 1, confirmationPolicy.PolicyDigest
 	safetyAvailability.FencingPolicyID, safetyAvailability.FencingPolicyRevision, safetyAvailability.FencingPolicyDigest = fencingPolicy.PolicyID, 1, fencingPolicy.PolicyDigest
 	safetyAvailability.StorageSafetyPolicyID, safetyAvailability.StorageSafetyPolicyRevision, safetyAvailability.StorageSafetyPolicyDigest = storageSafetyPolicy.PolicyID, 1, storageSafetyPolicy.PolicyDigest
+	safetyAvailability.RecoveryBudgetPolicyID, safetyAvailability.RecoveryBudgetPolicyRevision, safetyAvailability.RecoveryBudgetPolicyDigest = recoveryBudgetPolicy.PolicyID, 1, recoveryBudgetPolicy.PolicyDigest
 	safetyAvailabilityDigest, err := PublishAvailabilityPolicy(ctx, pool, safetyAvailability)
 	if err != nil {
 		t.Fatal(err)
@@ -993,6 +1001,15 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if _, _, err := ConfirmFailureEpoch(ctx, pool, "failure-safety-confirmation-"+suffix, safetyConfirmation.EvaluationID, "failure-authority/v1"); err != nil {
 		t.Fatal(err)
 	}
+	budgetRaceEpoch, _ := openConfirmationEpoch("failure-budget-race", "ABSENT", "CURRENT")
+	if budgetRaceEpoch.AvailabilityBindingRevision != safetyBinding.BindingRevision || budgetRaceEpoch.PolicyID != safetyAvailability.PolicyID {
+		t.Fatalf("Budget-race Epoch historical binding=%d/%s want=%d/%s", budgetRaceEpoch.AvailabilityBindingRevision, budgetRaceEpoch.PolicyID, safetyBinding.BindingRevision, safetyAvailability.PolicyID)
+	}
+	appendAuthorityEvidence(budgetRaceEpoch, "failure-budget-race", "PRESENT", "CURRENT")
+	budgetRaceConfirmation := evaluate(budgetRaceEpoch, "failure-budget-race")
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "failure-budget-race-confirmation-"+suffix, budgetRaceConfirmation.EvaluationID, "failure-authority/v1"); err != nil {
+		t.Fatal(err)
+	}
 	postEpochAvailability := availabilityPolicyFixture("post-epoch-safety-availability-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "EVACUATE", "ACTIVE")
 	postEpochAvailability.FailureConfirmationPolicyID, postEpochAvailability.FailureConfirmationPolicyRevision, postEpochAvailability.FailureConfirmationPolicyDigest = confirmationPolicy.PolicyID, 1, confirmationPolicy.PolicyDigest
 	postEpochAvailability.FencingPolicyID, postEpochAvailability.FencingPolicyRevision, postEpochAvailability.FencingPolicyDigest = fencingPolicy.PolicyID, 1, fencingPolicy.PolicyDigest
@@ -1007,6 +1024,13 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	}
 	if _, _, err := DecideVMAvailabilityRebind(ctx, pool, postEpochRebind.RebindID, "availability-authority"); err != nil {
 		t.Fatal(err)
+	}
+	missingFencingEligibility, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-missing-fencing-"+suffix, safetyEpoch.FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+	if err != nil || missingFencingEligibility.ResultState != "FENCING_PROOF_MISSING" || missingFencingEligibility.FencingUsability != "MISSING" {
+		t.Fatalf("missing Fencing Recovery Eligibility=%+v err=%v", missingFencingEligibility, err)
+	}
+	if _, err := MaterializeRecoveryEligibilityDecision(ctx, pool, "recovery-eligibility-missing-fencing-decision-"+suffix, missingFencingEligibility.EvaluationID, "recovery-authority/v1"); !errors.Is(err, ErrRecoveryEligibilityBlocked) {
+		t.Fatalf("missing Fencing positive Decision=%v", err)
 	}
 
 	unknownStorage, err := EvaluateStorageSafety(ctx, pool, "storage-safety-unknown-evaluation-"+suffix, safetyEpoch.FailureEpochID, "storage-safety-evaluator/v1", digestBytes([]byte("storage-safety-evaluator/v1")))
@@ -1058,6 +1082,14 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	storageProof := storageProofResults[0]
 	if replay, err := MaterializeStorageSafetyProof(ctx, pool, storageProof.ProofID, storageEvaluation.EvaluationID, storageProof.DecidedBy); err != nil || replay.ProofDigest != storageProof.ProofDigest {
 		t.Fatalf("Storage proof replay=%+v err=%v", replay, err)
+	}
+	budgetRaceStorageEvaluation, err := EvaluateStorageSafety(ctx, pool, "storage-safety-budget-race-evaluation-"+suffix, budgetRaceEpoch.FailureEpochID, "storage-safety-evaluator/v1", digestBytes([]byte("storage-safety-evaluator/v1")))
+	if err != nil || budgetRaceStorageEvaluation.ResultState != "SAFE" {
+		t.Fatalf("budget-race Storage evaluation=%+v err=%v", budgetRaceStorageEvaluation, err)
+	}
+	budgetRaceStorageProof, err := MaterializeStorageSafetyProof(ctx, pool, "storage-safety-budget-race-proof-"+suffix, budgetRaceStorageEvaluation.EvaluationID, "storage-safety-authority/v1")
+	if err != nil || budgetRaceStorageProof.ProofState != "SAFE" {
+		t.Fatalf("budget-race Storage proof=%+v err=%v", budgetRaceStorageProof, err)
 	}
 
 	// Connectivity loss plus a confirmed Epoch is still not fencing proof.
@@ -1123,6 +1155,171 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if replay, replayEpoch, err := MaterializeFailureFencingProof(ctx, pool, fencingProof.ProofID, fencingEvaluation.EvaluationID, fencingProof.DecidedBy); err != nil || replay.ProofDigest != fencingProof.ProofDigest || replayEpoch.TransitionGeneration != fencedEpoch.TransitionGeneration {
 		t.Fatalf("Fencing proof replay=%+v epoch=%+v err=%v", replay, replayEpoch, err)
 	}
+	budgetRaceFenceObservation, err := RecordSourceExecutionFencingObservation(ctx, pool, "source-fence-budget-race-"+suffix, budgetRaceEpoch.FailureEpochID)
+	if err != nil || budgetRaceFenceObservation.ObservationState != "PROVEN" {
+		t.Fatalf("budget-race Fencing observation=%+v err=%v", budgetRaceFenceObservation, err)
+	}
+	budgetRaceFenceEvaluation, err := EvaluateFailureFencing(ctx, pool, "source-fence-budget-race-evaluation-"+suffix, budgetRaceEpoch.FailureEpochID, "fencing-evaluator/v1", digestBytes([]byte("fencing-evaluator/v1")))
+	if err != nil || budgetRaceFenceEvaluation.ResultState != "PROVEN" {
+		t.Fatalf("budget-race Fencing evaluation=%+v err=%v", budgetRaceFenceEvaluation, err)
+	}
+	budgetRaceFencingProof, budgetRaceFencedEpoch, err := MaterializeFailureFencingProof(ctx, pool, "source-fence-budget-race-proof-"+suffix, budgetRaceFenceEvaluation.EvaluationID, "fencing-authority/v1")
+	if err != nil || budgetRaceFencingProof.ProofState != "PROVEN" || budgetRaceFencedEpoch.EpochState != "FENCED" {
+		t.Fatalf("budget-race Fencing proof=%+v epoch=%+v err=%v", budgetRaceFencingProof, budgetRaceFencedEpoch, err)
+	}
+	noDestinationEvaluation, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-no-destination-"+suffix, safetyEpoch.FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+	if err != nil || noDestinationEvaluation.ResultState != "NO_DESTINATION" || noDestinationEvaluation.EligibleDestinationCount != 0 {
+		t.Fatalf("source-only Recovery Eligibility=%+v err=%v", noDestinationEvaluation, err)
+	}
+
+	// Recovery Eligibility binds the historical Epoch responsibility and both
+	// current-usable safety proofs, but remains read-only until an explicit
+	// Decision atomically reserves the bounded planning budget.
+	destinationHost := "availability-recovery-destination-" + suffix
+	destinationFingerprint := digestBytes([]byte("availability-recovery-destination-cert-" + suffix))
+	prepareSessionIdentityFixture(t, ctx, pool, destinationHost, 1, destinationFingerprint)
+	if _, err := AdmitAgentSession(ctx, pool, AgentSessionAdmission{SessionAttemptID: destinationHost + "-attempt", HostID: destinationHost,
+		ConnectionInstanceID: "connection", TransportProfile: "integration", ProtocolVersion: "v1",
+		AgentArtifactDigest: digestBytes([]byte("agent")), CredentialBindingRevision: 1,
+		PeerCertificateFingerprint: destinationFingerprint, ExpectedSessionGeneration: 1}); err != nil {
+		t.Fatal(err)
+	}
+	acceptPlacementInventory(t, ctx, pool, destinationHost)
+	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: destinationHost, CapabilityGeneration: 1,
+		BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED",
+		ComplianceGeneration: 1, ComplianceState: "COMPLIANT"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ArmHostOperationAuthority(ctx, pool, HostAuthorityArmRequest{HostID: destinationHost, PolicyID: "availability-recovery-destination-policy",
+		PolicyGeneration: 1, ActorID: "fixture", ReasonCode: "recovery_destination_fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishHostGroupMembershipSet(ctx, pool, HostGroupMembershipSetRequest{PublishRequestID: "availability-recovery-set-2-" + suffix,
+		HostGroupID: groupID, SourceType: "EXPLICIT", SourceRevision: "recovery-fixture", BasedOnHostGroupGeneration: 1,
+		ExpectedCurrentSetGeneration: 1, Members: upgradeSnapshotMembers(groupID, []string{host, destinationHost}, 2, "recovery-fixture")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishGroupPolicyBinding(ctx, pool, GroupPolicyBindingRequest{PublishRequestID: "availability-recovery-binding-3-" + suffix,
+		BindingID: binding.BindingID, ExpectedCurrentGeneration: 2, HostGroupID: groupID, HostGroupGeneration: 1,
+		PolicyType: "AVAILABILITY_POLICY", ConsumerType: "VM_PLACEMENT", PolicyID: safetyAvailability.PolicyID,
+		PolicyRevision: 1, PolicyDigest: safetyAvailabilityDigest, Priority: 100, LifecycleState: "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
+	destinationDriftEvaluation, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-destination-drift-"+suffix, safetyEpoch.FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+	if err != nil || destinationDriftEvaluation.ResultState != "ELIGIBLE" {
+		t.Fatalf("pre-drift Recovery Eligibility=%+v err=%v", destinationDriftEvaluation, err)
+	}
+	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: destinationHost, CapabilityGeneration: 1,
+		BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED",
+		ComplianceGeneration: 2, ComplianceState: "NON_COMPLIANT"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MaterializeRecoveryEligibilityDecision(ctx, pool, "recovery-eligibility-destination-drift-decision-"+suffix, destinationDriftEvaluation.EvaluationID, "recovery-authority/v1"); !errors.Is(err, ErrRecoveryEligibilityStale) {
+		t.Fatalf("destination drift Decision=%v", err)
+	}
+	if err := UpdateHostReadinessGate(ctx, pool, HostReadinessGate{HostID: destinationHost, CapabilityGeneration: 1,
+		BaselineAssignmentGeneration: 1, PreflightGeneration: 1, PreflightState: "PASSED",
+		ComplianceGeneration: 3, ComplianceState: "COMPLIANT"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ArmHostOperationAuthority(ctx, pool, HostAuthorityArmRequest{HostID: destinationHost, PolicyID: "availability-recovery-destination-policy",
+		PolicyGeneration: 1, ActorID: "fixture", ReasonCode: "recovery_destination_rearm_after_drift"}); err != nil {
+		t.Fatal(err)
+	}
+
+	eligibilityIDs := []string{"recovery-eligibility-a-" + suffix, "recovery-eligibility-b-" + suffix}
+	eligibilityEpochs := []FailureEpoch{fencedEpoch, budgetRaceFencedEpoch}
+	eligibility := make([]RecoveryEligibilityEvaluation, 2)
+	for index := range eligibility {
+		eligibility[index], err = EvaluateRecoveryEligibility(ctx, pool, eligibilityIDs[index], eligibilityEpochs[index].FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+		if err != nil || eligibility[index].ResultState != "ELIGIBLE" || eligibility[index].FencingUsability != "USABLE" || eligibility[index].StorageUsability != "USABLE" || eligibility[index].EligibleDestinationCount != 1 || len(eligibility[index].Candidates) != 2 {
+			t.Fatalf("Recovery Eligibility[%d]=%+v err=%v", index, eligibility[index], err)
+		}
+		if eligibility[index].AvailabilityBindingRevision != safetyBinding.BindingRevision || eligibility[index].AvailabilityPolicyID != safetyAvailability.PolicyID {
+			t.Fatalf("Recovery Eligibility silently substituted current Binding/Policy: %+v", eligibility[index])
+		}
+		sourceExcluded, destinationEligible := false, false
+		for _, candidate := range eligibility[index].Candidates {
+			sourceExcluded = sourceExcluded || (candidate.HostID == host && candidate.CandidateState == "SOURCE_EXCLUDED")
+			destinationEligible = destinationEligible || (candidate.HostID == destinationHost && candidate.CandidateState == "ELIGIBLE")
+		}
+		if !sourceExcluded || !destinationEligible {
+			t.Fatalf("Recovery candidates do not preserve source exclusion/destination eligibility: %+v", eligibility[index].Candidates)
+		}
+	}
+	if replay, err := EvaluateRecoveryEligibility(ctx, pool, eligibility[0].EvaluationID, eligibility[0].FailureEpochID, scopeID, eligibility[0].EvaluatorVersion, eligibility[0].EvaluatorDigest); err != nil || replay.EvaluationDigest != eligibility[0].EvaluationDigest || len(replay.Candidates) != 2 {
+		t.Fatalf("Recovery Eligibility replay=%+v err=%v", replay, err)
+	} else {
+		for index := range replay.Candidates {
+			if len(replay.Candidates[index].VisibilityProvenance) != len(eligibility[0].Candidates[index].VisibilityProvenance) || replay.Candidates[index].VisibilityProvenanceDigest != eligibility[0].Candidates[index].VisibilityProvenanceDigest {
+				t.Fatalf("Recovery Eligibility replay lost visibility provenance: original=%+v replay=%+v", eligibility[0].Candidates[index], replay.Candidates[index])
+			}
+		}
+	}
+	var preDecisionCount, preBudgetClaimCount int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.recovery_eligibility_decision_evidence WHERE failure_epoch_id=ANY($1)),
+		(SELECT count(*) FROM kim.recovery_budget_claim_evidence WHERE failure_epoch_id=ANY($1))`, []string{eligibilityEpochs[0].FailureEpochID, eligibilityEpochs[1].FailureEpochID}).Scan(&preDecisionCount, &preBudgetClaimCount); err != nil || preDecisionCount != 0 || preBudgetClaimCount != 0 {
+		t.Fatalf("pure Eligibility Evaluation created permission decision=%d budget_claim=%d err=%v", preDecisionCount, preBudgetClaimCount, err)
+	}
+
+	decisionResults := make([]RecoveryEligibilityDecision, 2)
+	decisionErrors := make([]error, 2)
+	var decisionWG sync.WaitGroup
+	decisionWG.Add(2)
+	for index := range decisionResults {
+		go func(index int) {
+			defer decisionWG.Done()
+			decisionResults[index], decisionErrors[index] = MaterializeRecoveryEligibilityDecision(ctx, pool, "recovery-eligibility-decision-"+fmt.Sprint(index)+"-"+suffix, eligibility[index].EvaluationID, "recovery-authority/v1")
+		}(index)
+	}
+	decisionWG.Wait()
+	winnerIndex, budgetRejected := -1, 0
+	for index, decisionErr := range decisionErrors {
+		if decisionErr == nil {
+			winnerIndex = index
+		} else if errors.Is(decisionErr, ErrRecoveryEligibilityBudgetExhausted) {
+			budgetRejected++
+		} else {
+			t.Fatalf("unexpected Recovery Budget race result[%d]=%v", index, decisionErr)
+		}
+	}
+	if winnerIndex < 0 || budgetRejected != 1 {
+		t.Fatalf("Recovery Budget max=1 race decisions=%+v errors=%v", decisionResults, decisionErrors)
+	}
+	winnerDecision := decisionResults[winnerIndex]
+	if winnerDecision.DecisionState != "ACCEPTED" || winnerDecision.BudgetClaimID == "" || winnerDecision.EvaluationDigest != eligibility[winnerIndex].EvaluationDigest {
+		t.Fatalf("accepted Recovery permission=%+v", winnerDecision)
+	}
+	parallelReplay := make([]RecoveryEligibilityDecision, 2)
+	parallelReplayErrors := make([]error, 2)
+	decisionWG.Add(2)
+	for index := range parallelReplay {
+		go func(index int) {
+			defer decisionWG.Done()
+			parallelReplay[index], parallelReplayErrors[index] = MaterializeRecoveryEligibilityDecision(ctx, pool, winnerDecision.DecisionID, winnerDecision.EvaluationID, winnerDecision.DecidedBy)
+		}(index)
+	}
+	decisionWG.Wait()
+	if parallelReplayErrors[0] != nil || parallelReplayErrors[1] != nil || parallelReplay[0].DecisionDigest != winnerDecision.DecisionDigest || parallelReplay[1].BudgetClaimDigest != winnerDecision.BudgetClaimDigest {
+		t.Fatalf("parallel Decision replay=%+v errors=%v", parallelReplay, parallelReplayErrors)
+	}
+	if _, err := MaterializeRecoveryEligibilityDecision(ctx, pool, "recovery-eligibility-competing-"+suffix, winnerDecision.EvaluationID, winnerDecision.DecidedBy); !errors.Is(err, ErrRecoveryEligibilityStale) {
+		t.Fatalf("distinct Decision identity for one Epoch=%v", err)
+	}
+	var decisions, budgetClaims, activeBudgetClaims, recoverySideEffects int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.recovery_eligibility_decision_evidence WHERE failure_epoch_id=ANY($1)),
+		(SELECT count(*) FROM kim.recovery_budget_claim_evidence WHERE failure_epoch_id=ANY($1)),
+		(SELECT count(*) FROM kim.recovery_budget_claims_current WHERE recovery_budget_policy_id=$2 AND claim_state='RESERVED'),
+		(SELECT count(*) FROM kim.execution_jobs WHERE created_at>(SELECT recorded_at FROM kim.recovery_eligibility_decision_evidence WHERE failure_epoch_id=ANY($1) LIMIT 1)) +
+		(SELECT count(*) FROM kim.compute_allocation_claims WHERE created_at>(SELECT recorded_at FROM kim.recovery_eligibility_decision_evidence WHERE failure_epoch_id=ANY($1) LIMIT 1))`, []string{eligibilityEpochs[0].FailureEpochID, eligibilityEpochs[1].FailureEpochID}, recoveryBudgetPolicy.PolicyID).Scan(&decisions, &budgetClaims, &activeBudgetClaims, &recoverySideEffects); err != nil {
+		t.Fatal(err)
+	}
+	if decisions != 1 || budgetClaims != 1 || activeBudgetClaims != 1 || recoverySideEffects != 0 {
+		t.Fatalf("Recovery permission atomicity decisions=%d claims=%d active=%d runtime/resource side effects=%d", decisions, budgetClaims, activeBudgetClaims, recoverySideEffects)
+	}
+
 	var recoveryAuthorityCount int
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.execution_jobs WHERE created_at>(SELECT recorded_at FROM kim.failure_fencing_proof_evidence WHERE proof_id=$1)) + (SELECT count(*) FROM kim.compute_allocation_claims WHERE created_at>(SELECT recorded_at FROM kim.failure_fencing_proof_evidence WHERE proof_id=$1))`, fencingProof.ProofID).Scan(&recoveryAuthorityCount); err != nil || recoveryAuthorityCount != 0 {
 		t.Fatalf("Safety proofs created Recovery/runtime authority count=%d err=%v", recoveryAuthorityCount, err)
@@ -1132,6 +1329,17 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if err := pool.QueryRow(ctx, `SELECT authority_state,authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, host).Scan(&postProofHostState, &postProofHostGeneration); err != nil || postProofHostState != preProofHostState || postProofHostGeneration != preProofHostGeneration {
 		t.Fatalf("Fencing proof mutated Host authority before=%s/%d after=%s/%d err=%v", preProofHostState, preProofHostGeneration, postProofHostState, postProofHostGeneration, err)
 	}
+
+	// Storage RELEASED -> ACTIVE -> RELEASED is an ABA transition. The
+	// immutable old Proof remains, but claim_state_generation makes it stale.
+	if _, err := pool.Exec(ctx, `UPDATE kim.volume_attachment_claims SET claim_state='ACTIVE' WHERE attachment_id=$1; UPDATE kim.volume_attachment_claims SET claim_state='RELEASED' WHERE attachment_id=$1`, pgx.QueryExecModeSimpleProtocol, attachmentID); err != nil {
+		t.Fatal(err)
+	}
+	storageABAEvaluation, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-storage-aba-"+suffix, eligibilityEpochs[1-winnerIndex].FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+	if err != nil || storageABAEvaluation.ResultState != "STORAGE_PROOF_STALE" || storageABAEvaluation.StorageUsability != "STALE" || storageABAEvaluation.FencingUsability != "USABLE" {
+		t.Fatalf("Storage ABA Eligibility=%+v err=%v", storageABAEvaluation, err)
+	}
+
 	// The qualification fixtures above intentionally created VM, execution, and
 	// storage rows. Reset the no-mutation baseline so subsequent confirmation
 	// races still prove that confirmation itself creates no runtime authority.
@@ -1273,5 +1481,21 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	var hostAuthorityGeneration uint64
 	if err := pool.QueryRow(ctx, `SELECT authority_state,authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, host).Scan(&hostAuthorityState, &hostAuthorityGeneration); err != nil || hostAuthorityState != "FENCED" || hostAuthorityGeneration != 1 {
 		t.Fatalf("Safety proof/Confirmation changed explicit Host fence state=%s generation=%d err=%v", hostAuthorityState, hostAuthorityGeneration, err)
+	}
+
+	// FENCED generation N -> ARMED N+1 -> FENCED N+1 never revives a proof
+	// tied to the old exact authority generation/event identity.
+	if _, err := ArmHostOperationAuthority(ctx, pool, HostAuthorityArmRequest{HostID: host, PolicyID: "availability-host-policy",
+		PolicyGeneration: 1, ActorID: "fixture", ReasonCode: "fencing_aba_rearm"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return fenceHostOperationAuthorityTx(ctx, tx, host, "fencing_aba_refence")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fencingABAEvaluation, err := EvaluateRecoveryEligibility(ctx, pool, "recovery-eligibility-fencing-aba-"+suffix, eligibilityEpochs[1-winnerIndex].FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+	if err != nil || fencingABAEvaluation.ResultState != "FENCING_PROOF_STALE" || fencingABAEvaluation.FencingUsability != "STALE" {
+		t.Fatalf("Fencing ABA Eligibility=%+v err=%v", fencingABAEvaluation, err)
 	}
 }

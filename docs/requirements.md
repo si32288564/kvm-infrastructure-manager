@@ -138,6 +138,7 @@
 | AVR-016 | Host failure/recovery Eventをresponsibilityにかかわらずdurableに通知し、delivery failureでresponsibilityを変更しない | Must |
 | AVR-017 | exact AvailabilityPolicy revisionからclosed typed FailureConfirmationPolicy revisionを参照し、exact Epoch/Policy/Evidence snapshotのimmutable Evaluationとexplicit Decisionを分離する。UNKNOWN/STALE/CONFLICTINGはCONFIRMEDへ進めず、accepted DecisionだけがSUSPECTED→CONFIRMED transitionを不可分にcommitし、fencing/recovery authorityを生成しない | Must |
 | AVR-018 | CONFIRMED Failure Epochからexact typed FencingPolicyとStorageSafetyPolicyを独立に評価し、positive Fencing ProofとLocal LVM Storage Safety Proofだけをimmutableにmaterializeする。heartbeat/Agent loss、UNKNOWN、policy/evidence driftをpositive proofへ昇格させず、両proofが揃ってもRecovery Eligibility/Operationまたはruntime/resource mutationを生成しない | Must |
+| AVR-019 | FENCED Failure Epochのexact historical Availability Binding/Policy、current-usable Fencing/Storage Proof、closed typed RecoveryBudgetPolicy、read-only destination snapshotをimmutable Recovery Eligibility Evaluationへ固定する。Evaluationとexplicit Decisionを分離し、positive DecisionとGLOBAL/PLANNING Budget Claimだけを一transactionでcommitする。ELIGIBLE/ClaimはRecovery Operation、Placement Admission、Job/Command/Lease、resource/runtime mutationではない | Must |
 
 ### 2.6 Workload Resilience Intent
 

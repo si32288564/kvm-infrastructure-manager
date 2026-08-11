@@ -320,6 +320,10 @@
 | INV-AVR-023 | Fencing EvaluationとFencing Proofを分離し、positive explicit ProofだけがCONFIRMED→FENCED transitionのcause authorityになる。UNKNOWN/NOT_PROVEN/CONFLICTING/STALEはFENCEDへ進めない | AT-AVR-020, FI-AVR-014 |
 | INV-AVR-024 | Local LVM Storage Safety Evaluationはexact Attachment evidence、Claim state generation、Binding/observation generationを固定し、DETACHED、RELEASED、BOUND、MATCHED、device absent、holder closedの全条件を要求する。Storage ProofはFencing Proofと独立である | AT-AVR-020, FI-AVR-014 |
 | INV-AVR-025 | safety Evaluation/Proofのsame-ID replayとparallel materializationはoriginal evidenceへ収束し、Policy/Evidence/Epoch driftはexact-old complete commitまたはstale rejectだけを許す。後続Rebindはhistorical Epoch/Binding provenanceを書き換えず、両proofもRecovery authorityやJob/Command/Claimを生成しない | AT-AVR-020, FI-AVR-014 |
+| INV-AVR-026 | historical Fencing/Storage Proofの存在をcurrent usabilityとみなさない。Recovery Eligibilityはexact Host authority event/generation、libvirt SHUTOFF evidence、Attachment observation、Claim state generation、Binding generationを再検証し、FENCED→ARMED→FENCEDおよびRELEASED→ACTIVE→RELEASEDのABAで旧ProofをSTALEにする | AT-AVR-021, FI-AVR-015 |
+| INV-AVR-027 | Recovery Eligibility Evaluationはexact historical Epoch/Binding/Policy/responsibility/action、proof usability、budget snapshot、source除外済みdestination snapshotを固定するpure evidenceであり、ELIGIBLEでもDecision、Budget Claim、Placement/resource claim、Job/Command/Lease、runtime mutationを生成しない | AT-AVR-021, FI-AVR-015 |
+| INV-AVR-028 | accepted Recovery Eligibility Decisionだけがexact Evaluation/Proof/budget/destination snapshotを再検証し、GLOBAL/PLANNING Budget Claimとatomic commitする。max=1の並行Decisionは一件だけを許し、response-loss/same-ID replayは同じDecision/Claimへ収束し、one Epochへ複数permissionを発行しない | AT-AVR-021, FI-AVR-015 |
+| INV-AVR-029 | WORKLOAD_MANAGED/MANUAL/未対応action、proof MISSING/STALE/UNKNOWN、typed budget欠損/失効/枯渇、source Hostだけ、destination Policy/Scope/resource driftをautomatic Recovery permissionへ縮退させない。Eligibility Decision/Budget ClaimはRecovery Operationまたはdestination reservationではなく、future Operationはcurrent usabilityを再検証する | AT-AVR-021, FI-AVR-015 |
 
 ## 12. Workload Resilience Intent
 

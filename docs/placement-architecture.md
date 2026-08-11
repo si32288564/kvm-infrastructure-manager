@@ -157,3 +157,9 @@ Migration capabilityはHost capabilityだけから決めません。少なくと
 - CPU claimだけ成功しHugePages reservationが失敗する部分commitを許さない。
 - Agent結果はverification開始であり、後続observationで収束を確認する。
 - stale inventory generationはfail closedとする。
+
+## 9. Recovery Eligibility consumer boundary
+
+Recovery Eligibilityは既存Placement Scopeとdry eligibilityをread-only consumerとして再利用する。source Hostを除外し、candidateごとにScope、HostGroup/Membership Set、Host readiness/capability、ordinary Placement evaluation、effective AvailabilityPolicy provenanceをimmutable snapshotへ保存する。
+
+このsnapshotと`ELIGIBLE` DecisionはFinal Admissionではない。CPU/memory/HugePages、PCI、IP/MAC/Port、Storage capacity/Attachmentをclaimせず、ordinary Placementとのcapacity race後にcandidateが消えることは正常なstale/no-destination outcomeである。Decision materialization時はexact snapshotを再検証し、別candidate/current Policyへsilentに乗り換えない。future Recovery Placementは新しいcurrent Final Admission transactionで全resource authorityを取得する。
