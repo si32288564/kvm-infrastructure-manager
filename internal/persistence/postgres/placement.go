@@ -53,7 +53,18 @@ func UpsertPlacementPool(ctx context.Context, db TxBeginner, pool PlacementPoolB
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "placement-pool/"+pool.PoolID); err != nil {
+		if err := lockHostGroupTx(ctx, tx, pool.PoolID); err != nil {
+			return err
+		}
+		groupLifecycle := pool.LifecycleState
+		if groupLifecycle == "DISABLED" {
+			groupLifecycle = "DRAINING"
+		}
+		if err := upsertHostGroupTx(ctx, tx, HostGroupRevision{
+			HostGroupID: pool.PoolID, Generation: pool.PoolGeneration,
+			GroupType: "PLACEMENT_POOL", Dimension: "service-class", Level: "pool",
+			LifecycleState: groupLifecycle,
+		}); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
@@ -72,7 +83,14 @@ func UpsertPlacementPool(ctx context.Context, db TxBeginner, pool PlacementPoolB
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return ErrPlacementConflict
+			var generation, policyGeneration uint64
+			var lifecycle, policyID string
+			if err := tx.QueryRow(ctx, `SELECT pool_generation,lifecycle_state,policy_id,policy_generation FROM kim.placement_pools_current WHERE pool_id=$1`, pool.PoolID).Scan(&generation, &lifecycle, &policyID, &policyGeneration); err != nil {
+				return err
+			}
+			if generation != pool.PoolGeneration || lifecycle != pool.LifecycleState || policyID != pool.PolicyID || policyGeneration != pool.PolicyGeneration {
+				return ErrPlacementConflict
+			}
 		}
 		return nil
 	})
@@ -86,7 +104,17 @@ func AssignHostPlacementPool(ctx context.Context, db TxBeginner, membership Host
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
+		if err := lockHostGroupTx(ctx, tx, membership.PoolID); err != nil {
+			return err
+		}
 		if err := lockHostAuthorityTx(ctx, tx, membership.HostID); err != nil {
+			return err
+		}
+		if err := assignHostGroupMembershipTx(ctx, tx, HostGroupMembership{
+			HostGroupID: membership.PoolID, HostID: membership.HostID,
+			Generation: membership.Generation, State: membership.State,
+			SourceType: "PLACEMENT_POOL_COMPAT", SourceRevision: fmt.Sprint(membership.Generation),
+		}); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
@@ -104,7 +132,14 @@ func AssignHostPlacementPool(ctx context.Context, db TxBeginner, membership Host
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return ErrPlacementConflict
+			var poolID, state string
+			var generation uint64
+			if err := tx.QueryRow(ctx, `SELECT pool_id,membership_generation,membership_state FROM kim.host_placement_pool_memberships_current WHERE host_id=$1`, membership.HostID).Scan(&poolID, &generation, &state); err != nil {
+				return err
+			}
+			if poolID != membership.PoolID || generation != membership.Generation || state != membership.State {
+				return ErrPlacementConflict
+			}
 		}
 		return nil
 	})
@@ -182,7 +217,7 @@ func FinalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
-		for _, lockKey := range []string{"image/" + request.ImageID, "flavor/" + request.FlavorID, "placement-pool/" + request.PoolID} {
+		for _, lockKey := range []string{"image/" + request.ImageID, "flavor/" + request.FlavorID, "host-group/" + request.PoolID} {
 			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
 				return err
 			}
@@ -330,10 +365,10 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 	var authority placement.AuthoritySnapshot
 	var snapshotPayload []byte
 	err = row.QueryRow(ctx, `
-		SELECT database.mode, capability.host_id, membership.pool_id,
-		       pool.pool_generation, pool.policy_id, pool.policy_generation,
+		SELECT database.mode, capability.host_id, membership.host_group_id,
+		       host_group.host_group_generation, pool.policy_id, pool.policy_generation,
 		       membership.membership_generation,
-		       pool.lifecycle_state, membership.membership_state,
+		       host_group.lifecycle_state, membership.membership_state,
 		       capability.observation_generation, capability.projection_state,
 		       gates.gate_state, gates.preflight_state, gates.compliance_state,
 		       gates.capability_generation, gates.baseline_assignment_generation, gates.preflight_generation,
@@ -345,8 +380,12 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		  ON snapshot.host_id=capability.host_id
 		 AND snapshot.observation_generation=capability.observation_generation
 		JOIN kim.host_readiness_gates_current gates ON gates.host_id=capability.host_id
-		JOIN kim.host_placement_pool_memberships_current membership ON membership.host_id=capability.host_id
-		JOIN kim.placement_pools_current pool ON pool.pool_id=membership.pool_id
+		JOIN kim.host_group_memberships_current membership
+		  ON membership.host_id=capability.host_id AND membership.host_group_id=$2
+		JOIN kim.host_groups_current host_group
+		  ON host_group.host_group_id=membership.host_group_id
+		 AND host_group.group_type='PLACEMENT_POOL'
+		JOIN kim.placement_pools_current pool ON pool.pool_id=host_group.host_group_id
 		LEFT JOIN LATERAL (
 			SELECT sum(vcpus) vcpus, sum(memory_mib) memory_mib
 			FROM kim.compute_allocation_claims
@@ -354,7 +393,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 			  AND claim_state IN ('RESERVED','ALLOCATED','RELEASE_PENDING')
 		) claims ON true
 		WHERE database.singleton AND capability.host_id=$1
-	`, hostID).Scan(&authority.DatabaseMode, &authority.HostID, &authority.PoolID,
+	`, hostID, request.PoolID).Scan(&authority.DatabaseMode, &authority.HostID, &authority.PoolID,
 		&authority.PoolGeneration, &authority.PoolPolicyID, &authority.PoolPolicyGeneration,
 		&authority.MembershipGeneration, &authority.PoolState,
 		&authority.MembershipState, &authority.CapabilityGeneration, &authority.CapabilityState,

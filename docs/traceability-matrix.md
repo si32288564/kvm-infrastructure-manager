@@ -1,7 +1,7 @@
 # Architecture Traceability Matrix
 
 - 状態: Baseline
-- 更新日: 2026-08-09
+- 更新日: 2026-08-11
 
 ## 1. 目的
 
@@ -77,16 +77,16 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 
 | Requirements | Architecture | ADR | Invariants | Tests | 状態 |
 |---|---|---|---|---|---|
-| HGR-001, HGR-015 | host-grouping-architecture, domain-model | ADR-0014 | INV-HGR-001, INV-HGR-013 | AT-HGR-001, AT-HGR-013, AT-HGR-015, FI-HGR-007 | Planned |
-| HGR-002 | host-grouping-architecture | ADR-0014 | INV-HGR-002 | AT-HGR-002 | Planned |
+| HGR-001, HGR-015 | host-grouping-architecture, domain-model | ADR-0014 | INV-HGR-001, INV-HGR-013 | AT-HGR-001, AT-HGR-013, AT-HGR-015, FI-HGR-007 | Partial (revision/current authority、membership lifecycle/evidence implemented; delete/reference guard pending) |
+| HGR-002 | host-grouping-architecture | ADR-0014 | INV-HGR-002 | AT-HGR-002 | Partial (typed persistence implemented; effect allow-list consumers pending) |
 | HGR-003, HGR-007 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-003 | AT-HGR-003, FI-HGR-001, FI-HGR-002 | Planned |
-| HGR-004, HGR-005 | host-grouping-architecture, extensibility-architecture | ADR-0011, ADR-0014 | INV-HGR-001, INV-HGR-004 | AT-HGR-004, AT-HGR-005, XCT-HGR-001, XCT-HGR-002, XCT-HGR-003, XCT-HGR-004 | Planned |
+| HGR-004, HGR-005 | host-grouping-architecture, extensibility-architecture | ADR-0011, ADR-0014 | INV-HGR-001, INV-HGR-004 | AT-HGR-004, AT-HGR-005, XCT-HGR-001, XCT-HGR-002, XCT-HGR-003, XCT-HGR-004 | Partial (materialized provenance/evidence implemented; selector evaluator/external verifier pending) |
 | HGR-006 | host-grouping-architecture | ADR-0014 | INV-HGR-005 | FI-HGR-003 | Planned |
-| HGR-008, HGR-009 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-006, INV-HGR-007 | AT-HGR-006, AT-HGR-007, FI-HGR-004 | Planned |
+| HGR-008, HGR-009 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-006, INV-HGR-007 | AT-HGR-006, AT-HGR-007, FI-HGR-004 | Partial (HostGroup/membership generation dry/final fencing implemented; policy/hierarchy generations pending) |
 | HGR-010 | host-grouping-architecture, placement-architecture | ADR-0006, ADR-0014 | INV-HGR-008 | AT-HGR-008 | Planned |
 | HGR-011 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-009 | AT-HGR-009, FI-HGR-006 | Planned |
-| HGR-012 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-010, FI-HGR-005 | Planned |
-| HGR-013 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-011, FI-HGR-005, FI-HGR-008 | Planned |
+| HGR-012 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-010, FI-HGR-005 | Partial (immutable membership snapshot implemented; Baseline rollout binding pending) |
+| HGR-013 | host-grouping-architecture, host-lifecycle-and-compliance-architecture | ADR-0013, ADR-0014 | INV-HGR-010 | AT-HGR-011, FI-HGR-005, FI-HGR-008 | Partial (immutable membership snapshot implemented; maintenance/concurrency consumer pending) |
 | HGR-014 | host-grouping-architecture, security | ADR-0014 | INV-HGR-011 | AT-HGR-012 | Planned |
 | HGR-016 | host-grouping-architecture, failure-model | ADR-0010, ADR-0014 | INV-HGR-012 | AT-HGR-014 | Planned |
 | HGR-017 | host-grouping-architecture, availability-responsibility-architecture, placement-architecture | ADR-0014, ADR-0015 | INV-HGR-014 | AT-AVR-005, FI-AVR-001 | Planned |

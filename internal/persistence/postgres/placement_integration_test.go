@@ -99,6 +99,12 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := AssignHostPlacementPool(ctx, pool, HostPlacementMembership{HostID: hostID, PoolID: poolID, Generation: 1, State: "ACTIVE"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := UpsertPlacementPool(ctx, pool, PlacementPoolBinding{PoolID: poolID, PoolGeneration: 1, LifecycleState: "ACTIVE", PolicyID: "default", PolicyGeneration: 1}); err != nil {
+		t.Fatalf("idempotent Placement Pool replay: %v", err)
+	}
+	if err := AssignHostPlacementPool(ctx, pool, HostPlacementMembership{HostID: hostID, PoolID: poolID, Generation: 1, State: "ACTIVE"}); err != nil {
+		t.Fatalf("idempotent Placement Pool membership replay: %v", err)
+	}
 	checksum := digestBytes([]byte("placement-image"))
 	if _, err := RegisterImageRevision(ctx, pool, ImageRevision{ImageID: imageID, Revision: 1, OwnerProjectID: "project", Format: "RAW", SizeBytes: 4096, DeclaredChecksum: checksum, ObservedChecksum: checksum, SignatureState: "VERIFIED", SignatureDigest: digestBytes([]byte("signature")), SourceURI: "https://images.invalid/image.raw", Visibility: "PRIVATE"}); err != nil {
 		t.Fatal(err)
@@ -318,6 +324,23 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}
 	if counts := placementMutationCounts(t, ctx, pool); counts != before {
 		t.Fatalf("stale Final Admission left partial authority: %v", counts)
+	}
+
+	membershipCurrent, err := DryEvaluatePlacement(ctx, pool, request, hostID)
+	if err != nil || !membershipCurrent.Eligible {
+		t.Fatalf("post-membership dry evaluation/error = %#v/%v", membershipCurrent, err)
+	}
+	if err := UpsertHostGroup(ctx, pool, HostGroupRevision{
+		HostGroupID: poolID, Generation: 2, GroupType: "PLACEMENT_POOL",
+		Dimension: "service-class", Level: "pool", LifecycleState: "ACTIVE",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := FinalAdmitPlacement(ctx, pool, request, membershipCurrent); !errors.Is(err, ErrPlacementStale) {
+		t.Fatalf("stale HostGroup generation admission error = %v", err)
+	}
+	if counts := placementMutationCounts(t, ctx, pool); counts != before {
+		t.Fatalf("stale HostGroup Final Admission left partial authority: %v", counts)
 	}
 
 	current, err := DryEvaluatePlacement(ctx, pool, request, hostID)
