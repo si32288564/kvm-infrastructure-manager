@@ -310,6 +310,9 @@
 | INV-AVR-013 | heartbeat/Agent lossだけでHost source fencing完了を確定しない | FI-AVR-003 |
 | INV-AVR-014 | Policy/HostGroup/Group Policy Binding driftまたはoperator intentだけでVM Availability Bindingを変更しない。accepted explicit Rebind Decisionだけがexact source/targetを再検証し、next revisionとcurrent pointerを一transactionで一度だけ進める | AT-AVR-017, FI-AVR-011 |
 | INV-AVR-015 | Rebind response loss/replay、stale source、concurrent intentをnext revisionへ再解釈せず、historical Bindingをimmutableに保ち、Compute/PCI/Network/Storage/runtime mutationやRecovery authorizationを発行しない | AT-AVR-017, FI-AVR-011 |
+| INV-AVR-016 | Failure Epoch openはcurrent VM Availability Binding revision/digestとそのexact Policy、Admission、allocation、source Host provenanceを一transactionで固定し、後続Rebind/Policy/HostGroup driftでhistorical responsibilityを書き換えない | AT-AVR-018, FI-AVR-012 |
+| INV-AVR-017 | failure signal、heartbeat/Agent loss、UNKNOWN observationをconfirmed failure、fencing proof、Recovery Eligibility/Operationへ昇格させず、typed confirmation-policy consumerがない間はSUSPECTEDだけを発行する | AT-AVR-018, FI-AVR-012 |
+| INV-AVR-018 | Epoch/Evidenceのsame-identity replayは同じimmutable evidenceへ収束し、late/stale evidenceはappendしても過去transitionを書き換えず、explicit incident keyのparallel openは一Epochへ収束する | AT-AVR-018, FI-AVR-012 |
 
 ## 12. Workload Resilience Intent
 

@@ -422,4 +422,8 @@ Migration 049は既存VM responsibilityを変更する唯一のexplicit Rebind a
 
 Policy、HostGroup membership、Group Policy BindingのdriftはRebindをtriggerしない。target Policy current switch/retirementはold requestをstale rejectし、new current revisionへsilent upliftしない。stale source requestをcurrent revisionから自動継続せず、distinct concurrent intentはone commit/one staleとなる。同一request identity/digestだけがresponse-loss後もoriginal Decision/Bindingへ収束する。RebindはPlacement Admissionではなくresourceを再claimせず、Failure Epoch、Recovery authorization、VM/network/storage mutationを一切発行しない。将来のFailure Epochはその時点のexact Binding revisionへbindする。
 
+Migration 050は`AGENT_CONNECTIVITY_LOSS`、`HOST_OPERATION_AUTHORITY_STATE`、`VM_RUNTIME_OBSERVATION`のclosed typed observation evidenceとfirst-class Failure Epoch authorityを追加する。open requestはexplicit incident keyとexpected Binding revision/digestを持つ。transactionはcurrent Bindingを再検証し、exact Policy、Admission、allocation、source Host、利用可能なHost authority/session generationをimmutable Epochへ固定する。同一request replayと同一incident parallel openは一Epochへ収束し、Evidence replayはgenerationを増幅しない。late/stale evidenceはhistoryへappendするが既存transitionを上書きしない。
+
+Migration 050が発行する初期transitionはcanonical `SUSPECTED`だけである。`failure_confirmation_policy` text slotはruntime解釈せず、`PRESENT/ABSENT/UNKNOWN/CONFLICTING` observationのいずれからもautomatic `CONFIRMED`を発行しない。heartbeat/Agent lossはfailure observationであってsource fencing proofではない。Epoch/EvidenceはAvailability Binding、Compute/PCI/Network/Storage claims、VM power、Execution/Recovery authorityを変更しない。後続RebindやPolicy/HostGroup driftもEpochが固定したhistorical responsibilityを書き換えない。
+
 この増分はfailure detection、fencing proof、Recovery Eligibility、Recovery Operationを発行しない。explicit Availability Rebind persistence/runtimeも後続gateであり、live Policy/Binding driftは既存VM Binding revisionを変更しない。

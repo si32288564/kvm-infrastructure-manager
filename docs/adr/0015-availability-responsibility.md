@@ -11,6 +11,7 @@ HostGroupはPlacement Pool、Failure Domain、Operational Cohortを型分離し�
 
 - immutable versioned `AvailabilityPolicy`を導入し、`PLACEMENT_POOL`から`AVAILABILITY_POLICY` GroupPolicyBindingで参照する。
 - 既存VMのresponsibility変更はexact source Bindingとexact active target Policy、actor/authorization/reasonを持つexplicit Rebind Request/Decisionだけに限定し、accepted Decision、next Binding revision、current pointerを同一transactionでcommitする。Policy/Group driftやRebind intentだけでは変更せず、Rebindをfailure/recovery/resource mutation authorityにしない。
+- failure signalをclosed typed append-only evidenceとして保持し、Failure Epochをopen時点のexact VM Availability Binding/Policy/Admission/allocationへbindする。typed confirmation consumerがない間は`SUSPECTED`だけを発行し、heartbeat/Agent lossまたは`UNKNOWN`をconfirmed failure、fencing proof、Recovery authorityへ昇格させない。
 - responsibilityを`INFRASTRUCTURE_MANAGED`、`WORKLOAD_MANAGED`、`MANUAL`へ分類する。
 - Host failure actionを`RESTART_ON_OTHER_HOST`、`EVACUATE`、`NO_AUTOMATIC_ACTION`へ分類し、責任種別との合法な組合せを固定する。
 - placement可能なHost/request contextは一つのeffective Availability Policyを解決できなければならない。

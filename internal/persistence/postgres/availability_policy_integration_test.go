@@ -421,4 +421,222 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 			t.Fatalf("silent uplift count=%d err=%v", uplifted, err)
 		}
 	}
+
+	// Failure Epoch authority binds the exact Availability Binding present at
+	// open time. The typed observation remains SUSPECTED and is not fencing or
+	// recovery authority.
+	failureCountsBefore := make([]int, 6)
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.compute_allocation_claims),
+		(SELECT count(*) FROM kim.pci_vf_allocation_claims),
+		(SELECT count(*) FROM kim.network_identity_claims),
+		(SELECT count(*) FROM kim.volume_attachment_claims),
+		(SELECT count(*) FROM kim.vm_power_observation_evidence),
+		(SELECT count(*) FROM kim.execution_jobs)`).Scan(&failureCountsBefore[0], &failureCountsBefore[1], &failureCountsBefore[2], &failureCountsBefore[3], &failureCountsBefore[4], &failureCountsBefore[5]); err != nil {
+		t.Fatal(err)
+	}
+	var failureSourceRevision uint64
+	var failureSourceDigest string
+	if err := pool.QueryRow(ctx, `SELECT binding_revision,binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&failureSourceRevision, &failureSourceDigest); err != nil {
+		t.Fatal(err)
+	}
+	trigger := FailureObservation{EvidenceID: "failure-trigger-" + suffix, EvidenceType: "AGENT_CONNECTIVITY_LOSS",
+		SourceType: "CONTROL_PLANE", SourceHostID: host, SourceSessionGeneration: 1,
+		SourceCredentialBindingRevision: 1, ObservationGeneration: 1, ObservedState: "ABSENT",
+		FreshnessState: "CURRENT", ObservedAt: time.Now().UTC(), PayloadDigest: digestBytes([]byte("agent-connectivity-loss"))}
+	openRequest := OpenFailureEpochRequest{OpenRequestID: "failure-open-" + suffix, FailureEpochID: "failure-epoch-" + suffix,
+		IncidentKey: "host-connectivity-incident-" + suffix, WorkloadID: r1.WorkloadID,
+		FailureClass: "HOST_CONNECTIVITY_LOSS", RequestedBy: "failure-detector/v1",
+		ExpectedBindingRevision: failureSourceRevision, ExpectedBindingDigest: failureSourceDigest, Trigger: trigger}
+	epoch1, err := OpenFailureEpoch(ctx, pool, openRequest)
+	if err != nil || epoch1.EpochState != "SUSPECTED" || epoch1.AvailabilityBindingRevision != failureSourceRevision || epoch1.AvailabilityBindingDigest != failureSourceDigest || epoch1.PolicyID == "" {
+		t.Fatalf("epoch1=%+v err=%v", epoch1, err)
+	}
+	if replay, err := OpenFailureEpoch(ctx, pool, openRequest); err != nil || replay.EpochDigest != epoch1.EpochDigest {
+		t.Fatalf("epoch replay=%+v err=%v", replay, err)
+	}
+	unknown := FailureObservation{EvidenceID: "failure-unknown-" + suffix, EvidenceType: "AGENT_CONNECTIVITY_LOSS",
+		SourceType: "CONTROL_PLANE", SourceHostID: host, SourceSessionGeneration: 1,
+		SourceCredentialBindingRevision: 1, ObservationGeneration: 2, ObservedState: "UNKNOWN",
+		FreshnessState: "UNKNOWN", ObservedAt: time.Now().UTC().Add(time.Second), PayloadDigest: digestBytes([]byte("observation-unavailable"))}
+	unknownRecorded, err := AppendFailureObservation(ctx, pool, epoch1.FailureEpochID, unknown)
+	if err != nil || unknownRecorded.EvidenceGeneration != 2 {
+		t.Fatalf("unknown evidence=%+v err=%v", unknownRecorded, err)
+	}
+	if replay, err := AppendFailureObservation(ctx, pool, epoch1.FailureEpochID, unknown); err != nil || replay.EvidenceGeneration != 2 || replay.EvidenceDigest != unknownRecorded.EvidenceDigest {
+		t.Fatalf("evidence replay=%+v err=%v", replay, err)
+	}
+	conflictingEvidence := unknown
+	conflictingEvidence.PayloadDigest = digestBytes([]byte("different-observation"))
+	if _, err := AppendFailureObservation(ctx, pool, epoch1.FailureEpochID, conflictingEvidence); !errors.Is(err, ErrFailureEvidenceConflict) {
+		t.Fatalf("evidence identity conflict=%v", err)
+	}
+	parallelEvidence := FailureObservation{EvidenceID: "failure-parallel-" + suffix, EvidenceType: "AGENT_CONNECTIVITY_LOSS",
+		SourceType: "CONTROL_PLANE", SourceHostID: host, SourceSessionGeneration: 1,
+		SourceCredentialBindingRevision: 1, ObservationGeneration: 3, ObservedState: "ABSENT",
+		FreshnessState: "CURRENT", ObservedAt: time.Now().UTC().Add(2 * time.Second), PayloadDigest: digestBytes([]byte("parallel-observation"))}
+	var parallelEvidenceResults [2]FailureObservation
+	var parallelEvidenceErrors [2]error
+	rebindWG.Add(2)
+	for i := range parallelEvidenceResults {
+		go func(i int) {
+			defer rebindWG.Done()
+			parallelEvidenceResults[i], parallelEvidenceErrors[i] = AppendFailureObservation(ctx, pool, epoch1.FailureEpochID, parallelEvidence)
+		}(i)
+	}
+	rebindWG.Wait()
+	if parallelEvidenceErrors[0] != nil || parallelEvidenceErrors[1] != nil || parallelEvidenceResults[0].EvidenceGeneration != 3 || parallelEvidenceResults[1].EvidenceGeneration != 3 || parallelEvidenceResults[0].EvidenceDigest != parallelEvidenceResults[1].EvidenceDigest {
+		t.Fatalf("parallel evidence results=%+v errors=%v", parallelEvidenceResults, parallelEvidenceErrors)
+	}
+	late := FailureObservation{EvidenceID: "failure-late-" + suffix, EvidenceType: "AGENT_CONNECTIVITY_LOSS",
+		SourceType: "CONTROL_PLANE", SourceHostID: host, SourceSessionGeneration: 1,
+		SourceCredentialBindingRevision: 1, ObservationGeneration: 4, ObservedState: "CONFLICTING",
+		FreshnessState: "STALE", ObservedAt: trigger.ObservedAt.Add(-time.Minute), PayloadDigest: digestBytes([]byte("late-observation"))}
+	lateRecorded, err := AppendFailureObservation(ctx, pool, epoch1.FailureEpochID, late)
+	if err != nil || lateRecorded.EvidenceGeneration != 4 {
+		t.Fatalf("late evidence=%+v err=%v", lateRecorded, err)
+	}
+	var epochState string
+	var transitionCount, evidenceCount int
+	if err := pool.QueryRow(ctx, `SELECT c.epoch_state,
+		(SELECT count(*) FROM kim.failure_epoch_transition_evidence WHERE failure_epoch_id=$1),
+		(SELECT count(*) FROM kim.failure_observation_evidence WHERE failure_epoch_id=$1)
+		FROM kim.failure_epochs_current c WHERE c.failure_epoch_id=$1`, epoch1.FailureEpochID).Scan(&epochState, &transitionCount, &evidenceCount); err != nil || epochState != "SUSPECTED" || transitionCount != 1 || evidenceCount != 4 {
+		t.Fatalf("failure projection state=%s transitions=%d evidence=%d err=%v", epochState, transitionCount, evidenceCount, err)
+	}
+
+	// Rebind after epoch creation does not rewrite epoch responsibility. A new
+	// incident can bind the new current revision.
+	failureTarget := availabilityPolicyFixture("failure-rebind-target-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "RESTART_ON_OTHER_HOST", "ACTIVE")
+	failureTargetDigest, err := PublishAvailabilityPolicy(ctx, pool, failureTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failureRebind := VMAvailabilityRebindRequest{RebindID: "failure-rebind-" + suffix, WorkloadID: r1.WorkloadID,
+		ExpectedCurrentBindingRevision: failureSourceRevision, SourceBindingDigest: failureSourceDigest,
+		TargetPolicyID: failureTarget.PolicyID, TargetPolicyRevision: 1, TargetPolicyDigest: failureTargetDigest,
+		RequestedBy: "operator-failure", AuthorizedBy: "approver-failure",
+		AuthorizationReference: "approval/failure/rebind", Reason: "failure epoch historical stability"}
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, failureRebind); err != nil {
+		t.Fatal(err)
+	}
+	_, bindingAfterEpoch, err := DecideVMAvailabilityRebind(ctx, pool, failureRebind.RebindID, "decision-authority")
+	if err != nil || bindingAfterEpoch.BindingRevision != failureSourceRevision+1 {
+		t.Fatalf("post-epoch rebind=%+v err=%v", bindingAfterEpoch, err)
+	}
+	var historicalRevision, historicalPolicyRevision uint64
+	if err := pool.QueryRow(ctx, `SELECT availability_binding_revision,availability_policy_revision FROM kim.failure_epoch_evidence WHERE failure_epoch_id=$1`, epoch1.FailureEpochID).Scan(&historicalRevision, &historicalPolicyRevision); err != nil || historicalRevision != failureSourceRevision || historicalPolicyRevision != epoch1.PolicyRevision {
+		t.Fatalf("epoch history revision=%d policy=%d err=%v", historicalRevision, historicalPolicyRevision, err)
+	}
+	trigger2 := trigger
+	trigger2.EvidenceID = "failure-trigger-2-" + suffix
+	trigger2.ObservationGeneration = 4
+	trigger2.PayloadDigest = digestBytes([]byte("second-incident"))
+	secondEpochRequest := OpenFailureEpochRequest{OpenRequestID: "failure-open-2-" + suffix, FailureEpochID: "failure-epoch-2-" + suffix,
+		IncidentKey: "host-connectivity-incident-2-" + suffix, WorkloadID: r1.WorkloadID,
+		FailureClass: "HOST_CONNECTIVITY_LOSS", RequestedBy: "failure-detector/v1",
+		ExpectedBindingRevision: bindingAfterEpoch.BindingRevision, ExpectedBindingDigest: bindingAfterEpoch.BindingDigest, Trigger: trigger2}
+	epoch2, err := OpenFailureEpoch(ctx, pool, secondEpochRequest)
+	if err != nil || epoch2.AvailabilityBindingRevision != bindingAfterEpoch.BindingRevision || epoch2.PolicyDigest != bindingAfterEpoch.PolicyDigest {
+		t.Fatalf("epoch2=%+v err=%v", epoch2, err)
+	}
+
+	// Different open request identities for the same explicit incident key
+	// converge to one epoch under the incident-scoped database lock.
+	duplicateBase := secondEpochRequest
+	duplicateBase.IncidentKey = "duplicate-incident-" + suffix
+	duplicateBase.FailureEpochID = "duplicate-epoch-a-" + suffix
+	duplicateBase.OpenRequestID = "duplicate-open-a-" + suffix
+	duplicateBase.Trigger.EvidenceID = "duplicate-evidence-a-" + suffix
+	duplicateOther := duplicateBase
+	duplicateOther.FailureEpochID = "duplicate-epoch-b-" + suffix
+	duplicateOther.OpenRequestID = "duplicate-open-b-" + suffix
+	duplicateOther.Trigger.EvidenceID = "duplicate-evidence-b-" + suffix
+	var duplicateEpochs [2]FailureEpoch
+	var duplicateErrors [2]error
+	rebindWG.Add(2)
+	go func() {
+		defer rebindWG.Done()
+		duplicateEpochs[0], duplicateErrors[0] = OpenFailureEpoch(ctx, pool, duplicateBase)
+	}()
+	go func() {
+		defer rebindWG.Done()
+		duplicateEpochs[1], duplicateErrors[1] = OpenFailureEpoch(ctx, pool, duplicateOther)
+	}()
+	rebindWG.Wait()
+	if duplicateErrors[0] != nil || duplicateErrors[1] != nil || duplicateEpochs[0].FailureEpochID != duplicateEpochs[1].FailureEpochID {
+		t.Fatalf("duplicate epoch outcomes=%+v errors=%v", duplicateEpochs, duplicateErrors)
+	}
+	var duplicateCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.failure_epoch_evidence WHERE workload_id=$1 AND failure_class='HOST_CONNECTIVITY_LOSS' AND incident_key=$2`, r1.WorkloadID, duplicateBase.IncidentKey).Scan(&duplicateCount); err != nil || duplicateCount != 1 {
+		t.Fatalf("duplicate incident count=%d err=%v", duplicateCount, err)
+	}
+
+	// Ten deterministic races between epoch open and Rebind admit complete old
+	// provenance or stale open only; mixed Binding/Policy rows are forbidden.
+	for i := 0; i < 10; i++ {
+		var sourceRevision uint64
+		var sourceBindingDigest string
+		if err := pool.QueryRow(ctx, `SELECT binding_revision,binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&sourceRevision, &sourceBindingDigest); err != nil {
+			t.Fatal(err)
+		}
+		target := availabilityPolicyFixture(fmt.Sprintf("failure-race-policy-%d-%s", i, suffix), 1, "MANUAL", "NO_AUTOMATIC_ACTION", "ACTIVE")
+		targetDigest, err := PublishAvailabilityPolicy(ctx, pool, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rb := VMAvailabilityRebindRequest{RebindID: fmt.Sprintf("failure-race-rebind-%d-%s", i, suffix), WorkloadID: r1.WorkloadID,
+			ExpectedCurrentBindingRevision: sourceRevision, SourceBindingDigest: sourceBindingDigest,
+			TargetPolicyID: target.PolicyID, TargetPolicyRevision: 1, TargetPolicyDigest: targetDigest,
+			RequestedBy: "operator-race", AuthorizedBy: "approver-race", AuthorizationReference: "approval/failure/race", Reason: "epoch rebind race"}
+		if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, rb); err != nil {
+			t.Fatal(err)
+		}
+		racingTrigger := trigger
+		racingTrigger.EvidenceID = fmt.Sprintf("failure-race-evidence-%d-%s", i, suffix)
+		racingTrigger.ObservationGeneration = uint64(100 + i)
+		racingTrigger.PayloadDigest = digestBytes([]byte(fmt.Sprintf("failure-race-%d", i)))
+		epochRequest := OpenFailureEpochRequest{OpenRequestID: fmt.Sprintf("failure-race-open-%d-%s", i, suffix), FailureEpochID: fmt.Sprintf("failure-race-epoch-%d-%s", i, suffix),
+			IncidentKey: fmt.Sprintf("failure-race-incident-%d-%s", i, suffix), WorkloadID: r1.WorkloadID,
+			FailureClass: "HOST_CONNECTIVITY_LOSS", RequestedBy: "failure-detector/v1",
+			ExpectedBindingRevision: sourceRevision, ExpectedBindingDigest: sourceBindingDigest, Trigger: racingTrigger}
+		var opened FailureEpoch
+		var openErr, rebindRaceErr error
+		rebindWG.Add(2)
+		go func() { defer rebindWG.Done(); opened, openErr = OpenFailureEpoch(ctx, pool, epochRequest) }()
+		go func() {
+			defer rebindWG.Done()
+			_, _, rebindRaceErr = DecideVMAvailabilityRebind(ctx, pool, rb.RebindID, "decision-authority")
+		}()
+		rebindWG.Wait()
+		if rebindRaceErr != nil {
+			t.Fatalf("race %d rebind=%v", i, rebindRaceErr)
+		}
+		if openErr == nil {
+			if opened.AvailabilityBindingRevision != sourceRevision || opened.AvailabilityBindingDigest != sourceBindingDigest {
+				t.Fatalf("race %d mixed epoch=%+v source=%d/%s", i, opened, sourceRevision, sourceBindingDigest)
+			}
+			var exactPolicyID string
+			if err := pool.QueryRow(ctx, `SELECT availability_policy_id FROM kim.vm_availability_binding_evidence WHERE workload_id=$1 AND binding_revision=$2 AND binding_digest=$3`, r1.WorkloadID, opened.AvailabilityBindingRevision, opened.AvailabilityBindingDigest).Scan(&exactPolicyID); err != nil || exactPolicyID != opened.PolicyID {
+				t.Fatalf("race %d mixed policy=%s epoch=%s err=%v", i, exactPolicyID, opened.PolicyID, err)
+			}
+		} else if !errors.Is(openErr, ErrFailureEpochStale) {
+			t.Fatalf("race %d open outcome=%v", i, openErr)
+		}
+	}
+	failureCountsAfter := make([]int, 6)
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM kim.compute_allocation_claims),
+		(SELECT count(*) FROM kim.pci_vf_allocation_claims),
+		(SELECT count(*) FROM kim.network_identity_claims),
+		(SELECT count(*) FROM kim.volume_attachment_claims),
+		(SELECT count(*) FROM kim.vm_power_observation_evidence),
+		(SELECT count(*) FROM kim.execution_jobs)`).Scan(&failureCountsAfter[0], &failureCountsAfter[1], &failureCountsAfter[2], &failureCountsAfter[3], &failureCountsAfter[4], &failureCountsAfter[5]); err != nil {
+		t.Fatal(err)
+	}
+	for i := range failureCountsBefore {
+		if failureCountsBefore[i] != failureCountsAfter[i] {
+			t.Fatalf("Failure Epoch caused runtime/resource mutation before=%v after=%v", failureCountsBefore, failureCountsAfter)
+		}
+	}
 }

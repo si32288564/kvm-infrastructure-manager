@@ -160,6 +160,8 @@ schema compatibility failure、migration/backfill interruption、missing partiti
 - Recover:再起動後full inventory。再作成はsource fencingとstorage/network条件を必須とする。
 - Prohibited:heartbeat lossだけで同じdiskを別Hostへattachしない。
 
+Migration 050ではfailure signalをclosed typed append-only observationとして記録し、explicit incident keyごとのFailure Epochをcurrent VM Availability Binding/Policy/Admission/allocationへbindする。自動confirmation policy consumerは未実装であり、Epochは`SUSPECTED`から開始する。`UNKNOWN`、heartbeat loss、Agent connectivity loss、Host unreachableは`CONFIRMED`やfencing proofではなく、Recovery Operationを発行しない。late evidenceはhistoryへ追加するだけで過去transitionを変更しない。
+
 Host failure confirmed後はVM Availability Bindingで責任を分岐します。`WORKLOAD_MANAGED`はFault/Eventを送るが自動restartしません。`MANUAL`は明示Decisionを待ちます。`INFRASTRUCTURE_MANAGED`だけがfencing proof、single-writer、restart-on-other-host eligibility、Failure Domain、transactional admissionを満たしてRecovery Operationを開始できます。Policy/Binding/fencing/attachmentがUNKNOWNならBLOCKEDを維持します。
 
 NF側HAのmember Placementではrack/power等のDomain Claimをtransactionalに競合制御し、domain不足/UNKNOWNをsilent relaxしません。domain driftはVIOLATED/UNKNOWNとして通知し、既存VMを暗黙migrationしません。
