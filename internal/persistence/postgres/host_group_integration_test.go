@@ -61,7 +61,7 @@ func TestHostGroupAuthorityAndSnapshotPostgreSQLIntegration(t *testing.T) {
 	for _, membership := range []HostGroupMembership{
 		{HostGroupID: rackID, HostID: hostA, Generation: 1, State: "ACTIVE", SourceType: "EXPLICIT", SourceRevision: "fixture-1"},
 		{HostGroupID: cohortID, HostID: hostA, Generation: 1, State: "ACTIVE", SourceType: "EXPLICIT", SourceRevision: "fixture-1"},
-		{HostGroupID: rackID, HostID: hostB, Generation: 1, State: "ACTIVE", SourceType: "EXTERNAL_ASSERTION", SourceRevision: "cmdb-1"},
+		{HostGroupID: rackID, HostID: hostB, Generation: 1, State: "ACTIVE", SourceType: "EXPLICIT", SourceRevision: "fixture-1"},
 	} {
 		if err := AssignHostGroupMembership(ctx, pool, membership); err != nil {
 			t.Fatal(err)
@@ -111,7 +111,7 @@ func TestHostGroupAuthorityAndSnapshotPostgreSQLIntegration(t *testing.T) {
 	}
 	if err := AssignHostGroupMembership(ctx, pool, HostGroupMembership{
 		HostGroupID: rackID, HostID: hostB, Generation: 2, State: "REMOVED",
-		SourceType: "EXTERNAL_ASSERTION", SourceRevision: "cmdb-2",
+		SourceType: "EXPLICIT", SourceRevision: "fixture-2",
 	}); err != nil {
 		t.Fatal(err)
 	}

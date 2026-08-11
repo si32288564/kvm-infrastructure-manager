@@ -103,6 +103,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-HGR-022 | A/B/Cのaccepted SetからMAINTENANCE Snapshotと独立Plan/Wave/Targetsをatomic publishし、A/C/D drift、recovery、pause/resume後もA/B/Cとdigestを維持する。purpose mismatch、concurrency、Host fenceもfail closedにする |
 | AT-HGR-023 | exact HostGroup/Policy revisionにbindしたMAINTENANCE Group Policy Bindingをmany-to-many membershipからhigher-priorityで決定する。same-priority exact-equivalentは収束、非互換はASSIGNMENT_CONFLICTでPlan publicationをBLOCKED、stale highestはfallbackせず、replay/concurrency/drift後もimmutable resolution/Plan provenanceを維持する |
 | AT-HGR-024 | closed VM_PLACEMENT Scopeへexact PLACEMENT_POOL generationsをatomic publishし、current accepted Setsからvisible populationをdeduplicateする。NO_SCOPE/BLOCKED/NO_VISIBLE/VISIBLE_BUT_INELIGIBLEを分離し、Scope/Set drift、widening、resource競合でFinal Admissionをstale rejectして全claimをrollbackする |
+| AT-HGR-025 | purpose-limited Ed25519 issuer trustでclosed complete-set External Assertionを検証し、VERIFIED evidenceだけではmembershipを変更しない。explicit materializationはexact issuer/assertion/HostGroup/Hierarchy/Cardinality/expected Set generationを再検証し、stable replayは元evidence/Setへ収束、invalid/stale/revoked/conflicting inputとparallel source raceはold accepted Setを維持する |
 
 ## 6. Availability Responsibility and Recovery
 

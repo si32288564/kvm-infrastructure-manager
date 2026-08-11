@@ -51,6 +51,8 @@ KIMが所有しません。
 
 cross-domain trustはexplicit `TrustRelationship`でsource/target、allowed profile、name constraint、purpose、expiry、approvalを宣言します。CA chainが技術的に検証できても、明示relationがなければtransitive trustを許可しません。
 
+HostGroup complete-set External AssertionのPhase 1 issuerは、TLS certificate issuerやAgent Credential Bindingを複製するものではありません。HostGroup membership assertionという一つのpurpose、closed schema/audience、exact HostGroup generation scope、Ed25519 public verification keyへ限定したconsumer trust authorityです。公開鍵とdigestだけをPostgreSQL evidenceへ保持し、private key custodyは外部source/Secret Provider側に残します。VERIFIED assertionはcredential/trust evidenceであり、Membership Set materialization authorityではありません。
+
 ## 4. Root and Intermediate CA Model
 
 - Root CAはofflineまたはcustomer/external trust serviceで保護し、日常issuanceへ直接使用しない。

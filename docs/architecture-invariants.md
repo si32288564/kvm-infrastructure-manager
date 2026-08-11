@@ -289,6 +289,7 @@
 | INV-HGR-021 | Maintenanceはexact immutable MAINTENANCE Snapshotから独立Plan/Wave/Targetを一度だけatomic publishし、UPGRADE Snapshotを受理せず、live drift/recovery/pause/resumeでTarget identityを変更しない | AT-HGR-022, FI-HGR-015 |
 | INV-HGR-022 | HostGroup membership/hierarchy/cardinalityとGroup Policy Bindingを別authorityとし、exact Group/Policy revisionを解決する。same-priority非互換はASSIGNMENT_CONFLICTでconsumer BLOCKED、stale highest assignmentはlower-priority fallbackを行わず、live Binding driftでhistorical consumer evidenceを書き換えない | AT-HGR-023, FI-HGR-016 |
 | INV-HGR-023 | HostGroup membership、Placement Scope visibility、Eligibility、Final Admissionを別authorityとし、Hierarchy/Selector/Group Policyからexposureを暗黙生成しない。Final Admissionはexact Scope/Group/Set/member provenanceを再検証し、stale時にre-placementやpartial claimを行わない | AT-HGR-024, FI-HGR-017 |
+| INV-HGR-024 | external assertion receipt/verificationはmembership authorityではない。closed issuer scope、signature、audience、freshness、nonce、payload、HostGroup/Hierarchy/Cardinality generationを検証し、explicit complete-set materialization transactionだけがcurrent membershipを進める。issuer distrust/expiryはnew materializationを止めるがhistorical evidence/Setを書き換えない | AT-HGR-025, FI-HGR-018 |
 
 ## 11. Availability Responsibility and Recovery
 

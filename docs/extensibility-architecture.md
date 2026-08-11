@@ -70,7 +70,7 @@ Baseline Control Evaluatorはpure C1 moduleとし、Host mutation、DB write、a
 
 外部Configuration Management連携はC2 serviceまたはC3 integrationです。scoped External Remediation Requestとappend-only claimだけを交換し、Core DB、Agent credential、Command Lease、Host Operation Authorityを渡しません。外部completion claimはKIMのCompliance Resultではなく、fresh observationとC1 Evaluatorによる再評価をtriggerするだけです。
 
-HostGroup Selectorはpure C1 ruleまたはC2 external assertion adapterです。候補membershipとprovenanceだけを返し、Coreがcardinality/hierarchy/conflictを検証してPostgreSQLへmaterializeします。Selectorがmembership、Placement Scope、Group policyを直接writeしません。
+HostGroup Selectorはpure C1 ruleです。C2 external assertion adapterはclosed complete-set assertionだけを渡し、Coreのpurpose-limited current issuer trust、Ed25519、audience、freshness、nonce、payload/HostGroup/Host検証からimmutable verification evidenceを作ります。Selector matchもVERIFIED assertionもmembership authorityではなく、Coreがcardinality/hierarchy/expected Set generationを再検証してPostgreSQLへexplicit materializeします。adapterはmembership、Placement Scope、Group policy、issuer trustを直接writeしません。
 
 Recovery Eligibility Ruleはpure C1 ruleとし、VM Availability Binding、fencing/storage/device evidence、candidate snapshotからbounded eligibility/reasonだけを返します。responsibility変更、fencing完了宣言、Recovery Operation/Lease作成、backend mutationを行いません。
 

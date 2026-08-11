@@ -115,7 +115,7 @@ manifest外のpermission、egress、capabilityを実行時に獲得しません�
 | XCT-HLC-006 | Evaluator revision更新が旧版とのshadow comparisonとcanary thresholdを通過するまでcurrent assignmentにならない |
 | XCT-HLC-007 | External remediation adapterがCore DB/Agent credential/Lease/authorityを持たず、completion claimをCompliance resultへ直接変換しない |
 | XCT-HGR-001 | HostGroup Selectorがpure/deterministicでcandidate membershipとprovenanceだけを返しDB writeしない |
-| XCT-HGR-002 | external assertion adapterがsource identity、generation、freshness、integrity、bounded claimsを検証する |
+| XCT-HGR-002 | external assertion adapterがclosed complete-set schema、purpose-limited issuer/current trust、Ed25519 signature、audience、freshness、nonce replay、payload/HostGroup/Host identityを検証し、VERIFIED evidenceをmembership authorityへ直接昇格させない |
 | XCT-HGR-003 | stale/conflicting/unknown selector inputを任意membershipへ丸めずUNKNOWN/conflictとして返す |
 | XCT-HGR-004 | selector/adapter upgradeがcontract version、input/output digest、compatibility、support tierを宣言する |
 | XCT-AVR-001 | Recovery Eligibility Ruleがpure/deterministicでbounded eligibility/reasonだけを返す |

@@ -25,12 +25,14 @@ type HostGroupMembership struct {
 }
 
 type HostGroupMembershipSetRequest struct {
-	PublishRequestID, HostGroupID, SourceType, SourceRevision string
-	BasedOnHostGroupGeneration, ExpectedCurrentSetGeneration  uint64
-	SelectorID, SelectorEvaluationID                          string
-	SelectorGeneration, SelectorEvaluationGeneration          *uint64
-	HierarchyGeneration                                       *uint64
-	Members                                                   []HostGroupMembership
+	PublishRequestID, HostGroupID, SourceType, SourceRevision                                string
+	BasedOnHostGroupGeneration, ExpectedCurrentSetGeneration                                 uint64
+	SelectorID, SelectorEvaluationID                                                         string
+	SelectorGeneration, SelectorEvaluationGeneration                                         *uint64
+	ExternalAssertionID, ExternalIssuerID, ExternalPayloadDigest, ExternalVerificationDigest string
+	ExternalIssuerGeneration                                                                 *uint64
+	HierarchyGeneration                                                                      *uint64
+	Members                                                                                  []HostGroupMembership
 }
 
 type HostGroupMembershipSet struct {
@@ -103,6 +105,9 @@ func UpsertHostGroupCardinalityPolicy(ctx context.Context, db TxBeginner, policy
 }
 
 func AssignHostGroupMembership(ctx context.Context, db TxBeginner, membership HostGroupMembership) error {
+	if membership.SourceType == "EXTERNAL_ASSERTION" {
+		return ErrHostGroupConflict
+	}
 	if err := validateHostGroupMembership(membership); err != nil {
 		return err
 	}
@@ -128,6 +133,11 @@ func PublishHostGroupMembershipSet(ctx context.Context, db TxBeginner, request H
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
+		}
+		if request.SourceType == "EXTERNAL_ASSERTION" {
+			if err := lockExternalAssertionIssuerTx(ctx, tx, request.ExternalIssuerID); err != nil {
+				return err
+			}
 		}
 		if err := lockHostGroupTx(ctx, tx, request.HostGroupID); err != nil {
 			return err
@@ -614,6 +624,9 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 	if err := validateSelectorMembershipSetRequestTx(ctx, tx, request, currentGroupGeneration, policy, hierarchy); err != nil {
 		return HostGroupMembershipSet{}, err
 	}
+	if err := validateExternalAssertionMembershipSetRequestTx(ctx, tx, request, hierarchy); err != nil {
+		return HostGroupMembershipSet{}, err
+	}
 	var currentSetGeneration uint64
 	requestedSetDigest := hostGroupMembershipSnapshotDigest(requestedDigests)
 	err = tx.QueryRow(ctx, `
@@ -780,13 +793,17 @@ func publishHostGroupMembershipSetTx(ctx context.Context, tx pgx.Tx, request Hos
 			selector_id,selector_generation,selector_evaluation_id,
 			selector_evaluation_generation,hierarchy_generation,
 			canonical_member_set_digest,member_count,validation_state,
-			cardinality_policy_id,cardinality_policy_generation,cardinality,hierarchy_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACCEPTED',$15,$16,$17,$18)
+			cardinality_policy_id,cardinality_policy_generation,cardinality,hierarchy_id,
+			external_assertion_id,external_assertion_issuer_id,external_assertion_issuer_generation,
+			external_assertion_payload_digest,external_assertion_verification_digest
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACCEPTED',$15,$16,$17,$18,$19,$20,$21,$22,$23)
 	`, request.HostGroupID, setGeneration, request.BasedOnHostGroupGeneration,
 		request.PublishRequestID, requestDigest, request.SourceType, request.SourceRevision,
 		nullableSelectorID(request), request.SelectorGeneration, nullableSelectorEvaluationID(request),
 		request.SelectorEvaluationGeneration, request.HierarchyGeneration, setDigest, memberCount,
-		policy.PolicyID, policy.Generation, policy.Cardinality, nullableHierarchyID(hierarchy))
+		policy.PolicyID, policy.Generation, policy.Cardinality, nullableHierarchyID(hierarchy),
+		nullableExternalAssertionID(request), nullableExternalIssuerID(request), request.ExternalIssuerGeneration,
+		nullableExternalPayloadDigest(request), nullableExternalVerificationDigest(request))
 	if err != nil {
 		return HostGroupMembershipSet{}, err
 	}
@@ -1106,9 +1123,18 @@ func validateHostGroupMembershipSetRequest(request HostGroupMembershipSetRequest
 		request.SelectorEvaluationID != "" && request.SelectorEvaluationGeneration != nil
 	selectorAbsent := request.SelectorID == "" && request.SelectorGeneration == nil &&
 		request.SelectorEvaluationID == "" && request.SelectorEvaluationGeneration == nil
+	externalComplete := request.ExternalAssertionID != "" && request.ExternalIssuerID != "" &&
+		request.ExternalIssuerGeneration != nil && *request.ExternalIssuerGeneration > 0 &&
+		validDigestString(request.ExternalPayloadDigest) && validDigestString(request.ExternalVerificationDigest)
+	externalAbsent := request.ExternalAssertionID == "" && request.ExternalIssuerID == "" &&
+		request.ExternalIssuerGeneration == nil && request.ExternalPayloadDigest == "" && request.ExternalVerificationDigest == ""
 	if (request.SourceType == "SELECTOR" && !selectorComplete) ||
 		(request.SourceType != "SELECTOR" && !selectorAbsent) {
 		return errors.New("selector membership provenance must be complete and source-bound")
+	}
+	if (request.SourceType == "EXTERNAL_ASSERTION" && !externalComplete) ||
+		(request.SourceType != "EXTERNAL_ASSERTION" && !externalAbsent) {
+		return errors.New("external assertion membership provenance must be complete and source-bound")
 	}
 	seen := make(map[string]struct{}, len(request.Members))
 	for _, member := range request.Members {
@@ -1194,6 +1220,15 @@ func hostGroupMembershipSetRequestDigest(request HostGroupMembershipSetRequest, 
 	hierarchyGeneration := ""
 	if request.HierarchyGeneration != nil {
 		hierarchyGeneration = fmt.Sprint(*request.HierarchyGeneration)
+	}
+	if request.SourceType == "EXTERNAL_ASSERTION" {
+		issuerGeneration := ""
+		if request.ExternalIssuerGeneration != nil {
+			issuerGeneration = fmt.Sprint(*request.ExternalIssuerGeneration)
+		}
+		return digestHostGroupFields(request.HostGroupID, fmt.Sprint(request.BasedOnHostGroupGeneration),
+			request.SourceType, request.SourceRevision, request.ExternalAssertionID, request.ExternalIssuerID,
+			issuerGeneration, request.ExternalPayloadDigest, request.ExternalVerificationDigest, hierarchyGeneration, setDigest)
 	}
 	// Keep the pre-042 digest byte-for-byte stable for non-selector publishers.
 	if request.SourceType != "SELECTOR" {

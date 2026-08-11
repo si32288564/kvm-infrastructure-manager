@@ -114,6 +114,7 @@
 | HGR-023 | HostGroup対象Maintenanceをpurpose=MAINTENANCEのimmutable Membership Snapshotへbindし、独立Plan/Wave/typed Targetをatomic publishしてlive membership変更・Coordinator recovery・pause/resumeでtarget setを再生成しない | Must |
 | HGR-024 | HostGroup membershipとpolicy associationを分離し、exact Group/Policy revision付きtyped Group Policy Bindingをpriorityで解決する。同priority非互換はASSIGNMENT_CONFLICT、stale highest assignmentはlower priorityへfallbackせずconsumerをBLOCKEDにする | Must |
 | HGR-025 | Placement Requestをfirst-class versioned Placement Scopeへbindし、exact PLACEMENT_POOL HostGroup generationからcurrent accepted Membership Setを解決する。visibility、eligibility、Final Admissionを分離し、Scope/Set drift時は全claimをrollbackする | Must |
+| HGR-026 | closed complete-set External Assertionをpurpose-limited issuer trust、Ed25519 signature、audience、freshness、nonce、payload/HostGroup/Host evidenceで検証し、VERIFIED evidenceとexplicit materializationを分離する。current issuer/Group/Cardinality/Hierarchy/Set generationを再検証したaccepted complete Membership Setだけをauthorityにする | Must |
 
 ### 2.5 Availability Responsibility and Managed Recovery
 

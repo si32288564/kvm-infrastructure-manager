@@ -173,6 +173,25 @@ Selector-bound Setはselector ID/generationとevaluation ID/generationをimmutab
 
 membership add/removeはETag、authorization、audit、idempotencyを必要とします。同じHost集合でも順序に依存しないcanonical digestを持ちます。
 
+### External Assertion verification and materialization
+
+Phase 1の外部source profileはcomplete member setを表すclosed kim.host-group.external-assertion/v1 とEd25519だけです。issuer trustはHostGroup membership assertion専用のversioned authorityで、SYSTEM/system scopeと許可HostGroup generationを明示します。これは汎用PKI、Tenant/Project、Agent credential authorityではありません。arbitrary algorithm、partial add/remove claim、caller supplied verifier、raw commandは受理しません。
+
+    External assertion
+      -> current purpose-limited issuer trust
+      -> schema/subject/signature/audience/freshness/nonce/payload verification
+      -> exact HostGroup generation/scope + known Host population
+      -> immutable assertion/member/conflict evidence
+      -> VERIFIED (membershipは不変)
+      -> explicit materialization transaction
+           current issuer trust and expiry
+           current HostGroup generation/lifecycle
+           current Hierarchy/Cardinality authority
+           expected Membership Set generation
+      -> accepted complete Membership Set
+
+assertion IDまたはissuer nonceを異なるsemantic payloadで再利用した場合はREPLAY_CONFLICTです。exact replayは元のimmutable verificationへ収束します。materialization commit後のresponse lossも同じpublish requestから元のSetを回収し、新しいgenerationを作りません。issuer rotation/revoke、assertion expiry、Group/Hierarchy/Cardinality driftはnew materializationを止めますが、historical verification evidenceと既にacceptedなSetを遡及変更しません。explicit/selector/external source切替も同じcomplete-set publisherを通り、parallel publisherはexpected Set generationにより一件だけcurrent authorityを進めます。
+
 ## 6. Hierarchy
 
 Hierarchyは同じgroup type/dimension内の異なるlevel間に明示されたparent relationだけを許可します。
