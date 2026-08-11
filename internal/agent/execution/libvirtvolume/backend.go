@@ -25,7 +25,7 @@ const (
 	StateAttached   = "ATTACHED"
 	StateDetached   = "DETACHED"
 	SingleWriter    = "SINGLE_WRITER"
-	minimumDiskSlot = 1
+	minimumDiskSlot = 0
 	maximumDiskSlot = 25
 )
 
@@ -93,12 +93,22 @@ func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease)
 			observation := backend.observation(decoded, volume, current, sourcePath, "CONFLICTING", lease.AttemptIndex)
 			return agentexecution.BackendResult{Outcome: "UNKNOWN", Result: observation.Evidence, Observation: observation}, nil
 		}
+		// Slot zero is the root disk defined by VIRTUAL_MACHINE_DEFINE. This
+		// backend may verify that fixed identity, but it must never hot-add a
+		// replacement root device. Secondary disks retain typed attach behavior.
+		if !current.Present && decoded.request.DiskSlot == 0 {
+			observation := backend.observation(decoded, volume, current, sourcePath, "CONFLICTING", lease.AttemptIndex)
+			return agentexecution.BackendResult{Outcome: "UNKNOWN", Result: observation.Evidence, Observation: observation}, nil
+		}
 		if !current.Present {
 			if err := backend.Domains.AttachDisk(ctx, decoded.request.DomainUUID, expected); err != nil {
 				return agentexecution.BackendResult{}, err
 			}
 		}
 	case StateDetached:
+		if decoded.request.DiskSlot == 0 {
+			return agentexecution.BackendResult{}, errors.New("typed root disk detach is not supported")
+		}
 		if current.Present && !sameDisk(current, expected) {
 			observation := backend.observation(decoded, volume, current, sourcePath, "CONFLICTING", lease.AttemptIndex)
 			return agentexecution.BackendResult{Outcome: "UNKNOWN", Result: observation.Evidence, Observation: observation}, nil
@@ -185,7 +195,7 @@ func (backend Backend) decode(target string, payload []byte) (decodedRequest, er
 	}
 	desired.DesiredState = strings.ToUpper(desired.DesiredState)
 	desired.AccessMode = strings.ToUpper(desired.AccessMode)
-	if !domainUUIDPattern.MatchString(desired.DomainUUID) || desired.VolumeID == "" || desired.VGUUID == "" || desired.LVUUID == "" || desired.BackendResourceKey != locallvm.ResourceKey(desired.VolumeID) || desired.DiskSlot < minimumDiskSlot || desired.DiskSlot > maximumDiskSlot || desired.AccessMode != SingleWriter || (desired.DesiredState != StateAttached && desired.DesiredState != StateDetached) {
+	if !domainUUIDPattern.MatchString(desired.DomainUUID) || desired.VolumeID == "" || desired.VGUUID == "" || desired.LVUUID == "" || desired.BackendResourceKey != locallvm.ResourceKey(desired.VolumeID) || desired.DiskSlot < minimumDiskSlot || desired.DiskSlot > maximumDiskSlot || desired.AccessMode != SingleWriter || (desired.DesiredState != StateAttached && desired.DesiredState != StateDetached) || (desired.DiskSlot == 0 && desired.DesiredState != StateAttached) {
 		return decodedRequest{}, errors.New("invalid typed Volume Attachment request")
 	}
 	return decodedRequest{attachmentID: match[1], target: "vd" + string(rune('a'+desired.DiskSlot)), serial: volumeSerial(desired.VolumeID), request: desired}, nil

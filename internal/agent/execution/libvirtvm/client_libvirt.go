@@ -68,10 +68,13 @@ func (client *libvirtClient) Define(ctx context.Context, spec DomainSpec) error 
 	desired := domainXML{Type: "kvm", Name: spec.Name, UUID: spec.UUID,
 		Memory: domainMemory{Unit: "KiB", Value: spec.MemoryMiB * 1024}, VCPU: spec.VCPUs,
 		OS:       domainOS{Type: domainOSType{Value: "hvm"}},
+		Features: domainFeatures{ACPI: &struct{}{}},
 		Metadata: domainMetadata{Materialization: domainMaterialization{XMLNS: metadataNamespace, PlanDigest: spec.PlanDigest, Generation: spec.MaterializationGeneration}},
 		Devices: domainDevices{Disks: []domainDisk{{Type: "block", Device: "disk",
 			Driver: domainDiskDriver{Name: "qemu", Type: "raw"}, Source: domainDiskSource{Device: spec.RootSource},
-			Target: domainDiskTarget{Device: spec.RootTarget, Bus: "virtio"}, Serial: spec.RootSerial}}},
+			Target: domainDiskTarget{Device: spec.RootTarget, Bus: "virtio"}, Serial: spec.RootSerial}},
+			Serial:  domainSerial{Type: "pty", Target: domainSerialTarget{Port: 0}},
+			Console: domainConsole{Type: "pty", Target: domainConsoleTarget{Type: "serial", Port: 0}}},
 		OnPoweroff: "destroy", OnReboot: "restart", OnCrash: "destroy"}
 	payload, err := xml.Marshal(desired)
 	if err != nil {
@@ -92,11 +95,15 @@ type domainXML struct {
 	Memory     domainMemory   `xml:"memory"`
 	VCPU       uint64         `xml:"vcpu"`
 	OS         domainOS       `xml:"os"`
+	Features   domainFeatures `xml:"features"`
 	Metadata   domainMetadata `xml:"metadata"`
 	Devices    domainDevices  `xml:"devices"`
 	OnPoweroff string         `xml:"on_poweroff,omitempty"`
 	OnReboot   string         `xml:"on_reboot,omitempty"`
 	OnCrash    string         `xml:"on_crash,omitempty"`
+}
+type domainFeatures struct {
+	ACPI *struct{} `xml:"acpi"`
 }
 type domainMemory struct {
 	Unit  string `xml:"unit,attr"`
@@ -117,7 +124,24 @@ type domainMaterialization struct {
 	Generation uint64 `xml:"generation,attr"`
 }
 type domainDevices struct {
-	Disks []domainDisk `xml:"disk"`
+	Disks   []domainDisk  `xml:"disk"`
+	Serial  domainSerial  `xml:"serial"`
+	Console domainConsole `xml:"console"`
+}
+type domainSerial struct {
+	Type   string             `xml:"type,attr"`
+	Target domainSerialTarget `xml:"target"`
+}
+type domainSerialTarget struct {
+	Port uint `xml:"port,attr"`
+}
+type domainConsole struct {
+	Type   string              `xml:"type,attr"`
+	Target domainConsoleTarget `xml:"target"`
+}
+type domainConsoleTarget struct {
+	Type string `xml:"type,attr"`
+	Port uint   `xml:"port,attr"`
 }
 type domainDisk struct {
 	Type   string           `xml:"type,attr"`

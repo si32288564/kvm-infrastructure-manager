@@ -197,8 +197,12 @@ func MarkRecoveryNoNetworkReady(ctx context.Context, db TxBeginner, operationID 
 		if err := tx.QueryRow(ctx, `SELECT m.vm_id::text,m.vm_generation,m.destination_admission_id,jsonb_array_length(a.network_requirements) FROM kim.recovery_materialization_evidence m JOIN kim.placement_admission_decisions a ON a.admission_id=m.destination_admission_id WHERE m.recovery_operation_id=$1`, operationID).Scan(&vmID, &generation, &admissionID, &count); err != nil || count != 0 {
 			return ErrRecoveryOperationBlocked
 		}
-		var attachmentReady bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.recovery_materialization_evidence m JOIN kim.volume_attachment_claims c ON c.attachment_id=m.root_attachment_id AND c.attachment_generation=m.root_attachment_generation AND c.claim_state='ACTIVE' JOIN kim.volume_attachment_observations_current o ON o.attachment_id=c.attachment_id AND o.attachment_generation=c.attachment_generation AND o.attachment_state='ATTACHED' AND o.device_present AND o.holder_open WHERE m.recovery_operation_id=$1)`, operationID).Scan(&attachmentReady); err != nil || !attachmentReady {
+		// Before power-on a Local LVM root LV cannot have an open QEMU holder.
+		// Require the current immutable inactive-domain read-back to prove the
+		// exact root identity and the current root claim/binding instead. The
+		// post-power Recovery Verification still requires ATTACHED + holder_open.
+		var rootConfigured bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.recovery_materialization_evidence m JOIN kim.vm_materialization_readiness_current r ON r.vm_id=m.vm_id AND r.vm_generation=m.vm_generation AND r.plan_id=m.vm_plan_id JOIN kim.vm_definition_observation_evidence d ON d.evidence_id=r.definition_evidence_id AND d.vm_id=r.vm_id AND d.vm_generation=r.vm_generation AND d.domain_present AND d.domain_identity_matches AND d.plan_identity_matches AND d.compute_shape_matches AND d.root_volume_identity_matches AND d.evidence_state='MATCHED' JOIN kim.volume_backend_bindings_current b ON b.binding_id=m.root_binding_id AND b.binding_generation=m.root_binding_generation AND b.volume_id=m.root_volume_id AND b.host_id=m.destination_host_id AND b.binding_state='BOUND' JOIN kim.volume_attachment_claims c ON c.attachment_id=m.root_attachment_id AND c.attachment_generation=m.root_attachment_generation AND c.volume_id=m.root_volume_id AND c.host_id=m.destination_host_id AND c.claim_state IN ('RESERVED','ACTIVE') WHERE m.recovery_operation_id=$1)`, operationID).Scan(&rootConfigured); err != nil || !rootConfigured {
 			return ErrRecoveryOperationBlocked
 		}
 		setDigest := digestBytes([]byte("[]"))

@@ -78,11 +78,33 @@ func TestAttachDoesNotReplaceConflictingTarget(t *testing.T) {
 	}
 }
 
+func TestRootDiskIsObservationOnly(t *testing.T) {
+	volumeID := "root-volume"
+	volumes := &fakeVolumes{volume: locallvm.LogicalVolume{VGUUID: "vg-uuid", LVUUID: "lv-uuid", Name: locallvm.ResourceKey(volumeID), DeviceOpen: true}}
+	domains := &fakeDomains{volume: &volumes.volume}
+	backend := Backend{Domains: domains, Volumes: volumes}
+	root := lease(t, map[string]any{"domain_uuid": "44444444-4444-4444-8444-444444444444", "volume_id": volumeID, "vg_uuid": "vg-uuid", "lv_uuid": "lv-uuid", "backend_resource_key": locallvm.ResourceKey(volumeID), "disk_slot": 0, "desired_state": "ATTACHED", "access_mode": "SINGLE_WRITER"})
+	result, err := backend.Execute(context.Background(), root)
+	if err != nil || result.Outcome != "UNKNOWN" || result.Observation.State != "CONFLICTING" || domains.attachCount != 0 {
+		t.Fatalf("missing root result=%#v err=%v attach=%d", result, err, domains.attachCount)
+	}
+	domains.disk = DiskObservation{Present: true, SourcePath: "/dev/kimvg/" + locallvm.ResourceKey(volumeID), Target: "vda", Serial: volumeSerial(volumeID)}
+	result, err = backend.Execute(context.Background(), root)
+	if err != nil || result.Outcome != "SUCCEEDED" || result.Observation.State != "MATCHED" || domains.attachCount != 0 {
+		t.Fatalf("existing root result=%#v err=%v attach=%d", result, err, domains.attachCount)
+	}
+	detach := root
+	detach.CommandPayload = payload(t, map[string]any{"domain_uuid": "44444444-4444-4444-8444-444444444444", "volume_id": volumeID, "vg_uuid": "vg-uuid", "lv_uuid": "lv-uuid", "backend_resource_key": locallvm.ResourceKey(volumeID), "disk_slot": 0, "desired_state": "DETACHED", "access_mode": "SINGLE_WRITER"})
+	if _, err := backend.Execute(context.Background(), detach); err == nil {
+		t.Fatal("typed root detach was accepted")
+	}
+}
+
 func TestBackendRejectsOpenEndedAttachmentInput(t *testing.T) {
 	backend := Backend{Domains: &fakeDomains{}, Volumes: &fakeVolumes{}}
 	base := map[string]any{"domain_uuid": "33333333-3333-4333-8333-333333333333", "volume_id": "volume-3", "vg_uuid": "vg-uuid", "lv_uuid": "lv-uuid", "backend_resource_key": locallvm.ResourceKey("volume-3"), "disk_slot": 1, "desired_state": "ATTACHED", "access_mode": "SINGLE_WRITER"}
 	cases := []map[string]any{
-		with(base, "path", "/dev/vg/lv"), with(base, "disk_slot", 0),
+		with(base, "path", "/dev/vg/lv"),
 		with(base, "backend_resource_key", "caller-name"), with(base, "access_mode", "SHARED_WRITER"),
 		with(base, "desired_state", "DELETE"),
 	}

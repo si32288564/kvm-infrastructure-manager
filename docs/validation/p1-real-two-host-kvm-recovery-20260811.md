@@ -1,104 +1,100 @@
 # P1 Real Two-Host KVM Recovery Qualification
 
-- Date: 2026-08-11
-- Result: `REAL_TWO_HOST_KVM_QUALIFICATION = BLOCKED`
-- Reason: the only available second KVM Host is an important production Host and does not satisfy the destructive lab-only guard
-- Repository authority baseline: `147f4b94a6a85b32b617227adaa78a61b85ab6b7`
+- Date: 2026-08-12
+- Overall result: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = BLOCKED`
+- Physical backend sub-gate: `REAL_TWO_HOST_KVM_BACKEND_SEQUENCE = PASS`
+- Blocker: the repository PostgreSQL qualification still imports fixture observations; it does not yet ingest the real g01/g02 observations into the exact Failure Epoch through Terminal Decision transaction
+- Repository baseline: `ae11ba406aceb882d5ee0a44e5d541941840f925`
 
-## Intended profile
+The operator explicitly authorized g02 only for isolated, non-disruptive, fully removable artifacts. The run therefore used loop-backed VGs, one deterministic disposable VM, zero Ports, and no PCI. Existing production Domains, `vg0`, addresses, routes, OVS/OVN configuration, and services were outside the allow-list.
+
+## Exact profile and guards
 
 ```text
 action: RESTART_ON_OTHER_HOST
 source: kvm-base-g01-n001-p.core.s01.si1230.com
-destination candidate: kvm-base-g02-n001-p.core.s01.si1230.com
-storage: isolated Local LVM qualification VG
+destination: kvm-base-g02-n001-p.core.s01.si1230.com
+VM UUID: f1c06a00-0000-4000-8000-202608120001
+image: dedicated RAW, 268435456 bytes
+image SHA-256: 7e423a1dc718d83c204e2def60b2fa63fcd4fa4814a9b2e40b29b5ae6a8502a1
+flavor: 1 vCPU / 256 MiB
 network: zero-Port
 PCI/SR-IOV: excluded
-identity: same disposable workload and VM UUID
+storage: isolated loop-backed Local LVM only
 ```
 
-No test VM UUID was allocated because the environment guard failed before any backend mutation.
+The opt-in helper requires `KIM_REAL_KVM_RECOVERY_QUALIFICATION=1`, exact hostname/Host ID, `real-recovery-` command identity, a `kimrr_` VG, `/var/tmp/kim-real-recovery-` cache/state roots, bounded attempt/generation values, and one of the compile-time registered typed backends. It accepts no XML, path, VG/LV name, libvirt method, LVM argv, flag, or shell command from the request.
 
-## Read-only preflight evidence
+## Actual backend evidence
 
-Both Hosts accepted SSH and standard `qemu:///system` read-only queries.
+| Boundary | Actual result |
+|---|---|
+| source initial state | standard libvirt read-back `RUNNING` |
+| source typed shutdown immediate result | `UNKNOWN / CONFLICTING`; this was not treated as non-execution |
+| source later power read-back | `SHUTOFF / MATCHED`, digest `01b05033d3cc35a1e727c7bcf86e400c06decb6753cb392fa72cbee641178b4d` |
+| source safety disk | typed detach `MATCHED`, device absent and holder closed, digest `e62f08d94db8fdbe7f9c07d99702d39fa3835e0395b357143c68673a6693719c` |
+| destination before | exact VM UUID absent; isolated VG empty |
+| destination LV | 512 MiB, LV UUID `1M2peE-K93k-1pCy-QOt7-TfjT-w6Hg-uSt8mf`, `MATCHED` |
+| destination image | target-LV digest read-back exactly matched the declared RAW digest |
+| destination define | inactive Domain with same UUID, materialization generation 2, fixed plan/root identity `MATCHED` |
+| destination power | typed power state `RUNNING / MATCHED`, digest `f249701cff2ee03bae1880bf8ed4f0cddc760815903c5ff27e3bb98754e10071` |
+| destination root | observation-only `vda` identity, source identity and LVM holder-open all true, digest `b229a814d79865da0c892580650e28655ab41d854656510901e9ea0b54ced330` |
+| split-brain assertion | g01 `SHUTOFF`; g02 `RUNNING`; identical UUID |
 
-| Check | Source g01 | Destination candidate g02 |
-|---|---|---|
-| Host role | Existing lab/test KVM used by prior qualification | Important production KVM Host |
-| Existing libvirt domains | 4 | 15 |
-| Dedicated disposable recovery VM | Not created | Absent |
-| Dedicated isolated recovery VG/LV | Not created | Absent |
-| Current two-Host KIM Agent/session profile | Not established | No current `kim-host-agent` process observed |
-| Mutation performed by this qualification | None | None |
+The backend sequence used materialization generation 1 on g01 and generation 2 on g02. A second VM UUID was never generated.
 
-g01 had existing temporary `kim-host-agent` processes from earlier single-Host qualification paths, but they did not form a current two-Host Recovery control plane with g02. Existing production Domain names, VG/LV identities, routes, network configuration, and Host authority were not modified.
+## Defects exposed by the real run
 
-## Guard decision
+The run found two authority/backend gaps that a fixture had hidden:
 
-The requested completion condition requires an explicit opt-in, two lab-approved Hosts, a dedicated disposable VM identity, isolated storage, current KIM sessions/authority, and an operator cleanup plan. The available topology has one lab Host plus one important production Host. The instruction explicitly prohibits using an important Host as the destructive Recovery target, so the guard failed closed before:
+1. the fixed typed Domain XML did not expose ACPI or a serial console, so a minimal guest could not perform typed graceful shutdown. The fixed profile now always includes ACPI and a PTY serial console; callers still cannot supply XML or machine flags;
+2. pre-power zero-Port readiness required `holder_open=true`, although QEMU opens the root LV only after start. Pre-power readiness now requires current immutable inactive-Domain root identity plus exact BOUND binding and current root claim. Post-power Recovery Verification and Terminal Decision still require current `ATTACHED`, device-present, identity-matched, holder-open evidence.
 
-- Failure injection;
-- Host authority fencing;
-- source VM shutdown;
-- Local LVM creation or attachment;
-- destination libvirt define;
-- typed destination power-on;
-- Recovery Verification or Terminal Decision.
+Migration 056 only widens the attachment observation target CHECK from secondary `vdb-vdz` to `vda-vdz`. The Agent permits slot zero only for observation of an already-defined `vda`; it rejects root attach/detach mutation. No unrelated CHECK or UNIQUE constraint is changed.
 
-Consequently none of the following are claimed:
+## Why the overall gate remains BLOCKED
+
+The real physical evidence above and the PostgreSQL Recovery authority regression were both successful, but they remain two distinct qualification lanes. The PostgreSQL integration constructs typed fixture evidence and rolls the terminal transaction back for repeatability. It does not import the real helper receipts, command verification digests, source fencing/storage observations, destination materialization observations, and actual power/root observations into one persistent authority history.
+
+Consequently this run does **not** claim:
 
 ```text
-source RUNNING → actual SHUTOFF
-destination absent → actual define → actual RUNNING
-split-brain negative assertion
-real Recovery VERIFIED / RECOVERED / Budget RELEASED
-real recovery latency
+actual g01/g02 evidence
+→ EvaluateRecoveryDangerousStep AUTHORIZED
+→ AuthorizeRecoveryPowerOn
+→ EvaluateRecoveryVerification VERIFIED
+→ CommitRecoveryTerminalDecision
+→ Operation VERIFIED / Epoch RECOVERED / Budget RELEASED
 ```
 
-Fixture-backed PostgreSQL authority qualification from Migration 055 remains PASS, but it is not substituted for this real-backend gate.
+Fixture-backed `AUTHORIZED`, `VERIFIED`, `RECOVERED`, and `RELEASED` remain regression evidence only. Physical `RUNNING` and SQL state transition success are not substituted for the missing exact ingestion chain.
 
-## Required lab topology to unblock
+## Negative gates
 
-Before rerunning, provide:
+- Source shutdown response ambiguity remained `UNKNOWN` until standard libvirt read-back.
+- Slot-zero/root absence does not cause an attach; root detach is rejected.
+- Pre-power readiness cannot use a holder-open claim fabricated before QEMU start.
+- Post-power terminal verification still requires holder-open.
+- Source and destination Host equality, hostname mismatch, foreign command identity, non-`kimrr_` VG, non-qualification state/cache roots, unsupported command type/schema, and missing opt-in fail closed.
+- `EVACUATE` remains unsupported/blocked.
 
-1. two Hosts explicitly classified and allow-listed as disposable recovery lab targets;
-2. current KIM Agent sessions and ARMED destination authority on both Hosts;
-3. a deterministic disposable VM UUID and known RAW image/flavor;
-4. per-Host isolated loop-backed Local LVM VGs or equivalent disposable storage;
-5. a zero-Port profile or an explicitly isolated test network;
-6. explicit opt-in such as `KIM_REAL_KVM_RECOVERY_QUALIFICATION=1` plus exact source/destination Host and VM UUID allow-lists;
-7. an operator rollback/cleanup procedure that removes only test backend artifacts while retaining immutable KIM evidence.
+## Cleanup and non-disruption
 
-The guard must reject equal source/destination Hosts, non-lab Host classifications, missing exact allow-list entries, existing foreign VM UUIDs, non-empty production VGs, or missing current Agent/Host authority.
+After the final split-brain assertion, g02 was gracefully shut down. On both Hosts, cleanup revalidated the exact VM UUID, Domain name, VG UUID, and loop backing path before removing only the disposable Domain, `kimrr_*` VG/LVs, loop PV/device, helper, cache, journal, and build directory.
 
-## Safety and cleanup
+Post-cleanup Domain, address, route, and OVS fingerprints exactly matched the preflight baseline on both Hosts. No production Domain, `vg0`, network configuration, route, OVS/OVN state, or service was changed. Immutable repository/qualification evidence was not rewritten; backend cleanup is an operator procedure and is not claimed as KIM cleanup authority.
 
-- No VM state change was issued.
-- No libvirt Domain was defined, started, stopped, or undefined.
-- No LVM PV/VG/LV or loop device was created.
-- No network interface, route, OVS/OVN object, or firewall state was changed.
-- No PostgreSQL state on either KVM Host was created or changed.
-- No backend cleanup was necessary.
-- Historical KIM evidence was not altered.
-
-## Regression qualification
-
-The blocked real-backend decision does not replace the existing authority qualification. A disposable local PostgreSQL 17 container was used only for repository regression and was removed after the checks.
+## Regression
 
 | Check | Result |
 |---|---|
-| Fresh PostgreSQL 17 persistence integration | PASS |
+| typed Local LVM attachment/root observation unit tests | PASS |
+| Availability/Recovery terminal PostgreSQL 17 integration | PASS |
+| fresh migration 001-056 | PASS |
 | `go test -race ./...` | PASS |
 | `make check` | PASS |
-| Documentation contracts | PASS: 471 requirements, 715 test contracts, 234 links |
-| `git diff --check` | PASS |
+| documentation lint | PASS: 471 requirements, 715 test contracts, 234 links |
 
-## Remaining gate order
+## Next gate
 
-1. real two-lab-Host zero-Port/Local-LVM Recovery;
-2. non-empty Network/OVN Recovery;
-3. PCI/SR-IOV Recovery;
-4. source cleanup authority;
-5. `EVACUATE` backend;
-6. repeated Recovery soak/chaos.
+Add an opt-in qualification harness that imports stable real helper Result/Observation identities into the ordinary PostgreSQL Job/Command/Verification and Recovery authority path. Rerun the same isolated two-Host profile and require one committed Terminal Decision with actual observations before changing the overall result to PASS. Non-empty OVN, PCI/SR-IOV, source cleanup authority, `EVACUATE`, and repeated Recovery soak remain later gates.

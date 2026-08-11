@@ -70,18 +70,6 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 		t.Fatal(err)
 	}
 
-	attachmentJob, attachmentCommand, attachmentVerification := "recovery-attach-job-"+suffix, "recovery-attach-command-"+suffix, "recovery-attach-verification-"+suffix
-	attachmentPayload := map[string]any{"attachment_id": required.AttachmentID, "volume_id": required.VolumeID, "domain_uuid": vmID, "target_device": "vdb", "observed_lv_uuid": lvUUID, "desired_state": "ATTACHED", "device_present": true, "device_identity_matches": true, "source_identity_matches": true, "holder_open": true, "read_only": false}
-	payloadRaw, _ := json.Marshal(attachmentPayload)
-	payloadDigest := digestBytes(payloadRaw)
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.execution_jobs(job_id,resource_type,resource_id,desired_revision,job_state) VALUES($1,'VOLUME_ATTACHMENT',$2,1,'DISPATCHABLE'); INSERT INTO kim.execution_commands(command_id,job_id,host_id,command_type,schema_version,target_resource_id,payload,payload_digest) VALUES($3,$1,$4,'LOCAL_LVM_VOLUME_ATTACHMENT_ENSURE','kim.command.local-lvm-volume-attachment/v1',$5,$6::jsonb,$7); INSERT INTO kim.execution_commands_current(command_id,command_state) VALUES($3,'PENDING'); UPDATE kim.execution_jobs SET current_command_id=$3 WHERE job_id=$1`, pgx.QueryExecModeSimpleProtocol, attachmentJob, required.AttachmentID, attachmentCommand, start.DestinationHostID, "attachment:"+required.AttachmentID, string(payloadRaw), payloadDigest); err != nil {
-		t.Fatal(err)
-	}
-	attachmentObsDigest, attachmentVerifierDigest := digestBytes([]byte("recovery attachment observation")), digestBytes([]byte("recovery attachment verifier"))
-	seedAttemptVerification(attachmentJob, attachmentCommand, attachmentVerification, start.DestinationHostID, 1, attachmentObsDigest, attachmentVerifierDigest, attachmentPayload)
-	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, LocalLVMAttachmentObservation{EvidenceID: "recovery-attachment-evidence-" + suffix, AttachmentID: required.AttachmentID, VolumeID: required.VolumeID, AttachmentGeneration: 1, BindingID: bindingID, BindingGeneration: 1, HostID: start.DestinationHostID, DomainUUID: vmID, TargetDevice: "vdb", ObservedLVUUID: lvUUID, DesiredState: "ATTACHED", CommandID: attachmentCommand, VerificationID: attachmentVerification, ObservationGeneration: 1, AttemptIndex: 1, ObservationDigest: attachmentObsDigest, VerifierDigest: attachmentVerifierDigest, EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true, HolderOpen: true}); err != nil {
-		t.Fatal(err)
-	}
 	if err := MarkRecoveryNoNetworkReady(ctx, pool, operationID); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +139,21 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 	verifying, err := RefreshRecoveryPowerExecution(ctx, pool, operationID, powerVerification)
 	if err != nil || verifying.LifecycleState != "VERIFYING" {
 		t.Fatalf("power read-back=%+v err=%v", verifying, err)
+	}
+
+	// Root holder evidence is necessarily post-power. The typed root-disk
+	// command is observation-only for vda and cannot attach or detach it.
+	attachmentJob, attachmentCommand, attachmentVerification := "recovery-attach-job-"+suffix, "recovery-attach-command-"+suffix, "recovery-attach-verification-"+suffix
+	attachmentPayload := map[string]any{"attachment_id": required.AttachmentID, "volume_id": required.VolumeID, "domain_uuid": vmID, "target_device": "vda", "observed_lv_uuid": lvUUID, "desired_state": "ATTACHED", "device_present": true, "device_identity_matches": true, "source_identity_matches": true, "holder_open": true, "read_only": false}
+	payloadRaw, _ := json.Marshal(attachmentPayload)
+	payloadDigest := digestBytes(payloadRaw)
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.execution_jobs(job_id,resource_type,resource_id,desired_revision,job_state) VALUES($1,'VOLUME_ATTACHMENT',$2,1,'DISPATCHABLE'); INSERT INTO kim.execution_commands(command_id,job_id,host_id,command_type,schema_version,target_resource_id,payload,payload_digest) VALUES($3,$1,$4,'LOCAL_LVM_VOLUME_ATTACHMENT_ENSURE','kim.command.local-lvm-volume-attachment/v1',$5,$6::jsonb,$7); INSERT INTO kim.execution_commands_current(command_id,command_state) VALUES($3,'PENDING'); UPDATE kim.execution_jobs SET current_command_id=$3 WHERE job_id=$1`, pgx.QueryExecModeSimpleProtocol, attachmentJob, required.AttachmentID, attachmentCommand, start.DestinationHostID, "attachment:"+required.AttachmentID, string(payloadRaw), payloadDigest); err != nil {
+		t.Fatal(err)
+	}
+	attachmentObsDigest, attachmentVerifierDigest := digestBytes([]byte("recovery attachment observation")), digestBytes([]byte("recovery attachment verifier"))
+	seedAttemptVerification(attachmentJob, attachmentCommand, attachmentVerification, start.DestinationHostID, 1, attachmentObsDigest, attachmentVerifierDigest, attachmentPayload)
+	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, LocalLVMAttachmentObservation{EvidenceID: "recovery-attachment-evidence-" + suffix, AttachmentID: required.AttachmentID, VolumeID: required.VolumeID, AttachmentGeneration: 1, BindingID: bindingID, BindingGeneration: 1, HostID: start.DestinationHostID, DomainUUID: vmID, TargetDevice: "vda", ObservedLVUUID: lvUUID, DesiredState: "ATTACHED", CommandID: attachmentCommand, VerificationID: attachmentVerification, ObservationGeneration: 1, AttemptIndex: 1, ObservationDigest: attachmentObsDigest, VerifierDigest: attachmentVerifierDigest, EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true, HolderOpen: true}); err != nil {
+		t.Fatal(err)
 	}
 
 	verification, err := EvaluateRecoveryVerification(ctx, pool, "recovery-terminal-verification-"+suffix, operationID, "recovery-verifier/v1", digestBytes([]byte("recovery verifier/v1")))
