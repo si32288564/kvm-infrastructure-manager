@@ -102,3 +102,7 @@ go run ./cmd/kim-db-migrate
 ```sh
 make test-postgres-integration KIM_POSTGRES_TEST_URL='postgres://...'
 ```
+
+## ライセンス
+
+KVM Infrastructure Manager（KIM）は Apache License, Version 2.0（SPDX: `Apache-2.0`）の下で提供されます。詳細は [LICENSE](LICENSE) を参照してください。
