@@ -109,6 +109,12 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 			  AND retirement_state='VERIFIED'`, request.PortID, portGeneration, bindingGeneration); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirement_latest_current
+			SET retirement_state='STALE',updated_at=statement_timestamp()
+			WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3
+			  AND retirement_state='VERIFIED'`, request.PortID, portGeneration, bindingGeneration); err != nil {
+			return err
+		}
 		workID := fmt.Sprintf("ovn-runtime:%s:%d", request.IntentID, request.IntentGeneration)
 		workSchema := OVNRuntimeWorkSchemaV1
 		if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT write_work_schema_version FROM kim.release_authority_current WHERE singleton=true),$1)`, OVNRuntimeWorkSchemaV1).Scan(&workSchema); err != nil {

@@ -94,6 +94,7 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 			JOIN kim.port_bindings_current binding ON binding.port_id=port.port_id AND binding.binding_generation=work.binding_generation
 			LEFT JOIN kim.network_ovn_state_current current ON current.port_id=work.port_id
 			LEFT JOIN kim.network_port_binding_retirements_current retirement ON retirement.port_id=work.port_id
+			 AND retirement.port_generation=work.port_generation AND retirement.binding_generation=work.binding_generation
 			WHERE (work.work_state IN ('PENDING','DISPATCH_UNKNOWN')
 			 OR (work.work_state='CLAIMED' AND work.claim_expires_at<=statement_timestamp()))
 			AND ((work.operation_kind='RECONCILE' AND current.intent_id=work.intent_id AND current.intent_generation=work.intent_generation AND current.port_generation=work.port_generation AND current.binding_generation=work.binding_generation)
@@ -273,7 +274,15 @@ func QuarantineOVNRuntimeWork(ctx context.Context, db TxBeginner, claim OVNRunti
 			SET retirement_state='CONFLICTING',updated_at=statement_timestamp()
 			FROM kim.ovn_runtime_work_current w
 			WHERE w.work_id=$1 AND w.operation_kind='UNBIND'
-			  AND r.intent_id=w.intent_id AND r.intent_generation=w.intent_generation`, claim.WorkID); err != nil {
+			  AND r.intent_id=w.intent_id AND r.intent_generation=w.intent_generation
+			  AND r.port_generation=w.port_generation AND r.binding_generation=w.binding_generation`, claim.WorkID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirement_latest_current latest
+			SET retirement_state='CONFLICTING',updated_at=statement_timestamp()
+			FROM kim.ovn_runtime_work_current w
+			WHERE w.work_id=$1 AND w.operation_kind='UNBIND' AND latest.port_id=w.port_id
+			  AND latest.port_generation=w.port_generation AND latest.binding_generation=w.binding_generation`, claim.WorkID); err != nil {
 			return err
 		}
 		return appendOVNRuntimeEventTx(ctx, tx, claim, "CONFLICT_QUARANTINED", map[string]any{"reason": reason})

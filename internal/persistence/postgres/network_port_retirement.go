@@ -35,6 +35,43 @@ func CommitOVNPortBindingRetirement(ctx context.Context, db TxBeginner, r OVNPor
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
+		// A committed operation remains recoverable after the logical Port has
+		// advanced to a later Host-binding incarnation. This is response-loss
+		// recovery only: the exact immutable identity must match and no new work
+		// or authority is created.
+		var existing OVNPortBindingRetirementDecision
+		err := tx.QueryRow(ctx, `SELECT r.operation_id,r.operation_generation,r.intent_id,r.intent_generation,
+			r.port_id,r.port_generation,r.binding_generation,r.source_host_id,intent.object_set_digest
+			FROM kim.network_port_binding_retirements_current r
+			JOIN kim.network_intent_revision_evidence intent
+			  ON intent.intent_id=r.intent_id AND intent.intent_generation=r.intent_generation
+			WHERE r.operation_id=$1`, r.OperationID).Scan(
+			&existing.OperationID, &existing.OperationGeneration, &existing.IntentID, &existing.IntentGeneration,
+			&existing.PortID, &existing.PortGeneration, &existing.BindingGeneration, &existing.SourceHostID,
+			&existing.ObjectSetDigest)
+		if err == nil {
+			if existing.OperationGeneration != r.OperationGeneration || existing.IntentID != r.IntentID ||
+				existing.IntentGeneration != r.IntentGeneration || existing.PortID != r.PortID ||
+				existing.PortGeneration != r.PortGeneration || existing.BindingGeneration != r.BindingGeneration ||
+				existing.SourceHostID != r.SourceHostID {
+				return ErrPlacementConflict
+			}
+			existing.WorkID = fmt.Sprintf("ovn-runtime:%s:%d", existing.IntentID, existing.IntentGeneration)
+			out = existing
+			return nil
+		}
+		if err != pgx.ErrNoRows {
+			return err
+		}
+		var incarnationExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_port_binding_retirements_current
+			WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3)`,
+			r.PortID, r.PortGeneration, r.BindingGeneration).Scan(&incarnationExists); err != nil {
+			return err
+		}
+		if incarnationExists {
+			return ErrPlacementConflict
+		}
 		var projectID, networkID, segmentID, sourceIntentID, sourceDigest string
 		var networkGeneration, segmentGeneration, mappingGeneration, sourceIntentGeneration int64
 		var sourcePlanRaw []byte
@@ -81,12 +118,19 @@ func CommitOVNPortBindingRetirement(ctx context.Context, db TxBeginner, r OVNPor
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.ovn_runtime_work_current(work_id,intent_id,intent_generation,port_id,port_generation,binding_generation,object_set_digest,work_state,required_work_schema_version,operation_kind) VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING',$8,'UNBIND') ON CONFLICT(intent_id,intent_generation) DO NOTHING`, workID, r.IntentID, r.IntentGeneration, r.PortID, r.PortGeneration, r.BindingGeneration, digest, workSchema); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.network_port_binding_retirements_current(port_id,operation_id,operation_generation,intent_id,intent_generation,port_generation,binding_generation,source_host_id,retirement_state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'PENDING') ON CONFLICT(port_id) DO NOTHING`, r.PortID, r.OperationID, r.OperationGeneration, r.IntentID, r.IntentGeneration, r.PortGeneration, r.BindingGeneration, r.SourceHostID); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.network_port_binding_retirements_current(port_id,operation_id,operation_generation,intent_id,intent_generation,port_generation,binding_generation,source_host_id,retirement_state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'PENDING') ON CONFLICT(port_id,port_generation,binding_generation) DO NOTHING`, r.PortID, r.OperationID, r.OperationGeneration, r.IntentID, r.IntentGeneration, r.PortGeneration, r.BindingGeneration, r.SourceHostID); err != nil {
 			return err
 		}
 		var identical bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND operation_id=$2 AND operation_generation=$3 AND intent_id=$4 AND intent_generation=$5 AND port_generation=$6 AND binding_generation=$7 AND source_host_id=$8)`, r.PortID, r.OperationID, r.OperationGeneration, r.IntentID, r.IntentGeneration, r.PortGeneration, r.BindingGeneration, r.SourceHostID).Scan(&identical); err != nil || !identical {
 			return ErrPlacementConflict
+		}
+		tag, err = tx.Exec(ctx, `INSERT INTO kim.network_port_binding_retirement_latest_current(port_id,port_generation,binding_generation,operation_id,operation_generation,retirement_state) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(port_id) DO UPDATE SET port_generation=EXCLUDED.port_generation,binding_generation=EXCLUDED.binding_generation,operation_id=EXCLUDED.operation_id,operation_generation=EXCLUDED.operation_generation,retirement_state='PENDING',terminal_evidence_id=NULL,updated_at=statement_timestamp() WHERE (kim.network_port_binding_retirement_latest_current.port_generation,kim.network_port_binding_retirement_latest_current.binding_generation)<(EXCLUDED.port_generation,EXCLUDED.binding_generation)`, r.PortID, r.PortGeneration, r.BindingGeneration, r.OperationID, r.OperationGeneration)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrPlacementStale
 		}
 		out = OVNPortBindingRetirementDecision{OperationID: r.OperationID, OperationGeneration: r.OperationGeneration, IntentID: r.IntentID, IntentGeneration: r.IntentGeneration, WorkID: workID, PortID: r.PortID, PortGeneration: r.PortGeneration, BindingGeneration: r.BindingGeneration, SourceHostID: r.SourceHostID, ObjectSetDigest: digest}
 		return nil
@@ -111,7 +155,7 @@ func completeOVNPortBindingRetirementTx(ctx context.Context, tx pgx.Tx, claim OV
 	}
 	var operationID, intentID, portID, sourceHost string
 	var operationGeneration, intentGeneration, portGeneration, bindingGeneration int64
-	if err := tx.QueryRow(ctx, `SELECT r.operation_id,r.operation_generation,r.intent_id,r.intent_generation,r.port_id,r.port_generation,r.binding_generation,r.source_host_id FROM kim.network_port_binding_retirements_current r JOIN kim.ovn_runtime_work_current w ON w.intent_id=r.intent_id AND w.intent_generation=r.intent_generation AND w.work_id=$1 AND w.operation_kind='UNBIND' WHERE r.port_id=w.port_id FOR UPDATE OF r`, claim.WorkID).Scan(&operationID, &operationGeneration, &intentID, &intentGeneration, &portID, &portGeneration, &bindingGeneration, &sourceHost); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT r.operation_id,r.operation_generation,r.intent_id,r.intent_generation,r.port_id,r.port_generation,r.binding_generation,r.source_host_id FROM kim.network_port_binding_retirements_current r JOIN kim.ovn_runtime_work_current w ON w.intent_id=r.intent_id AND w.intent_generation=r.intent_generation AND w.work_id=$1 AND w.operation_kind='UNBIND' WHERE r.port_id=w.port_id AND r.port_generation=w.port_generation AND r.binding_generation=w.binding_generation FOR UPDATE OF r`, claim.WorkID).Scan(&operationID, &operationGeneration, &intentID, &intentGeneration, &portID, &portGeneration, &bindingGeneration, &sourceHost); err != nil {
 		return ErrStaleOVNRuntimeClaim
 	}
 	if observed.IntentID != intentID || observed.IntentGeneration != uint64(intentGeneration) || observed.PortID != portID || observed.PortGeneration != uint64(portGeneration) || observed.BindingGeneration != uint64(bindingGeneration) || observed.SourceHostID != sourceHost || observed.OperationGeneration != uint64(operationGeneration) {
@@ -140,7 +184,10 @@ func completeOVNPortBindingRetirementTx(ctx context.Context, tx pgx.Tx, claim OV
 	if _, err := tx.Exec(ctx, `UPDATE kim.ovn_runtime_work_current SET work_state=$4,claim_owner=NULL,claim_generation=NULL,claim_expires_at=NULL,claim_maximum_expires_at=NULL,terminal_observation_id=$5,updated_at=statement_timestamp() WHERE work_id=$1 AND claim_owner=$2 AND claim_generation=$3`, claim.WorkID, claim.Owner, claim.ClaimGeneration, workState, terminal); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirements_current SET retirement_state=$2,terminal_evidence_id=$3,updated_at=statement_timestamp() WHERE port_id=$1`, portID, retirementState, terminal); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirements_current SET retirement_state=$4,terminal_evidence_id=$5,updated_at=statement_timestamp() WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3`, portID, portGeneration, bindingGeneration, retirementState, terminal); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirement_latest_current SET retirement_state=$4,terminal_evidence_id=$5,updated_at=statement_timestamp() WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3`, portID, portGeneration, bindingGeneration, retirementState, terminal); err != nil {
 		return err
 	}
 	return appendOVNRuntimeEventTx(ctx, tx, claim, event, map[string]any{"operation_kind": "UNBIND", "retirement_state": state, "work_state": workState})

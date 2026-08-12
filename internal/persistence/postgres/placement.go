@@ -864,7 +864,7 @@ func claimNetworkPortHandoffTx(ctx context.Context, tx pgx.Tx, admissionID strin
 		FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id
 		JOIN kim.network_port_source_quiescence_evidence q ON q.evidence_id=$2 AND q.port_id=p.port_id AND q.port_generation=p.port_generation AND q.source_host_id=b.host_id AND q.source_binding_generation=b.binding_generation
 		JOIN kim.network_port_binding_retirement_evidence re ON re.evidence_id=q.retirement_evidence_id AND re.port_id=p.port_id AND re.port_generation=p.port_generation AND re.binding_generation=b.binding_generation AND re.source_host_id=b.host_id AND re.retirement_state='VERIFIED'
-		JOIN kim.network_port_binding_retirements_current rc ON rc.port_id=p.port_id AND rc.terminal_evidence_id=re.evidence_id AND rc.retirement_state='VERIFIED'
+		JOIN kim.network_port_binding_retirements_current rc ON rc.port_id=p.port_id AND rc.port_generation=p.port_generation AND rc.binding_generation=b.binding_generation AND rc.terminal_evidence_id=re.evidence_id AND rc.retirement_state='VERIFIED'
 		WHERE p.port_id=$1 FOR UPDATE OF p,b`, required.PortID, required.SourceQuiescenceEvidenceID).Scan(&sourceAdmission, &sourceHost, &workloadID, &sourcePortGeneration, &sourceBindingGeneration, &quiescenceDigest, &quiesced)
 	if err != nil || !quiesced || workloadID != request.WorkloadID || sourceHost != required.SourceHostID || sourceHost == current.HostID || sourcePortGeneration != required.SourcePortGeneration || sourceBindingGeneration != required.SourceBindingGeneration || quiescenceDigest != required.SourceQuiescenceEvidenceDigest || required.DestinationPortGeneration != sourcePortGeneration+1 || required.DestinationBindingGeneration != sourceBindingGeneration+1 {
 		return ErrPlacementStale
@@ -880,8 +880,17 @@ func claimNetworkPortHandoffTx(ctx context.Context, tx pgx.Tx, admissionID strin
 	if tag, err := tx.Exec(ctx, `UPDATE kim.port_bindings_current SET placement_admission_id=$2,host_id=$3,binding_generation=$4,binding_state='RESERVED',created_at=statement_timestamp() WHERE port_id=$1 AND placement_admission_id=$5 AND host_id=$6 AND binding_generation=$7`, required.PortID, admissionID, current.HostID, required.DestinationBindingGeneration, sourceAdmission, sourceHost, sourceBindingGeneration); err != nil || tag.RowsAffected() != 1 {
 		return ErrPlacementStale
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO kim.port_binding_handoffs_current(port_id,handoff_id,destination_binding_generation,handoff_state) VALUES($1,$2,$3,'DESTINATION_RESERVED')`, required.PortID, required.HandoffID, required.DestinationBindingGeneration); err != nil {
+	tag, err := tx.Exec(ctx, `INSERT INTO kim.port_binding_handoffs_current(port_id,handoff_id,destination_binding_generation,handoff_state)
+		VALUES($1,$2,$3,'DESTINATION_RESERVED')
+		ON CONFLICT(port_id) DO UPDATE SET handoff_id=EXCLUDED.handoff_id,
+			destination_binding_generation=EXCLUDED.destination_binding_generation,
+			handoff_state='DESTINATION_RESERVED',updated_at=statement_timestamp()
+		WHERE kim.port_binding_handoffs_current.destination_binding_generation<EXCLUDED.destination_binding_generation`, required.PortID, required.HandoffID, required.DestinationBindingGeneration)
+	if err != nil {
 		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrPlacementStale
 	}
 	return nil
 }

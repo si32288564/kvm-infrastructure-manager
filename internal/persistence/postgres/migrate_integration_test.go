@@ -102,6 +102,7 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"port_binding_handoffs_current",
 		"network_port_binding_retirement_evidence",
 		"network_port_binding_retirements_current",
+		"network_port_binding_retirement_latest_current",
 		"ovn_runtime_work_current",
 		"ovn_runtime_work_attempt_evidence",
 		"ovn_runtime_work_event_evidence",

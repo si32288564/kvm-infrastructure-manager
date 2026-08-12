@@ -1214,7 +1214,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	destinationFlowID, destinationChassisID := "tunnel-flow-"+suffix, "tunnel-chassis-"+suffix
 	tunnelSeed := &pgx.Batch{}
 	tunnelSeed.Queue(`INSERT INTO kim.host_identities(host_id,enrollment_state) VALUES($1,'APPROVED')`, destinationHostID)
-	tunnelSeed.Queue(`INSERT INTO kim.host_network_mappings_current(host_id,segment_claim_id,mapping_generation,mapping_state,maximum_mtu,supported_binding_types) VALUES($1,$2,1,'CURRENT',1500,ARRAY['OVS'])`, destinationHostID, segmentClaimID)
+	tunnelSeed.Queue(`INSERT INTO kim.host_network_mappings_current(host_id,segment_claim_id,mapping_generation,mapping_state,maximum_mtu,supported_binding_types,ovn_chassis_name) VALUES($1,$2,1,'CURRENT',1500,ARRAY['OVS'],$3)`, destinationHostID, segmentClaimID, "ovn-chassis-destination-"+suffix)
 	tunnelSeed.Queue(`INSERT INTO kim.network_ports_current(port_id,placement_admission_id,project_id,workload_id,network_id,subnet_id,port_generation,desired_state) VALUES($1,$2,'project',$3,$4,$5,1,'ACTIVE')`, destinationPortID, winner.admission.AdmissionID, "tunnel-workload-"+suffix, networkID, subnetID)
 	tunnelSeed.Queue(`INSERT INTO kim.port_bindings_current(port_id,placement_admission_id,host_id,segment_claim_id,binding_generation,binding_type,binding_state) VALUES($1,$2,$3,$4,1,'OVS','ACTIVE')`, destinationPortID, winner.admission.AdmissionID, destinationHostID, segmentClaimID)
 	tunnelSeed.Queue(`INSERT INTO kim.network_intent_revision_evidence(intent_id,intent_generation,aggregate_type,aggregate_id,project_id,network_id,network_generation,port_generation,segment_claim_id,segment_generation,host_mapping_generation,binding_generation,schema_version,canonical_object_set,object_set_digest,intent_state) VALUES($1,1,'PORT',$2,'project',$3,1,1,$4,1,1,1,$5,'{}',$6,'COMMITTED')`, destinationIntentID, destinationPortID, networkID, segmentClaimID, ovnadapter.PortIntentSchema, digestBytes([]byte(destinationIntentID)))
@@ -1362,11 +1362,233 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if retirementState != "VERIFIED" || retirementWorkState != "OBSERVED" || retirementAttemptCount != 2 || retirementEvidenceCount != 2 || portCount != 1 || identityCount != 2 {
 		t.Fatalf("OVN Port retirement convergence=%s/%s attempts=%d evidence=%d port=%d identities=%d", retirementState, retirementWorkState, retirementAttemptCount, retirementEvidenceCount, portCount, identityCount)
 	}
-	if _, err := CommitOVNPortIntent(ctx, pool, OVNPortIntentRequest{IntentID: "ovn-source-revival-" + suffix, IntentGeneration: 3, PortID: ovsPortID}); err != nil {
-		t.Fatalf("commit source binding ABA intent: %v", err)
+
+	// Qualify a second binding incarnation through the ordinary immutable
+	// PortBindingHandoff transaction. The fixture supplies already-accepted
+	// source quiescence and destination Admission evidence; it never updates
+	// Port/Binding generations directly.
+	var retirementEvidenceID string
+	if err := pool.QueryRow(ctx, `SELECT terminal_evidence_id FROM kim.network_port_binding_retirements_current
+		WHERE port_id=$1 AND port_generation=1 AND binding_generation=1`, ovsPortID).Scan(&retirementEvidenceID); err != nil {
+		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1`, ovsPortID).Scan(&retirementState); err != nil || retirementState != "STALE" {
-		t.Fatalf("source binding ABA did not stale Unbound Proof: state=%s err=%v", retirementState, err)
+	quiescenceID := "repeated-retirement-quiescence-" + suffix
+	quiescenceDigest := digestBytes([]byte(quiescenceID))
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.network_port_source_quiescence_evidence(
+		evidence_id,port_id,port_generation,source_host_id,source_binding_generation,
+		vm_id,vm_generation,command_id,verification_id,observation_generation,
+		observation_digest,source_vm_not_running,source_interface_absent,quiescence_state,
+		evidence_digest,retirement_evidence_id)
+		VALUES($1,$2,1,$3,1,$4,1,$5,$6,1,$7,true,true,'QUIESCED',$8,$9)`,
+		quiescenceID, ovsPortID, hostID, vmMaterialization.VMID, prebootCommandID,
+		prebootVerificationID, digestBytes([]byte("repeated-retirement-quiescence-observation-"+suffix)),
+		quiescenceDigest, retirementEvidenceID); err != nil {
+		t.Fatal(err)
+	}
+	destinationAdmissionID := "repeated-retirement-destination-admission-" + suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.placement_admission_decisions
+		SELECT (jsonb_populate_record(NULL::kim.placement_admission_decisions,
+			to_jsonb(source_decision) || jsonb_build_object(
+				'admission_id',$2::text,'request_id',$3::text,'host_id',$4::text))).*
+		FROM kim.placement_admission_decisions source_decision WHERE source_decision.admission_id=$1`,
+		winner.admission.AdmissionID, destinationAdmissionID,
+		"repeated-retirement-destination-request-"+suffix, destinationHostID); err != nil {
+		t.Fatal(err)
+	}
+	handoffID := "repeated-retirement-handoff-" + suffix
+	handoffRequirement := placement.NetworkRequirement{
+		PortID: ovsPortID, HandoffID: handoffID, SourceHostID: hostID,
+		SourcePortGeneration: 1, SourceBindingGeneration: 1,
+		DestinationPortGeneration: 2, DestinationBindingGeneration: 2,
+		SourceQuiescenceEvidenceID: quiescenceID, SourceQuiescenceEvidenceDigest: quiescenceDigest,
+	}
+	if err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return claimNetworkPortHandoffTx(ctx, tx, destinationAdmissionID,
+			PlacementAdmissionRequest{WorkloadID: vmMaterialization.VMID},
+			placement.Evaluation{HostID: destinationHostID}, handoffRequirement)
+	}); err != nil {
+		t.Fatalf("ordinary PortBindingHandoff 1/1 -> 2/2: %v", err)
+	}
+	var currentPortGeneration, currentBindingGeneration uint64
+	var currentBindingHost string
+	if err := pool.QueryRow(ctx, `SELECT p.port_generation,b.binding_generation,b.host_id
+		FROM kim.network_ports_current p JOIN kim.port_bindings_current b USING(port_id)
+		WHERE p.port_id=$1`, ovsPortID).Scan(&currentPortGeneration, &currentBindingGeneration, &currentBindingHost); err != nil || currentPortGeneration != 2 || currentBindingGeneration != 2 || currentBindingHost != destinationHostID {
+		t.Fatalf("handoff current incarnation=%d/%d host=%s err=%v", currentPortGeneration, currentBindingGeneration, currentBindingHost, err)
+	}
+
+	destinationIntent, err := CommitOVNPortIntent(ctx, pool, OVNPortIntentRequest{IntentID: "ovn-destination-incarnation-" + suffix, IntentGeneration: 3, PortID: ovsPortID})
+	if err != nil || destinationIntent.PortGeneration != 2 || destinationIntent.BindingGeneration != 2 {
+		t.Fatalf("destination ordinary OVN intent=%#v err=%v", destinationIntent, err)
+	}
+	destinationClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-destination-worker", Limit: 1, Lease: time.Minute})
+	if err != nil || len(destinationClaims) != 1 || destinationClaims[0].WorkID != "ovn-runtime:"+destinationIntent.IntentID+":3" {
+		t.Fatalf("destination ordinary OVN claim=%#v err=%v", destinationClaims, err)
+	}
+	destinationClaim := OVNRuntimeClaim{WorkID: destinationClaims[0].WorkID, Owner: "ovn-destination-worker", ClaimGeneration: destinationClaims[0].ClaimGeneration}
+	if err := AuthorizeOVNRuntimeApply(ctx, pool, destinationClaim); err != nil {
+		t.Fatal(err)
+	}
+	destinationObservation := OVNPortObservation{
+		NBObservationID: "ovn-destination-nb-" + suffix, SBObservationID: "ovn-destination-sb-" + suffix,
+		IntentID: destinationIntent.IntentID, IntentGeneration: 3, PortID: ovsPortID,
+		PortGeneration: 2, BindingGeneration: 2, NBObservationGeneration: 1, SBObservationGeneration: 1,
+		NBObservationDigest:   digestBytes([]byte("ovn-destination-nb-" + suffix)),
+		SBObservationDigest:   digestBytes([]byte("ovn-destination-sb-" + suffix)),
+		AdapterArtifactDigest: digestBytes([]byte("ovn-adapter")),
+		ChassisIdentityDigest: digestBytes([]byte("ovn-chassis-destination-" + suffix)),
+		ApplyResponseState:    "RECEIVED",
+		Observation: ovnadapter.Observation{OwnershipMarkerMatches: true, ObjectSetDigestMatches: true,
+			LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, PortBindingPresent: true,
+			DatapathPresent: true, ExpectedChassisMatches: true},
+	}
+	if err := CompleteOVNRuntimeWork(ctx, pool, destinationClaim, destinationObservation); err != nil {
+		t.Fatalf("complete destination ordinary OVN work: %v", err)
+	}
+
+	secondRetirementRequest := OVNPortBindingRetirementRequest{
+		OperationID: "ovn-retirement-second-" + suffix, OperationGeneration: 2,
+		IntentID: "ovn-retirement-second-intent-" + suffix, IntentGeneration: 4,
+		PortID: ovsPortID, PortGeneration: 2, BindingGeneration: 2, SourceHostID: destinationHostID,
+	}
+	secondRetirement, err := CommitOVNPortBindingRetirement(ctx, pool, secondRetirementRequest)
+	if err != nil {
+		t.Fatalf("commit second binding incarnation retirement: %v", err)
+	}
+	secondClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-retirement-worker-second", Limit: 1, Lease: time.Minute})
+	if err != nil || len(secondClaims) != 1 || secondClaims[0].WorkID != secondRetirement.WorkID || secondClaims[0].ClaimMode != "APPLY_ALLOWED" {
+		t.Fatalf("second incarnation retirement claim=%#v err=%v", secondClaims, err)
+	}
+	secondClaim := OVNRuntimeClaim{WorkID: secondRetirement.WorkID, Owner: "ovn-retirement-worker-second", ClaimGeneration: secondClaims[0].ClaimGeneration}
+	if err := AuthorizeOVNRuntimeApply(ctx, pool, secondClaim); err != nil {
+		t.Fatal(err)
+	}
+	secondRetirementObservation := OVNPortBindingRetirementObservation{
+		EvidenceID: "ovn-retirement-second-evidence-" + suffix,
+		IntentID:   secondRetirement.IntentID, IntentGeneration: secondRetirement.IntentGeneration,
+		PortID: ovsPortID, PortGeneration: 2, BindingGeneration: 2,
+		SourceHostID: destinationHostID, OperationGeneration: 2, ApplyResponseState: "RECEIVED",
+		NBObservationGeneration: 1, NBObservationDigest: digestBytes([]byte("retirement-second-nb-" + suffix)),
+		SBObservationGeneration: 1, SBObservationDigest: digestBytes([]byte("retirement-second-sb-" + suffix)),
+		OVSObservationGeneration: 1, OVSObservationDigest: digestBytes([]byte("retirement-second-ovs-" + suffix)),
+		AdapterArtifactDigest: digestBytes([]byte("retirement-adapter")), Observation: verifiedRetirementObservation,
+	}
+	if err := CompleteOVNPortBindingRetirement(ctx, pool, secondClaim, secondRetirementObservation); err != nil {
+		t.Fatalf("complete second binding incarnation retirement: %v", err)
+	}
+	if replay, err := CommitOVNPortBindingRetirement(ctx, pool, retirementRequest); err != nil || replay.WorkID != retirement.WorkID {
+		t.Fatalf("historical first-incarnation response-loss replay=%#v err=%v", replay, err)
+	}
+	if err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		stale := handoffRequirement
+		stale.HandoffID = "repeated-retirement-stale-handoff-" + suffix
+		stale.SourceHostID = destinationHostID
+		stale.SourcePortGeneration, stale.SourceBindingGeneration = 2, 2
+		stale.DestinationPortGeneration, stale.DestinationBindingGeneration = 3, 3
+		return claimNetworkPortHandoffTx(ctx, tx, winner.admission.AdmissionID,
+			PlacementAdmissionRequest{WorkloadID: vmMaterialization.VMID},
+			placement.Evaluation{HostID: hostID}, stale)
+	}); !errors.Is(err, ErrPlacementStale) {
+		t.Fatalf("old generation-1 quiescence authorized generation-2 handoff: %v", err)
+	}
+	var exactRetirements, firstEvidenceCount int
+	var firstState, secondState, latestState string
+	var latestPortGeneration, latestBindingGeneration uint64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_port_binding_retirements_current WHERE port_id=$1`, ovsPortID).Scan(&exactRetirements); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND port_generation=1 AND binding_generation=1`, ovsPortID).Scan(&firstState); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND port_generation=2 AND binding_generation=2`, ovsPortID).Scan(&secondState); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT port_generation,binding_generation,retirement_state FROM kim.network_port_binding_retirement_latest_current WHERE port_id=$1`, ovsPortID).Scan(&latestPortGeneration, &latestBindingGeneration, &latestState); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_port_binding_retirement_evidence WHERE operation_id=$1`, retirement.OperationID).Scan(&firstEvidenceCount); err != nil {
+		t.Fatal(err)
+	}
+	if exactRetirements != 2 || firstState != "VERIFIED" || secondState != "VERIFIED" || latestPortGeneration != 2 || latestBindingGeneration != 2 || latestState != "VERIFIED" || firstEvidenceCount != 2 {
+		t.Fatalf("repeated retirement projections count=%d first=%s second=%s latest=%d/%d/%s firstEvidence=%d", exactRetirements, firstState, secondState, latestPortGeneration, latestBindingGeneration, latestState, firstEvidenceCount)
+	}
+	abaRollback := errors.New("rollback repeated-retirement ABA qualification")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := CommitOVNPortIntent(ctx, nestedTestTxBeginner{tx}, OVNPortIntentRequest{IntentID: "ovn-source-revival-second-" + suffix, IntentGeneration: 5, PortID: ovsPortID}); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND port_generation=1 AND binding_generation=1`, ovsPortID).Scan(&firstState); err != nil || firstState != "VERIFIED" {
+			return fmt.Errorf("second-incarnation ABA corrupted first history: state=%s err=%v", firstState, err)
+		}
+		if err := tx.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND port_generation=2 AND binding_generation=2`, ovsPortID).Scan(&secondState); err != nil || secondState != "STALE" {
+			return fmt.Errorf("second-incarnation ABA did not stale exact proof: state=%s err=%v", secondState, err)
+		}
+		if err := tx.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirement_latest_current WHERE port_id=$1`, ovsPortID).Scan(&latestState); err != nil || latestState != "STALE" {
+			return fmt.Errorf("second-incarnation ABA did not stale latest projection: state=%s err=%v", latestState, err)
+		}
+		return abaRollback
+	})
+	if !errors.Is(err, abaRollback) {
+		t.Fatalf("second-incarnation ABA rollback qualification: %v", err)
+	}
+
+	var secondRetirementEvidenceID string
+	if err := pool.QueryRow(ctx, `SELECT terminal_evidence_id FROM kim.network_port_binding_retirements_current
+		WHERE port_id=$1 AND port_generation=2 AND binding_generation=2`, ovsPortID).Scan(&secondRetirementEvidenceID); err != nil {
+		t.Fatal(err)
+	}
+	secondQuiescenceID := "repeated-retirement-quiescence-second-" + suffix
+	secondQuiescenceDigest := digestBytes([]byte(secondQuiescenceID))
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.network_port_source_quiescence_evidence(
+		evidence_id,port_id,port_generation,source_host_id,source_binding_generation,
+		vm_id,vm_generation,command_id,verification_id,observation_generation,
+		observation_digest,source_vm_not_running,source_interface_absent,quiescence_state,
+		evidence_digest,retirement_evidence_id)
+		VALUES($1,$2,2,$3,2,$4,1,$5,$6,2,$7,true,true,'QUIESCED',$8,$9)`,
+		secondQuiescenceID, ovsPortID, destinationHostID, vmMaterialization.VMID,
+		dataplaneRequest.CommandID, dataplaneVerificationID,
+		digestBytes([]byte("repeated-retirement-quiescence-second-observation-"+suffix)),
+		secondQuiescenceDigest, secondRetirementEvidenceID); err != nil {
+		t.Fatal(err)
+	}
+	thirdAdmissionID := "repeated-retirement-third-admission-" + suffix
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.placement_admission_decisions
+		SELECT (jsonb_populate_record(NULL::kim.placement_admission_decisions,
+			to_jsonb(source_decision) || jsonb_build_object(
+				'admission_id',$2::text,'request_id',$3::text,'host_id',$4::text))).*
+		FROM kim.placement_admission_decisions source_decision WHERE source_decision.admission_id=$1`,
+		destinationAdmissionID, thirdAdmissionID,
+		"repeated-retirement-third-request-"+suffix, hostID); err != nil {
+		t.Fatal(err)
+	}
+	secondHandoffRequirement := placement.NetworkRequirement{
+		PortID: ovsPortID, HandoffID: "repeated-retirement-handoff-second-" + suffix,
+		SourceHostID: destinationHostID, SourcePortGeneration: 2, SourceBindingGeneration: 2,
+		DestinationPortGeneration: 3, DestinationBindingGeneration: 3,
+		SourceQuiescenceEvidenceID:     secondQuiescenceID,
+		SourceQuiescenceEvidenceDigest: secondQuiescenceDigest,
+	}
+	if err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return claimNetworkPortHandoffTx(ctx, tx, thirdAdmissionID,
+			PlacementAdmissionRequest{WorkloadID: vmMaterialization.VMID},
+			placement.Evaluation{HostID: hostID}, secondHandoffRequirement)
+	}); err != nil {
+		t.Fatalf("ordinary PortBindingHandoff 2/2 -> 3/3: %v", err)
+	}
+	var handoffEvidenceCount int
+	if err := pool.QueryRow(ctx, `SELECT p.port_generation,b.binding_generation,b.host_id
+		FROM kim.network_ports_current p JOIN kim.port_bindings_current b USING(port_id)
+		WHERE p.port_id=$1`, ovsPortID).Scan(&currentPortGeneration, &currentBindingGeneration, &currentBindingHost); err != nil || currentPortGeneration != 3 || currentBindingGeneration != 3 || currentBindingHost != hostID {
+		t.Fatalf("second handoff current incarnation=%d/%d host=%s err=%v", currentPortGeneration, currentBindingGeneration, currentBindingHost, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.port_binding_handoff_evidence WHERE port_id=$1`, ovsPortID).Scan(&handoffEvidenceCount); err != nil || handoffEvidenceCount != 2 {
+		t.Fatalf("immutable repeated Handoff evidence count=%d err=%v", handoffEvidenceCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT destination_binding_generation FROM kim.port_binding_handoffs_current WHERE port_id=$1`, ovsPortID).Scan(&currentBindingGeneration); err != nil || currentBindingGeneration != 3 {
+		t.Fatalf("latest Handoff projection generation=%d err=%v", currentBindingGeneration, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_identity_claims WHERE port_id=$1 AND claim_state IN ('RESERVED','ACTIVE')`, ovsPortID).Scan(&identityCount); err != nil || identityCount != 2 {
+		t.Fatalf("repeated Handoff changed Port MAC/IP identity count=%d err=%v", identityCount, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_power_observation_evidence SET observed_power_state='SHUTOFF' WHERE verification_id=$1`, powerVerificationID); err == nil {
 		t.Fatal("immutable VM power observation evidence accepted UPDATE")
