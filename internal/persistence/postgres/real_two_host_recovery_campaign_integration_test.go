@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
 )
@@ -24,7 +27,7 @@ const (
 )
 
 type realCampaignHost struct {
-	Host, HelperPath, VGName, VGUUID, CacheRoot, StateRoot string
+	Host, HelperPath, NetworkWorkerPath, VGName, VGUUID, CacheRoot, StateRoot, OVSBridge string
 }
 
 type realCampaignExecution struct {
@@ -38,6 +41,13 @@ type realCampaignExecution struct {
 func executeRealCampaignCommand(t *testing.T, ctx context.Context, pool QueryRower, databaseURL, runner string, host realCampaignHost, commandID, label string) realCampaignExecution {
 	t.Helper()
 	request := map[string]any{"command_id": commandID, "message_id": "real-recovery-campaign/" + label + "/message", "verification_id": "real-recovery-campaign/" + label + "/verification", "host": host.Host, "helper_path": host.HelperPath, "vg_name": host.VGName, "vg_uuid": host.VGUUID, "cache_root": host.CacheRoot, "state_root": host.StateRoot}
+	var commandType string
+	if err := pool.QueryRow(ctx, `SELECT command_type FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&commandType); err != nil {
+		t.Fatalf("load command type for %s: %v", label, err)
+	}
+	if commandType == ovsnetwork.CommandType || commandType == ovsnetwork.DataplaneCommandType {
+		request["ovs_bridge"] = host.OVSBridge
+	}
 	encoded, _ := json.Marshal(request)
 	command := exec.CommandContext(ctx, runner)
 	command.Stdin = bytes.NewReader(encoded)
@@ -58,6 +68,42 @@ func executeRealCampaignCommand(t *testing.T, ctx context.Context, pool QueryRow
 		t.Fatalf("load verifier for %s: %v", label, err)
 	}
 	return out
+}
+
+func executeRealOVNWork(t *testing.T, ctx context.Context, pool QueryRower, databaseURL string, host realCampaignHost, label, expectedWorkID string, remotePort int, requireSB bool) {
+	t.Helper()
+	parsed, err := url.Parse(databaseURL)
+	if err != nil || host.NetworkWorkerPath == "" || host.OVSBridge != "br-int" {
+		t.Fatal("complete real OVN worker configuration is required")
+	}
+	localHost, localPort, err := net.SplitHostPort(parsed.Host)
+	if err != nil || (localHost != "127.0.0.1" && localHost != "localhost") {
+		t.Fatalf("real OVN worker requires a loopback disposable PostgreSQL URL: %v", err)
+	}
+	remoteURL := *parsed
+	remoteURL.Host = net.JoinHostPort("127.0.0.1", fmt.Sprint(remotePort))
+	forward := fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%s", remotePort, localPort)
+	for attempt := 1; attempt <= 8; attempt++ {
+		var state string
+		if err := pool.QueryRow(ctx, `SELECT work_state FROM kim.ovn_runtime_work_current WHERE work_id=$1`, expectedWorkID).Scan(&state); err == nil && state == "OBSERVED" {
+			return
+		}
+		if !requireSB {
+			var nbState string
+			if err := pool.QueryRow(ctx, `SELECT nb_state FROM kim.network_ovn_state_current s JOIN kim.ovn_runtime_work_current w ON w.port_id=s.port_id AND w.port_generation=s.port_generation AND w.binding_generation=s.binding_generation WHERE w.work_id=$1`, expectedWorkID).Scan(&nbState); err == nil && nbState == "MATCHED" {
+				return
+			}
+		}
+		command := exec.CommandContext(ctx, "ssh", "-o", "ExitOnForwardFailure=yes", "-R", forward, host.Host,
+			"sudo", "-n", "env", "KIM_REAL_OVN_WORK_ONCE=1", host.NetworkWorkerPath,
+			"--database-url", remoteURL.String(), "--worker-id", fmt.Sprintf("real-ovn-%s-%d", label, attempt))
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("real OVN work %s attempt %d: %v output=%s", label, attempt, err, output)
+		}
+	}
+	var state string
+	_ = pool.QueryRow(ctx, `SELECT work_state FROM kim.ovn_runtime_work_current WHERE work_id=$1`, expectedWorkID).Scan(&state)
+	t.Fatalf("real OVN work %s did not converge: work=%s state=%s require_sb=%t", label, expectedWorkID, state, requireSB)
 }
 
 func realCampaignString(t *testing.T, evidence map[string]any, key string) string {
@@ -124,10 +170,17 @@ func TestRealTwoHostRecoveryAuthorityCampaignPostgreSQLIntegration(t *testing.T)
 		t.Skip("explicit real two-Host Recovery campaign opt-in is not set")
 	}
 	databaseURL, runner := os.Getenv("KIM_POSTGRES_TEST_URL"), os.Getenv("KIM_REAL_KVM_RECOVERY_RUNNER")
-	source := realCampaignHost{Host: realCampaignSource, HelperPath: os.Getenv("KIM_REAL_KVM_RECOVERY_SOURCE_HELPER"), VGName: "kimrr_campaign058_g01", VGUUID: os.Getenv("KIM_REAL_KVM_RECOVERY_SOURCE_VG_UUID"), CacheRoot: "/var/tmp/kim-real-recovery-campaign058/cache", StateRoot: "/var/tmp/kim-real-recovery-campaign058/state"}
-	destination := realCampaignHost{Host: realCampaignDestination, HelperPath: os.Getenv("KIM_REAL_KVM_RECOVERY_DESTINATION_HELPER"), VGName: "kimrr_campaign058_g02", VGUUID: os.Getenv("KIM_REAL_KVM_RECOVERY_DESTINATION_VG_UUID"), CacheRoot: "/var/tmp/kim-real-recovery-campaign058/cache", StateRoot: "/var/tmp/kim-real-recovery-campaign058/state"}
+	networkCampaign := os.Getenv("KIM_REAL_KVM_RECOVERY_OVN") == "1"
+	source := realCampaignHost{Host: realCampaignSource, HelperPath: os.Getenv("KIM_REAL_KVM_RECOVERY_SOURCE_HELPER"), NetworkWorkerPath: os.Getenv("KIM_REAL_OVN_SOURCE_WORKER"), VGName: "kimrr_campaign058_g01", VGUUID: os.Getenv("KIM_REAL_KVM_RECOVERY_SOURCE_VG_UUID"), CacheRoot: "/var/tmp/kim-real-recovery-campaign058/cache", StateRoot: "/var/tmp/kim-real-recovery-campaign058/state"}
+	destination := realCampaignHost{Host: realCampaignDestination, HelperPath: os.Getenv("KIM_REAL_KVM_RECOVERY_DESTINATION_HELPER"), NetworkWorkerPath: os.Getenv("KIM_REAL_OVN_DESTINATION_WORKER"), VGName: "kimrr_campaign058_g02", VGUUID: os.Getenv("KIM_REAL_KVM_RECOVERY_DESTINATION_VG_UUID"), CacheRoot: "/var/tmp/kim-real-recovery-campaign058/cache", StateRoot: "/var/tmp/kim-real-recovery-campaign058/state"}
+	if networkCampaign {
+		source.OVSBridge, destination.OVSBridge = "br-int", "br-int"
+	}
 	if databaseURL == "" || runner == "" || source.HelperPath == "" || destination.HelperPath == "" || source.VGUUID == "" || destination.VGUUID == "" || source.Host == destination.Host {
 		t.Fatal("complete exact two-Host campaign configuration is required")
+	}
+	if networkCampaign && (source.NetworkWorkerPath == "" || destination.NetworkWorkerPath == "") {
+		t.Fatal("exact remote Network worker paths are required for OVN campaign")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -156,6 +209,21 @@ func TestRealTwoHostRecoveryAuthorityCampaignPostgreSQLIntegration(t *testing.T)
 	for index, host := range []realCampaignHost{source, destination} {
 		if err := RegisterLocalLVMFoundation(ctx, pool, LocalLVMFoundation{BackendID: fmt.Sprintf("real-recovery-campaign-backend-%d", index+1), HostID: host.Host, VGUUID: host.VGUUID, BackendState: "ACTIVE", CapabilityState: "CURRENT", SupportTier: "VALIDATED", BackendGeneration: 1, HostCapabilityGeneration: 1, StorageClassID: storageClassID, ClassState: "ACTIVE", StorageClassRevision: 1, FencingPolicyRevision: 1, CapacityObservationID: fmt.Sprintf("real-recovery-campaign-capacity-%d", index+1), CapacityState: "CURRENT", HealthState: "HEALTHY", CapacityGeneration: 1, TotalBytes: 256 << 20, ObservedFreeBytes: 256 << 20, ObservedAt: time.Now().UTC()}); err != nil {
 			t.Fatal(err)
+		}
+	}
+	const networkID, subnetID, segmentID, portID = "real-recovery-network060", "real-recovery-subnet060", "real-recovery-segment060", "f1c06a00-0000-4000-8000-202608120060"
+	const portMAC, portIP = "02:00:00:00:60:01", "192.0.2.60"
+	if networkCampaign {
+		if err := UpsertNetworkFoundation(ctx, pool, NetworkFoundation{NetworkID: networkID, ProjectID: "project", NetworkGeneration: 1, NetworkState: "ACTIVE", MTU: 1500, SubnetID: subnetID, SubnetGeneration: 1, SubnetState: "ACTIVE", CIDR: "192.0.2.0/24", AllocationStart: "192.0.2.60", AllocationEnd: "192.0.2.60", SegmentClaimID: segmentID, SegmentType: "VNI", ScopeID: "real-recovery-overlay060", SegmentID: 6060, SegmentGeneration: 1, ProviderMappingRevision: 1, SegmentState: "ACTIVE"}); err != nil {
+			t.Fatal(err)
+		}
+		for _, mapping := range []HostNetworkMapping{
+			{HostID: source.Host, SegmentClaimID: segmentID, Generation: 1, State: "CURRENT", MaximumMTU: 1500, SupportedBindingTypes: []string{"OVS"}, OVNChassisName: "dba0d9ce-859d-4422-a486-17161ebc1b31"},
+			{HostID: destination.Host, SegmentClaimID: segmentID, Generation: 1, State: "CURRENT", MaximumMTU: 1500, SupportedBindingTypes: []string{"OVS"}, OVNChassisName: "aefea4f0-27ed-4a2a-ae77-8e9ce09303ff"},
+		} {
+			if err := UpsertHostNetworkMapping(ctx, pool, mapping); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
@@ -206,6 +274,9 @@ func TestRealTwoHostRecoveryAuthorityCampaignPostgreSQLIntegration(t *testing.T)
 	const workloadID = "real-recovery-campaign-workload"
 	sourceVolumeID, sourceAttachmentID, sourceBackendID := "real-recovery-source-root", "real-recovery-source-root-attachment", "real-recovery-campaign-backend-1"
 	sourceRequest := PlacementAdmissionRequest{RequestID: "real-recovery-source-admission", ProjectID: "project", WorkloadID: workloadID, ImageID: imageID, FlavorID: flavorID, PlacementScopeID: scopeID, Storage: []placement.StorageRequirement{{VolumeID: sourceVolumeID, AttachmentID: sourceAttachmentID, BackendID: sourceBackendID, BackendGeneration: 1, VGUUID: source.VGUUID, StorageClassID: storageClassID, StorageClassRevision: 1, CapacityGeneration: 1, AttachmentGeneration: 1, FencingPolicyRevision: 1, SizeBytes: 16 << 20, AccessMode: "SINGLE_WRITER", Bootable: true}}}
+	if networkCampaign {
+		sourceRequest.Network = []placement.NetworkRequirement{{PortID: portID, NetworkID: networkID, NetworkGeneration: 1, SubnetID: subnetID, SubnetGeneration: 1, SegmentClaimID: segmentID, SegmentGeneration: 1, HostMappingGeneration: 1, IPAddress: portIP, MACAddress: portMAC, AllocationSource: "EXPLICIT", BindingType: "OVS", RequiredMTU: 1500}}
+	}
 	sourceDry, err := DryEvaluateAvailabilityPlacementScope(ctx, pool, sourceRequest)
 	if err != nil || sourceDry.Status != "READY" {
 		t.Fatalf("source dry=%+v err=%v", sourceDry, err)
@@ -254,10 +325,42 @@ func TestRealTwoHostRecoveryAuthorityCampaignPostgreSQLIntegration(t *testing.T)
 	if err := AcceptVMImageRealizationObservation(ctx, pool, VMImageRealizationObservation{EvidenceID: "real-recovery-source-image-evidence", VMID: realCampaignVMUUID, VMGeneration: 1, PlanID: sourceMaterialization.PlanID, PlanDigest: sourceMaterialization.PlanDigest, HostID: source.Host, ImageID: imageID, ImageRevision: 1, ExpectedDigest: imageDigest, ObservedDigest: imageDigest, ImageSizeBytes: 1 << 20, VolumeID: sourceVolumeID, BindingID: sourceBindingID, BindingGeneration: 1, VGUUID: source.VGUUID, LVUUID: sourceLVUUID, BackendResourceKey: sourceResourceKey, CommandID: sourceImage.CommandID, AttemptIndex: uint32(sourceImage.AttemptIndex), VerificationID: sourceImage.VerificationID, ObservationGeneration: uint64(sourceImage.Observation.Generation), ObservationDigest: sourceImage.Observation.Digest, VerifierDigest: sourceImage.VerifierDigest, EvidenceState: "MATCHED", ContentIdentityMatches: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := AuthorizeZeroPortVMPowerOn(ctx, pool, realCampaignVMUUID, 1, source.Host, "real-recovery-source-power-on-job", "real-recovery-source-power-on-command"); err != nil {
+	if networkCampaign {
+		if _, err := CommitOVNPortIntent(ctx, pool, OVNPortIntentRequest{IntentID: "real-recovery-source-ovn-intent", IntentGeneration: 1, PortID: portID}); err != nil {
+			t.Fatal(err)
+		}
+		executeRealOVNWork(t, ctx, pool, databaseURL, source, "source-bind-preboot", "ovn-runtime:real-recovery-source-ovn-intent:1", 55461, false)
+		realizeRequest := OVSPortRealizationRequest{VMID: realCampaignVMUUID, PlanID: sourceMaterialization.PlanID, PortID: portID, JobID: "real-recovery-source-port-job", CommandID: "real-recovery-source-port-command"}
+		if _, err := PrepareOVSPortRealization(ctx, pool, realizeRequest); err != nil {
+			t.Fatal(err)
+		}
+		realized := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, source, realizeRequest.CommandID, "source-port")
+		if err := AcceptOVSPortRealizationAndMaybeArmPower(ctx, pool, OVSPortRealizationObservation{EvidenceID: "real-recovery-source-port-evidence", VMID: realCampaignVMUUID, VMGeneration: 1, PlanID: sourceMaterialization.PlanID, HostID: source.Host, PortID: portID, PortGeneration: 1, NetworkID: networkID, NetworkGeneration: 1, SegmentClaimID: segmentID, SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, CommandID: realized.CommandID, AttemptIndex: uint32(realized.AttemptIndex), VerificationID: realized.VerificationID, ObservationGeneration: uint64(realized.Observation.Generation), ObservationDigest: realized.Observation.Digest, VerifierDigest: realized.VerifierDigest, PowerJobID: "real-recovery-source-power-on-job", PowerCommandID: "real-recovery-source-power-on-command"}); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := AuthorizeZeroPortVMPowerOn(ctx, pool, realCampaignVMUUID, 1, source.Host, "real-recovery-source-power-on-job", "real-recovery-source-power-on-command"); err != nil {
 		t.Fatal(err)
 	}
 	sourceRunning := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, source, "real-recovery-source-power-on-command", "source-running")
+	if networkCampaign {
+		executeRealOVNWork(t, ctx, pool, databaseURL, source, "source-bind-postpower", "ovn-runtime:real-recovery-source-ovn-intent:1", 55461, true)
+		sourceDataplaneRequest := OVSDataplaneRequest{VMID: realCampaignVMUUID, PlanID: sourceMaterialization.PlanID, PortID: portID, JobID: "real-recovery-source-dataplane-job", CommandID: "real-recovery-source-dataplane-command"}
+		if _, err := PrepareOVSDataplaneObservation(ctx, pool, sourceDataplaneRequest); err != nil {
+			t.Fatal(err)
+		}
+		sourceDataplane := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, source, sourceDataplaneRequest.CommandID, "source-dataplane")
+		if err := AcceptOVSDataplaneObservation(ctx, pool, OVSDataplaneObservation{
+			EvidenceID: "real-recovery-source-dataplane-evidence", VMID: realCampaignVMUUID, VMGeneration: 1,
+			PlanID: sourceMaterialization.PlanID, HostID: source.Host, PortID: portID,
+			PortGeneration: 1, NetworkID: networkID, NetworkGeneration: 1, SegmentClaimID: segmentID,
+			SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1,
+			CommandID: sourceDataplane.CommandID, AttemptIndex: uint32(sourceDataplane.AttemptIndex),
+			VerificationID: sourceDataplane.VerificationID, ObservationGeneration: uint64(sourceDataplane.Observation.Generation),
+			ObservationDigest: sourceDataplane.Observation.Digest, VerifierDigest: sourceDataplane.VerifierDigest,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	injectRealCampaignSourceFailure(t, ctx, source, realCampaignVMUUID, sourceResourceKey)
 	if err := AuthorizeVMPowerOff(ctx, pool, realCampaignVMUUID, 1, source.Host, "real-recovery-source-power-off-job", "real-recovery-source-power-off-command"); err != nil {
 		t.Fatal(err)
@@ -317,6 +420,37 @@ func TestRealTwoHostRecoveryAuthorityCampaignPostgreSQLIntegration(t *testing.T)
 	fencingProof, _, err := MaterializeFailureFencingProof(ctx, pool, "real-recovery-fencing-proof", fencingEvaluation.EvaluationID, "real-recovery-fencing-authority/v1")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if networkCampaign {
+		retirement, err := CommitOVNPortBindingRetirement(ctx, pool, OVNPortBindingRetirementRequest{
+			OperationID: "real-recovery-source-port-retirement", OperationGeneration: 1,
+			IntentID: "real-recovery-source-port-retirement-intent", IntentGeneration: 2,
+			PortID: portID, PortGeneration: 1, BindingGeneration: 1, SourceHostID: source.Host,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		executeRealOVNWork(t, ctx, pool, databaseURL, source, "source-unbind", "ovn-runtime:real-recovery-source-port-retirement-intent:2", 55462, true)
+		var retirementState string
+		if err := pool.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND operation_id=$2 AND operation_generation=$3`, portID, retirement.OperationID, retirement.OperationGeneration).Scan(&retirementState); err != nil || retirementState != "VERIFIED" {
+			t.Fatalf("source retirement state=%s err=%v", retirementState, err)
+		}
+		quiescence, err := PrepareNetworkPortSourceQuiescence(ctx, pool, NetworkPortSourceQuiescenceRequest{FailureEpochID: epoch.FailureEpochID, PortID: portID, JobID: "real-recovery-source-port-quiescence-job", CommandID: "real-recovery-source-port-quiescence-command"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		observed := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, source, quiescence.CommandID, "source-port-quiescence")
+		if err := AcceptNetworkPortSourceQuiescence(ctx, pool, NetworkPortSourceQuiescenceObservation{
+			EvidenceID: "real-recovery-source-port-quiescence-evidence", FailureEpochID: epoch.FailureEpochID,
+			PortID: portID, SourceHostID: source.Host, VMID: realCampaignVMUUID,
+			CommandID: observed.CommandID, VerificationID: observed.VerificationID,
+			ObservationDigest: observed.Observation.Digest, VerifierDigest: observed.VerifierDigest,
+			PortGeneration: quiescence.PortGeneration, BindingGeneration: quiescence.BindingGeneration,
+			VMGeneration: quiescence.VMGeneration, ObservationGeneration: uint64(observed.Observation.Generation),
+			AttemptIndex: uint32(observed.AttemptIndex),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := RetireSourceMaterialization(ctx, pool, "real-recovery-source-retirement", epoch.FailureEpochID, rootProof.ProofID, fencingProof.ProofID, "real-recovery-retirement-authority/v1"); err != nil {
 		t.Fatal(err)
@@ -387,8 +521,38 @@ func qualifyRealRecoveryDestinationAndTerminal(t *testing.T, ctx context.Context
 	if err := AcceptVMImageRealizationObservation(ctx, pool, VMImageRealizationObservation{EvidenceID: "real-recovery-destination-image-evidence", VMID: vmID, VMGeneration: materialization.VMGeneration, PlanID: materialization.VMPlanID, PlanDigest: materialization.VMPlanDigest, HostID: destination.Host, ImageID: imageID, ImageRevision: 1, ExpectedDigest: imageDigest, ObservedDigest: imageDigest, ImageSizeBytes: 1 << 20, VolumeID: required.VolumeID, BindingID: bindingID, BindingGeneration: 1, VGUUID: destinationVGUUID, LVUUID: lvUUID, BackendResourceKey: resourceKey, CommandID: imageExecution.CommandID, AttemptIndex: uint32(imageExecution.AttemptIndex), VerificationID: imageExecution.VerificationID, ObservationGeneration: uint64(imageExecution.Observation.Generation), ObservationDigest: imageExecution.Observation.Digest, VerifierDigest: imageExecution.VerifierDigest, EvidenceState: "MATCHED", ContentIdentityMatches: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := MarkRecoveryNoNetworkReady(ctx, pool, operationID); err != nil {
-		t.Fatal(err)
+	var destinationNetwork *placement.NetworkRequirement
+	if len(plan.DestinationRequest.Network) == 0 {
+		if err := MarkRecoveryNoNetworkReady(ctx, pool, operationID); err != nil {
+			t.Fatal(err)
+		}
+	} else if len(plan.DestinationRequest.Network) == 1 {
+		requiredNetwork := plan.DestinationRequest.Network[0]
+		destinationNetwork = &requiredNetwork
+		if _, err := CommitOVNPortIntent(ctx, pool, OVNPortIntentRequest{IntentID: "real-recovery-destination-ovn-intent", IntentGeneration: 3, PortID: requiredNetwork.PortID}); err != nil {
+			t.Fatal(err)
+		}
+		executeRealOVNWork(t, ctx, pool, databaseURL, destination, "destination-bind-preboot", "ovn-runtime:real-recovery-destination-ovn-intent:3", 55463, false)
+		realizeRequest := OVSPortRealizationRequest{VMID: vmID, PlanID: materialization.VMPlanID, PortID: requiredNetwork.PortID, JobID: "real-recovery-destination-port-job", CommandID: "real-recovery-destination-port-command"}
+		if _, err := PrepareOVSPortRealization(ctx, pool, realizeRequest); err != nil {
+			t.Fatal(err)
+		}
+		realized := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, destination, realizeRequest.CommandID, "destination-port")
+		if err := AcceptOVSPortRealizationAndMaybeArmPower(ctx, pool, OVSPortRealizationObservation{
+			EvidenceID: "real-recovery-destination-port-evidence", VMID: vmID, VMGeneration: materialization.VMGeneration,
+			PlanID: materialization.VMPlanID, HostID: destination.Host, PortID: requiredNetwork.PortID,
+			PortGeneration: requiredNetwork.DestinationPortGeneration, NetworkID: requiredNetwork.NetworkID,
+			NetworkGeneration: requiredNetwork.NetworkGeneration, SegmentClaimID: requiredNetwork.SegmentClaimID,
+			SegmentGeneration: requiredNetwork.SegmentGeneration, HostMappingGeneration: requiredNetwork.HostMappingGeneration,
+			BindingGeneration: requiredNetwork.DestinationBindingGeneration, CommandID: realized.CommandID,
+			AttemptIndex: uint32(realized.AttemptIndex), VerificationID: realized.VerificationID,
+			ObservationGeneration: uint64(realized.Observation.Generation), ObservationDigest: realized.Observation.Digest,
+			VerifierDigest: realized.VerifierDigest, DeferPowerAuthorization: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatalf("real Recovery campaign supports exactly one Network Port, got %d", len(plan.DestinationRequest.Network))
 	}
 	dangerous, err := EvaluateRecoveryDangerousStep(ctx, pool, "real-recovery-dangerous-step", operationID, digestBytes([]byte("real-recovery-dangerous-step/v1")))
 	if err != nil || dangerous.ResultState != "AUTHORIZED" || dangerous.FencingProofID != fencingProofID || dangerous.StorageSafetyProofID != storageProofID {
@@ -401,6 +565,30 @@ func qualifyRealRecoveryDestinationAndTerminal(t *testing.T, ctx context.Context
 	powerExecution := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, destination, powerAuthority.PowerCommandID, "destination-power")
 	if _, err := RefreshRecoveryPowerExecution(ctx, pool, operationID, powerExecution.VerificationID); err != nil {
 		t.Fatal(err)
+	}
+	if destinationNetwork != nil {
+		executeRealOVNWork(t, ctx, pool, databaseURL, destination, "destination-bind-postpower", "ovn-runtime:real-recovery-destination-ovn-intent:3", 55463, true)
+		dataplaneRequest := OVSDataplaneRequest{VMID: vmID, PlanID: materialization.VMPlanID, PortID: destinationNetwork.PortID, JobID: "real-recovery-destination-dataplane-job", CommandID: "real-recovery-destination-dataplane-command"}
+		if _, err := PrepareOVSDataplaneObservation(ctx, pool, dataplaneRequest); err != nil {
+			t.Fatal(err)
+		}
+		observed := executeRealCampaignCommand(t, ctx, pool, databaseURL, runner, destination, dataplaneRequest.CommandID, "destination-dataplane")
+		if err := AcceptOVSDataplaneObservation(ctx, pool, OVSDataplaneObservation{
+			EvidenceID: "real-recovery-destination-dataplane-evidence", VMID: vmID, VMGeneration: materialization.VMGeneration,
+			PlanID: materialization.VMPlanID, HostID: destination.Host, PortID: destinationNetwork.PortID,
+			PortGeneration: destinationNetwork.DestinationPortGeneration, NetworkID: destinationNetwork.NetworkID,
+			NetworkGeneration: destinationNetwork.NetworkGeneration, SegmentClaimID: destinationNetwork.SegmentClaimID,
+			SegmentGeneration: destinationNetwork.SegmentGeneration, HostMappingGeneration: destinationNetwork.HostMappingGeneration,
+			BindingGeneration: destinationNetwork.DestinationBindingGeneration, CommandID: observed.CommandID,
+			AttemptIndex: uint32(observed.AttemptIndex), VerificationID: observed.VerificationID,
+			ObservationGeneration: uint64(observed.Observation.Generation), ObservationDigest: observed.Observation.Digest,
+			VerifierDigest: observed.VerifierDigest,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := RefreshRecoveryNetworkVerificationReadiness(ctx, pool, operationID); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	const attachmentCommandID = "real-recovery-destination-root-read-back-command"

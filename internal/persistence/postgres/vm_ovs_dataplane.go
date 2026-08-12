@@ -220,9 +220,12 @@ func AcceptOVSDataplaneObservation(ctx context.Context, db TxBeginner, v OVSData
 			 vm_generation=EXCLUDED.vm_generation,port_generation=EXCLUDED.port_generation,
 			 binding_generation=EXCLUDED.binding_generation,observation_generation=EXCLUDED.observation_generation,
 			 evidence_id=EXCLUDED.evidence_id,convergence_state='CONVERGED',updated_at=statement_timestamp()
-			WHERE kim.vm_port_dataplane_state_current.vm_generation<EXCLUDED.vm_generation
-			 OR (kim.vm_port_dataplane_state_current.vm_generation=EXCLUDED.vm_generation
-			     AND kim.vm_port_dataplane_state_current.observation_generation<EXCLUDED.observation_generation)
+			WHERE (kim.vm_port_dataplane_state_current.vm_generation,
+			       kim.vm_port_dataplane_state_current.port_generation,
+			       kim.vm_port_dataplane_state_current.binding_generation,
+			       kim.vm_port_dataplane_state_current.observation_generation)
+			    < (EXCLUDED.vm_generation,EXCLUDED.port_generation,
+			       EXCLUDED.binding_generation,EXCLUDED.observation_generation)
 		`, v.VMID, v.VMGeneration, v.PortID, v.PortGeneration, v.BindingGeneration, v.ObservationGeneration, v.EvidenceID)
 		return err
 	})

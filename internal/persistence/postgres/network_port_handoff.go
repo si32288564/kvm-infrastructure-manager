@@ -32,9 +32,10 @@ func PrepareNetworkPortSourceQuiescence(ctx context.Context, db TxBeginner, r Ne
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var admissionID, workloadID, networkID, segmentID, mac, epochState string
 		var networkGeneration, segmentGeneration, mappingGeneration, mtu uint64
-		if err := tx.QueryRow(ctx, `SELECT e.source_admission_id,e.workload_id,e.source_host_id,e.vm_id::text,e.vm_generation,e.epoch_state,p.port_generation,p.network_id,n.network_generation,b.segment_claim_id,s.segment_generation,m.mapping_generation,b.binding_generation,n.mtu,mac.mac_address::text
+		if err := tx.QueryRow(ctx, `SELECT e.admission_id,e.workload_id,e.source_host_id,plan.vm_id::text,plan.vm_generation,c.epoch_state,p.port_generation,p.network_id,n.network_generation,b.segment_claim_id,s.segment_generation,m.mapping_generation,b.binding_generation,n.mtu,mac.mac_address::text
 			FROM kim.failure_epochs_current c JOIN kim.failure_epoch_evidence e ON e.failure_epoch_id=c.failure_epoch_id
-			JOIN kim.network_ports_current p ON p.placement_admission_id=e.source_admission_id AND p.port_id=$2
+			JOIN kim.vm_materialization_plan_evidence plan ON plan.placement_admission_id=e.admission_id AND plan.host_id=e.source_host_id
+			JOIN kim.network_ports_current p ON p.placement_admission_id=e.admission_id AND p.port_id=$2
 			JOIN kim.networks_current n ON n.network_id=p.network_id JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.host_id=e.source_host_id
 			JOIN kim.network_segment_claims_current s ON s.segment_claim_id=b.segment_claim_id JOIN kim.host_network_mappings_current m ON m.host_id=e.source_host_id AND m.segment_claim_id=b.segment_claim_id
 			JOIN kim.network_identity_claims mac ON mac.port_id=p.port_id AND mac.claim_type='MAC' AND mac.claim_state IN ('RESERVED','ACTIVE')
@@ -61,11 +62,12 @@ func AcceptNetworkPortSourceQuiescence(ctx context.Context, db TxBeginner, o Net
 		var accepted bool
 		var retirementEvidenceID string
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.failure_epochs_current c JOIN kim.failure_epoch_evidence e ON e.failure_epoch_id=c.failure_epoch_id
-			JOIN kim.network_ports_current p ON p.placement_admission_id=e.source_admission_id AND p.port_id=$2 AND p.port_generation=$3
+			JOIN kim.vm_materialization_plan_evidence plan ON plan.placement_admission_id=e.admission_id AND plan.host_id=e.source_host_id
+			JOIN kim.network_ports_current p ON p.placement_admission_id=e.admission_id AND p.port_id=$2 AND p.port_generation=$3
 			JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.host_id=e.source_host_id AND b.binding_generation=$4
 			JOIN kim.execution_commands cmd ON cmd.command_id=$5 AND cmd.host_id=e.source_host_id AND cmd.command_type=$6 AND cmd.schema_version=$7
 			JOIN kim.command_verification_evidence v ON v.verification_id=$8 AND v.command_id=cmd.command_id AND v.attempt_index=$9 AND v.observation_generation=$10 AND v.observation_digest=$11 AND v.verifier_artifact_digest=$12 AND v.verification_state='MATCHED'
-			WHERE c.failure_epoch_id=$1 AND c.epoch_state='FENCED' AND e.source_host_id=$13 AND e.vm_id=$14::uuid AND e.vm_generation=$15
+			WHERE c.failure_epoch_id=$1 AND c.epoch_state='FENCED' AND e.source_host_id=$13 AND plan.vm_id=$14::uuid AND plan.vm_generation=$15
 			AND cmd.payload->>'desired_state'='QUIESCED' AND (v.evidence_payload->>'domain_running')::boolean=false AND (v.evidence_payload->>'interface_present')::boolean=false
 			AND v.evidence_payload->>'port_id'=p.port_id AND (v.evidence_payload->>'port_generation')::bigint=p.port_generation AND (v.evidence_payload->>'binding_generation')::bigint=b.binding_generation
 			AND EXISTS(SELECT 1 FROM kim.network_port_binding_retirements_current r JOIN kim.network_port_binding_retirement_evidence re ON re.evidence_id=r.terminal_evidence_id WHERE r.port_id=p.port_id AND r.port_generation=p.port_generation AND r.binding_generation=b.binding_generation AND r.source_host_id=e.source_host_id AND r.retirement_state='VERIFIED' AND re.retirement_state='VERIFIED'))`, o.FailureEpochID, o.PortID, o.PortGeneration, o.BindingGeneration, o.CommandID, ovsnetwork.DataplaneCommandType, ovsnetwork.DataplaneSchemaVersion, o.VerificationID, o.AttemptIndex, o.ObservationGeneration, o.ObservationDigest, o.VerifierDigest, o.SourceHostID, o.VMID, o.VMGeneration).Scan(&accepted); err != nil || !accepted {

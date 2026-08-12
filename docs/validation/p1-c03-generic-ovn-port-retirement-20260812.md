@@ -51,4 +51,4 @@ Stable request replay returned the same operation/work identity. The logical Por
 | ordinary Network worker regression | PASS |
 | `go test ./...` | PASS |
 
-The separate real g01→g02 non-empty OVN Recovery campaign remains a distinct gate. This document does not claim physical source unbind, destination binding, dataplane convergence, or Recovery Terminal success.
+The separate real g01→g02 non-empty OVN Recovery campaign subsequently passed with physical source unbind, PortBindingHandoff, destination binding, exact OVS dataplane convergence, non-empty Network Recovery Verification, and atomic Recovery Terminal authority. See [the real two-Host report](p1-real-two-host-kvm-ovn-recovery-20260812.md).

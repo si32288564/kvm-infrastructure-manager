@@ -59,6 +59,25 @@ func TestClosedTypedPortPlanAndLayerStates(t *testing.T) {
 	}
 }
 
+func TestUUIDPortIdentityIsTheBackendInterfaceID(t *testing.T) {
+	const portID = "f1c06a00-0000-4000-8000-202608120060"
+	input := PortIntentInput{IntentID: "intent-uuid", IntentGeneration: 1, ProjectID: "project", NetworkID: "network-uuid", NetworkGeneration: 1, PortID: portID, PortGeneration: 1, SegmentClaimID: "segment-uuid", SegmentGeneration: 1, HostMappingGeneration: 1, BindingGeneration: 1, HostID: "host-1", OVNChassisName: "chassis-1", MACAddress: "02:00:00:00:60:01", IPAddress: "192.0.2.60"}
+	raw, digest, err := PlanPort(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := DecodePortPlan(raw, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.LogicalPort.Name != portID || BackendInterfaceID(portID) != portID {
+		t.Fatalf("UUID Port identity was not preserved for OVN/libvirt: %#v", plan.LogicalPort)
+	}
+	if BackendInterfaceID("port-1") != objectName("kim-lsp", "port-1") {
+		t.Fatal("historical non-UUID Port naming changed")
+	}
+}
+
 func TestLogicalFlowAndChassisEncapStates(t *testing.T) {
 	matched := ControlPlaneObservation{
 		LogicalDatapathPresent: true, ExpectedDatapathMatches: true,

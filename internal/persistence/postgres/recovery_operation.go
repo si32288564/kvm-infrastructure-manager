@@ -123,7 +123,7 @@ func addRecoveryNetworkHandoffRequirementsTx(ctx context.Context, tx pgx.Tx, ope
 		r := &request.Network[index]
 		var sourceHost, evidenceID, evidenceDigest, ip, mac string
 		var portGeneration, bindingGeneration uint64
-		if err := tx.QueryRow(ctx, `SELECT b.host_id,p.port_generation,b.binding_generation,q.evidence_id,q.evidence_digest,ip.ip_address::text,mac.mac_address::text
+		if err := tx.QueryRow(ctx, `SELECT b.host_id,p.port_generation,b.binding_generation,q.evidence_id,q.evidence_digest,host(ip.ip_address),mac.mac_address::text
 			FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id
 			JOIN kim.network_port_source_quiescence_evidence q ON q.port_id=p.port_id AND q.port_generation=p.port_generation AND q.source_host_id=b.host_id AND q.source_binding_generation=b.binding_generation AND q.quiescence_state='QUIESCED'
 			JOIN kim.network_identity_claims ip ON ip.port_id=p.port_id AND ip.claim_type='IP' AND ip.claim_state IN ('RESERVED','ACTIVE')

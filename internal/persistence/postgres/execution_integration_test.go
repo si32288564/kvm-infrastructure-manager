@@ -200,6 +200,27 @@ func TestExecutionAuthorityLeaseResultAndVerificationPostgreSQLIntegration(t *te
 	}
 	assertExecutionState(t, ctx, pool, conflictingDelivery.CommandID, "PENDING", "DISPATCHABLE", 0)
 
+	// Observation-only work remains valid while mutation authority is ARMED;
+	// it neither consumes nor changes that authority. This is required for
+	// post-mutation read-back in the same current transport session.
+	armedReadBack := ExecutionCommandRequest{JobID: hostID + "-armed-readback-job", CommandID: hostID + "-armed-readback-command",
+		HostID: hostID, ResourceType: "SOURCE_ROOT_SAFETY", ResourceID: "attachment-armed", DesiredRevision: 1,
+		CommandType: SourceRootSafetyReadBackCommandType, SchemaVersion: SourceRootSafetyReadBackSchema,
+		TargetResourceID: "attachment:attachment-armed", Payload: map[string]any{"attachment_id": "attachment-armed"}}
+	if err := CreateExecutionCommand(ctx, pool, armedReadBack); err != nil {
+		t.Fatal(err)
+	}
+	armedReadOnlyGrant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: armedReadBack.CommandID,
+		HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute,
+		AuthorityScope: CommandLeaseScopeReadOnlyVerification})
+	if err != nil || armedReadOnlyGrant.AuthorityScope != CommandLeaseScopeReadOnlyVerification {
+		t.Fatalf("ARMED Host read-only Lease=%+v err=%v", armedReadOnlyGrant, err)
+	}
+	var armedAuthorityState string
+	if err := pool.QueryRow(ctx, `SELECT authority_state FROM kim.host_operation_authorities_current WHERE host_id=$1`, hostID).Scan(&armedAuthorityState); err != nil || armedAuthorityState != "ARMED" {
+		t.Fatalf("read-only Lease changed ARMED authority state=%s err=%v", armedAuthorityState, err)
+	}
+
 	fenced := commandFixture(hostID, "fenced")
 	if err := CreateExecutionCommand(ctx, pool, fenced); err != nil {
 		t.Fatal(err)

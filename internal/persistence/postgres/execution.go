@@ -866,7 +866,7 @@ func readHostReadOnlyVerificationAuthorityTx(ctx context.Context, tx pgx.Tx, hos
 		WHERE authority.host_id=$1 AND authority.authority_generation=$2
 	`, hostID, authorityGeneration).Scan(&authority.HostID, &authority.AuthorityGeneration, &authority.SessionGeneration,
 		&authorityState, &sessionState, &authorizationState)
-	if err != nil || authorityState != "FENCED" || sessionState != "CURRENT" || authorizationState != "AUTHORIZED" {
+	if err != nil || (authorityState != "ARMED" && authorityState != "FENCED") || sessionState != "CURRENT" || authorizationState != "AUTHORIZED" {
 		return HostMutationAuthority{}, ErrHostAuthorityNotArmed
 	}
 	return authority, nil

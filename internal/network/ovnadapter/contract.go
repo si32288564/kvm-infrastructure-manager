@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 )
 
@@ -141,7 +142,7 @@ func PlanPort(input PortIntentInput) ([]byte, string, error) {
 	plan := PortPlan{
 		SchemaVersion: PortIntentSchema, NetworkExternalIDs: networkMarkers, PortExternalIDs: portMarkers,
 		LogicalSwitch: LogicalSwitchPlan{Name: objectName("kim-ls", input.NetworkID), NetworkID: input.NetworkID, ProjectID: input.ProjectID},
-		LogicalPort: LogicalPortPlan{Name: objectName("kim-lsp", input.PortID), PortID: input.PortID, HostID: input.HostID,
+		LogicalPort: LogicalPortPlan{Name: BackendInterfaceID(input.PortID), PortID: input.PortID, HostID: input.HostID,
 			OVNChassisName: input.OVNChassisName, MACAddress: input.MACAddress, IPAddress: input.IPAddress},
 	}
 	raw, err := json.Marshal(plan)
@@ -198,7 +199,7 @@ func decodePortPlan(raw []byte) (PortPlan, error) {
 	if _, err := net.ParseMAC(plan.LogicalPort.MACAddress); err != nil {
 		return PortPlan{}, errors.New("invalid OVN Port plan MAC")
 	}
-	if plan.LogicalSwitch.Name != objectName("kim-ls", plan.LogicalSwitch.NetworkID) || plan.LogicalPort.Name != objectName("kim-lsp", plan.LogicalPort.PortID) ||
+	if plan.LogicalSwitch.Name != objectName("kim-ls", plan.LogicalSwitch.NetworkID) || (plan.LogicalPort.Name != BackendInterfaceID(plan.LogicalPort.PortID) && plan.LogicalPort.Name != objectName("kim-lsp", plan.LogicalPort.PortID)) ||
 		plan.NetworkExternalIDs["kim.owner"] != "KIM" || plan.NetworkExternalIDs["kim.aggregate_type"] != "NETWORK" ||
 		plan.NetworkExternalIDs["kim.network_id"] != plan.LogicalSwitch.NetworkID || plan.PortExternalIDs["kim.owner"] != "KIM" ||
 		plan.PortExternalIDs["kim.aggregate_type"] != "PORT" || plan.PortExternalIDs["kim.port_id"] != plan.LogicalPort.PortID {
@@ -210,6 +211,18 @@ func decodePortPlan(raw []byte) (PortPlan, error) {
 func objectName(prefix, identity string) string {
 	digest := sha256.Sum256([]byte(identity))
 	return prefix + "-" + hex.EncodeToString(digest[:8])
+}
+
+var uuidPortIdentity = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// BackendInterfaceID keeps UUID Port authority identical to the OVN logical
+// port/libvirt Open vSwitch interfaceid used by real datapaths. Historical
+// non-UUID fixture identities retain their deterministic closed object name.
+func BackendInterfaceID(portID string) string {
+	if uuidPortIdentity.MatchString(portID) {
+		return portID
+	}
+	return objectName("kim-lsp", portID)
 }
 
 type Observation struct {
