@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 )
 
 type recoveryQualificationDB interface {
@@ -45,16 +48,39 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 		t.Fatalf("Recovery materialization replay=%+v err=%v", replay, err)
 	}
 
-	seedAttemptVerification := func(jobID, commandID, verificationID, hostID string, generation uint64, observationDigest, verifierDigest string, payload map[string]any) {
-		payloadJSON, _ := json.Marshal(payload)
-		if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute'); INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1); INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($4,$1,1,$5,$6,'MATCHED',$7,$8::jsonb); UPDATE kim.execution_commands_current SET command_state='SUCCEEDED',current_attempt_index=1 WHERE command_id=$1; UPDATE kim.execution_jobs SET job_state='SUCCEEDED' WHERE job_id=$9`, pgx.QueryExecModeSimpleProtocol, commandID, hostID, digestBytes([]byte(commandID+"/token")), verificationID, generation, observationDigest, verifierDigest, string(payloadJSON), jobID); err != nil {
+	acceptAttemptVerification := func(jobID, commandID, verificationID, hostID string, generation uint64, observationDigest, verifierDigest string, payload map[string]any) {
+		var authorityGeneration int64
+		if err := pool.QueryRow(ctx, `SELECT authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1 AND authority_state='ARMED'`, hostID).Scan(&authorityGeneration); err != nil {
 			t.Fatal(err)
+		}
+		grant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: commandID, HostAuthorityGeneration: authorityGeneration, Duration: time.Minute})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := contract.CommandResult{SchemaVersion: contract.CommandResultSchema, CommandID: commandID, AttemptIndex: grant.AttemptIndex, LeaseToken: grant.Token, JournalDigest: digestBytes([]byte(commandID + "/journal")), ResultID: commandID + "/result", Outcome: "SUCCEEDED", Result: map[string]any{"state": "APPLIED"}, Observation: contract.Observation{State: "MATCHED", Digest: observationDigest, Generation: int64(generation), Evidence: payload}, VerifierDigest: verifierDigest}
+		resultPayload, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope := session.NewEnvelope(hostID, uint64(grant.SessionGeneration), session.StreamResult, commandID+"/result-message", contract.CommandResultSchema, commandID, uint64(grant.AttemptIndex), resultPayload)
+		envelope.CorrelationKey = commandID
+		receipt, err := AcceptAgentCommandResult(ctx, pool, envelope, 1<<20, AgentCommandResultDecision{
+			Start:        CommandAttemptStart{CommandID: commandID, AttemptIndex: grant.AttemptIndex, LeaseToken: grant.Token, JournalEvidenceDigest: result.JournalDigest},
+			Result:       CommandResultSubmission{CommandID: commandID, AttemptIndex: grant.AttemptIndex, LeaseToken: grant.Token, ResultID: result.ResultID, Outcome: result.Outcome, Payload: result.Result},
+			Verification: &CommandVerification{VerificationID: verificationID, CommandID: commandID, AttemptIndex: grant.AttemptIndex, ObservationGeneration: int64(generation), ObservationDigest: observationDigest, State: "MATCHED", VerifierArtifactDigest: verifierDigest, Evidence: payload},
+		})
+		if err != nil || receipt.Disposition != "ACCEPTED" {
+			t.Fatalf("ordinary Agent Result acceptance receipt=%+v err=%v", receipt, err)
+		}
+		var acceptedJobState string
+		if err := pool.QueryRow(ctx, `SELECT job_state FROM kim.execution_jobs WHERE job_id=$1`, jobID).Scan(&acceptedJobState); err != nil || acceptedJobState != "SUCCEEDED" {
+			t.Fatalf("ordinary Agent Result did not converge Job state=%s err=%v", acceptedJobState, err)
 		}
 	}
 
 	defineObsDigest, defineVerifierDigest := digestBytes([]byte("recovery define observation")), digestBytes([]byte("recovery define verifier"))
 	defineVerification := "recovery-define-verification-" + suffix
-	seedAttemptVerification(materializationRequest.DefineJobID, materializationRequest.DefineCommandID, defineVerification, start.DestinationHostID, 1, defineObsDigest, defineVerifierDigest, map[string]any{"domain_uuid": vmID, "materialization_generation": float64(1), "plan_digest": materialization.VMPlanDigest, "domain_present": true, "domain_identity_matches": true, "plan_identity_matches": true, "compute_shape_matches": true, "root_volume_identity_matches": true, "image_materialization_state": "PENDING", "network_realization_state": "PENDING"})
+	acceptAttemptVerification(materializationRequest.DefineJobID, materializationRequest.DefineCommandID, defineVerification, start.DestinationHostID, 1, defineObsDigest, defineVerifierDigest, map[string]any{"domain_uuid": vmID, "materialization_generation": float64(1), "plan_digest": materialization.VMPlanDigest, "domain_present": true, "domain_identity_matches": true, "plan_identity_matches": true, "compute_shape_matches": true, "root_volume_identity_matches": true, "image_materialization_state": "PENDING", "network_realization_state": "PENDING"})
 	if err := AcceptVMDefinitionObservation(ctx, pool, VMDefinitionObservation{EvidenceID: "recovery-define-evidence-" + suffix, VMID: vmID, VMGeneration: 1, PlanID: materialization.VMPlanID, PlanDigest: materialization.VMPlanDigest, HostID: start.DestinationHostID, CommandID: materializationRequest.DefineCommandID, AttemptIndex: 1, VerificationID: defineVerification, ObservationGeneration: 1, ObservationDigest: defineObsDigest, VerifierDigest: defineVerifierDigest, EvidenceState: "MATCHED", DomainPresent: true, DomainIdentityMatches: true, PlanIdentityMatches: true, ComputeShapeMatches: true, RootVolumeIdentityMatches: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +91,7 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 	}
 	imageObsDigest, imageVerifierDigest := digestBytes([]byte("recovery image observation")), digestBytes([]byte("recovery image verifier"))
 	imageVerification := "recovery-image-verification-" + suffix
-	seedAttemptVerification(imageRequest.JobID, imageRequest.CommandID, imageVerification, start.DestinationHostID, 1, imageObsDigest, imageVerifierDigest, map[string]any{"domain_uuid": vmID, "materialization_generation": float64(1), "image_id": imageID, "image_revision": float64(1), "expected_content_digest": checksum, "observed_content_digest": checksum, "image_size_bytes": float64(4096), "volume_id": required.VolumeID, "observed_vg_uuid": destinationVGUUID, "observed_lv_uuid": lvUUID, "backend_resource_key": resourceKey, "holder_open": false, "content_identity_matches": true})
+	acceptAttemptVerification(imageRequest.JobID, imageRequest.CommandID, imageVerification, start.DestinationHostID, 1, imageObsDigest, imageVerifierDigest, map[string]any{"domain_uuid": vmID, "materialization_generation": float64(1), "image_id": imageID, "image_revision": float64(1), "expected_content_digest": checksum, "observed_content_digest": checksum, "image_size_bytes": float64(4096), "volume_id": required.VolumeID, "observed_vg_uuid": destinationVGUUID, "observed_lv_uuid": lvUUID, "backend_resource_key": resourceKey, "holder_open": false, "content_identity_matches": true})
 	if err := AcceptVMImageRealizationObservation(ctx, pool, VMImageRealizationObservation{EvidenceID: "recovery-image-evidence-" + suffix, VMID: vmID, VMGeneration: 1, PlanID: materialization.VMPlanID, PlanDigest: materialization.VMPlanDigest, HostID: start.DestinationHostID, ImageID: imageID, ImageRevision: 1, ExpectedDigest: checksum, ObservedDigest: checksum, ImageSizeBytes: 4096, VolumeID: required.VolumeID, BindingID: bindingID, BindingGeneration: 1, VGUUID: destinationVGUUID, LVUUID: lvUUID, BackendResourceKey: resourceKey, CommandID: imageRequest.CommandID, AttemptIndex: 1, VerificationID: imageVerification, ObservationGeneration: 1, ObservationDigest: imageObsDigest, VerifierDigest: imageVerifierDigest, EvidenceState: "MATCHED", ContentIdentityMatches: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +143,20 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 	if replay, err := AuthorizeRecoveryPowerOn(ctx, pool, powerAuthority.PowerAuthorityID, operationID, dangerous.EvaluationID, powerAuthority.PowerJobID, powerAuthority.PowerCommandID); err != nil || replay.AuthorityDigest != powerAuthority.AuthorityDigest {
 		t.Fatalf("power authority replay=%+v err=%v", replay, err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute'); INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1); UPDATE kim.execution_commands_current SET command_state='UNKNOWN',current_attempt_index=1 WHERE command_id=$1`, pgx.QueryExecModeSimpleProtocol, powerAuthority.PowerCommandID, start.DestinationHostID, digestBytes([]byte("recovery power token"))); err != nil {
+	var destinationAuthorityGeneration int64
+	if err := pool.QueryRow(ctx, `SELECT authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1 AND authority_state='ARMED'`, start.DestinationHostID).Scan(&destinationAuthorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	powerGrant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: powerAuthority.PowerCommandID, HostAuthorityGeneration: destinationAuthorityGeneration, Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deterministically create the real failure semantic (Result absent and
+	// Lease outcome ambiguous) without inserting an Attempt or UNKNOWN state.
+	if _, err := pool.Exec(ctx, `UPDATE kim.command_leases_current SET expires_at=statement_timestamp()-interval '1 microsecond' WHERE command_id=$1 AND lease_generation=$2`, powerAuthority.PowerCommandID, powerGrant.LeaseGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExpireCommandLease(ctx, pool, powerAuthority.PowerCommandID); err != nil {
 		t.Fatal(err)
 	}
 	unknown, err := RefreshRecoveryPowerExecution(ctx, pool, operationID, "")
@@ -130,11 +169,20 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 	}
 	powerVerification := "recovery-power-verification-" + suffix
 	powerObsDigest, powerVerifierDigest := digestBytes([]byte("recovery power observation")), digestBytes([]byte("recovery power verifier"))
-	if err := RecordCommandVerification(ctx, pool, CommandVerification{VerificationID: powerVerification, CommandID: powerAuthority.PowerCommandID, AttemptIndex: 1, ObservationGeneration: 1, ObservationDigest: powerObsDigest, State: "MATCHED", VerifierArtifactDigest: powerVerifierDigest, Evidence: map[string]any{"domain_uuid": vmID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"}}); err != nil {
+	powerCandidate, err := LoadCommandVerificationCandidate(ctx, pool, powerAuthority.PowerCommandID)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE kim.execution_commands_current SET command_state='SUCCEEDED' WHERE command_id=$1; UPDATE kim.execution_jobs SET job_state='SUCCEEDED' WHERE job_id=$2`, pgx.QueryExecModeSimpleProtocol, powerAuthority.PowerCommandID, powerAuthority.PowerJobID); err != nil {
+	powerObservation := contract.VerificationObservation{SchemaVersion: contract.VerificationObservationSchema, CommandID: powerAuthority.PowerCommandID, AttemptIndex: powerGrant.AttemptIndex, TargetResourceID: powerCandidate.TargetResourceID, CommandPayloadDigest: powerCandidate.PayloadDigest, Observation: contract.Observation{State: "MATCHED", Digest: powerObsDigest, Generation: 1, Evidence: map[string]any{"domain_uuid": vmID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"}}, VerifierDigest: powerVerifierDigest, JournalDigest: digestBytes([]byte(powerAuthority.PowerCommandID + "/journal"))}
+	powerPayload, err := json.Marshal(powerObservation)
+	if err != nil {
 		t.Fatal(err)
+	}
+	powerEnvelope := session.NewEnvelope(start.DestinationHostID, uint64(powerCandidate.SessionGeneration), session.StreamResync, powerAuthority.PowerCommandID+"/verification-message", contract.VerificationObservationSchema, powerAuthority.PowerCommandID, uint64(powerGrant.AttemptIndex), powerPayload)
+	powerEnvelope.CorrelationKey = powerAuthority.PowerCommandID
+	powerReceipt, err := AcceptAgentVerificationObservation(ctx, pool, powerEnvelope, 1<<20, AgentVerificationObservationDecision{TargetResourceID: powerCandidate.TargetResourceID, CommandPayloadDigest: powerCandidate.PayloadDigest, Verification: CommandVerification{VerificationID: powerVerification, CommandID: powerAuthority.PowerCommandID, AttemptIndex: powerGrant.AttemptIndex, ObservationGeneration: 1, ObservationDigest: powerObsDigest, State: "MATCHED", VerifierArtifactDigest: powerVerifierDigest, Evidence: map[string]any{"journal_digest": powerObservation.JournalDigest, "read_back": powerObservation.Observation.Evidence}}})
+	if err != nil || powerReceipt.Disposition != "ACCEPTED" {
+		t.Fatalf("ordinary power read-back acceptance receipt=%+v err=%v", powerReceipt, err)
 	}
 	verifying, err := RefreshRecoveryPowerExecution(ctx, pool, operationID, powerVerification)
 	if err != nil || verifying.LifecycleState != "VERIFYING" {
@@ -151,7 +199,7 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 		t.Fatal(err)
 	}
 	attachmentObsDigest, attachmentVerifierDigest := digestBytes([]byte("recovery attachment observation")), digestBytes([]byte("recovery attachment verifier"))
-	seedAttemptVerification(attachmentJob, attachmentCommand, attachmentVerification, start.DestinationHostID, 1, attachmentObsDigest, attachmentVerifierDigest, attachmentPayload)
+	acceptAttemptVerification(attachmentJob, attachmentCommand, attachmentVerification, start.DestinationHostID, 1, attachmentObsDigest, attachmentVerifierDigest, attachmentPayload)
 	if err := AcceptLocalLVMAttachmentObservation(ctx, pool, LocalLVMAttachmentObservation{EvidenceID: "recovery-attachment-evidence-" + suffix, AttachmentID: required.AttachmentID, VolumeID: required.VolumeID, AttachmentGeneration: 1, BindingID: bindingID, BindingGeneration: 1, HostID: start.DestinationHostID, DomainUUID: vmID, TargetDevice: "vda", ObservedLVUUID: lvUUID, DesiredState: "ATTACHED", CommandID: attachmentCommand, VerificationID: attachmentVerification, ObservationGeneration: 1, AttemptIndex: 1, ObservationDigest: attachmentObsDigest, VerifierDigest: attachmentVerifierDigest, EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true, HolderOpen: true}); err != nil {
 		t.Fatal(err)
 	}

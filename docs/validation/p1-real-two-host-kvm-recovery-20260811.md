@@ -3,8 +3,8 @@
 - Date: 2026-08-12
 - Overall result: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = BLOCKED`
 - Physical backend sub-gate: `REAL_TWO_HOST_KVM_BACKEND_SEQUENCE = PASS`
-- Blocker: the repository PostgreSQL qualification still imports fixture observations; it does not yet ingest the real g01/g02 observations into the exact Failure Epoch through Terminal Decision transaction
-- Repository baseline: `ae11ba406aceb882d5ee0a44e5d541941840f925`
+- Blocker: ordinary Result/Observation ingestion is now exercised, but the real source boot Volume remains configured as `vda`; the physical run's detached `vdb` safety disk is not the boot Volume bound to the Recovery Epoch. The current `SOURCE_DETACHED_NO_HOLDER` policy therefore cannot honestly issue the exact source Storage Safety Proof without a separately-authorized root/source cleanup operation.
+- Repository baseline: `8260b70692f3618c65d19ba4f38bdf6960be1289`
 
 The operator explicitly authorized g02 only for isolated, non-disruptive, fully removable artifacts. The run therefore used loop-backed VGs, one deterministic disposable VM, zero Ports, and no PCI. Existing production Domains, `vg0`, addresses, routes, OVS/OVN configuration, and services were outside the allow-list.
 
@@ -52,9 +52,34 @@ The run found two authority/backend gaps that a fixture had hidden:
 
 Migration 056 only widens the attachment observation target CHECK from secondary `vdb-vdz` to `vda-vdz`. The Agent permits slot zero only for observation of an already-defined `vda`; it rejects root attach/detach mutation. No unrelated CHECK or UNIQUE constraint is changed.
 
+## Ordinary Result / Observation ingestion follow-up
+
+The follow-up increment removed direct success-state SQL from the destination define, image, and root-attachment terminal fixture. Those steps now use the ordinary execution authority path:
+
+```text
+Execution Job / Command
+→ random PostgreSQL Lease capability
+→ Attempt
+→ typed Agent Result + Observation
+→ AcceptAgentCommandResult
+→ durable Receipt / Result / Verification
+→ Job SUCCEEDED
+```
+
+The ambiguous power step now uses an ordinary Lease expiry to reach `UNKNOWN`, followed by `AcceptAgentVerificationObservation` over a stable RESYNC envelope. The real helper accepts the exact granted Lease generation/capability on stdin, but returns capability-free `ResultEvidence`; the Control Plane can bind the capability back only when Command and Attempt exactly match. The raw Lease token is not emitted in helper JSON or persisted in the qualification artifact.
+
+This closes the previously hidden direct-SQL execution-evidence shortcut. It does not by itself make the prior physical observations part of one committed real Recovery history.
+
 ## Why the overall gate remains BLOCKED
 
-The real physical evidence above and the PostgreSQL Recovery authority regression were both successful, but they remain two distinct qualification lanes. The PostgreSQL integration constructs typed fixture evidence and rolls the terminal transaction back for repeatability. It does not import the real helper receipts, command verification digests, source fencing/storage observations, destination materialization observations, and actual power/root observations into one persistent authority history.
+The real physical evidence above and the PostgreSQL Recovery authority regression remain two distinct qualification lanes. More importantly, the original physical profile did not prove the exact source boot-Volume safety condition consumed by Recovery authority:
+
+```text
+Recovery source boot Volume = libvirt vda (still configured on inactive source Domain)
+physical detached safety disk = vdb (separate disposable Volume)
+```
+
+The current typed backend intentionally permits `vda` only for observation and continues to reject root attach/detach mutation. Treating the detached `vdb` as proof for the boot Volume would violate exact Attachment/Binding identity and falsely authorize Recovery. Standard power `SHUTOFF`, helper success, or a closed holder alone is not a substitute for the required `DETACHED + RELEASED + device absent + holder closed` source Storage Safety Proof.
 
 Consequently this run does **not** claim:
 
@@ -72,7 +97,9 @@ Fixture-backed `AUTHORIZED`, `VERIFIED`, `RECOVERED`, and `RELEASED` remain regr
 ## Negative gates
 
 - Source shutdown response ambiguity remained `UNKNOWN` until standard libvirt read-back.
-- Slot-zero/root absence does not cause an attach; root detach is rejected.
+- Slot-zero/root absence does not cause an attach; root detach remains rejected.
+- A detached secondary `vdb` is never accepted as Storage Safety proof for the boot Volume bound as `vda`.
+- Capability-free helper evidence cannot be accepted against a different Command or Attempt, and helper output never contains the raw Lease token.
 - Pre-power readiness cannot use a holder-open claim fabricated before QEMU start.
 - Post-power terminal verification still requires holder-open.
 - Source and destination Host equality, hostname mismatch, foreign command identity, non-`kimrr_` VG, non-qualification state/cache roots, unsupported command type/schema, and missing opt-in fail closed.
@@ -89,7 +116,9 @@ Post-cleanup Domain, address, route, and OVS fingerprints exactly matched the pr
 | Check | Result |
 |---|---|
 | typed Local LVM attachment/root observation unit tests | PASS |
-| Availability/Recovery terminal PostgreSQL 17 integration | PASS |
+| ordinary Lease/Attempt/Result/Receipt/Verification Recovery terminal PostgreSQL 17 integration | PASS |
+| ordinary UNKNOWN → RESYNC Verification Observation ingestion | PASS |
+| capability-free helper Result binding and libvirt-tag build | PASS |
 | fresh migration 001-056 | PASS |
 | `go test -race ./...` | PASS |
 | `make check` | PASS |
@@ -97,4 +126,4 @@ Post-cleanup Domain, address, route, and OVS fingerprints exactly matched the pr
 
 ## Next gate
 
-Add an opt-in qualification harness that imports stable real helper Result/Observation identities into the ordinary PostgreSQL Job/Command/Verification and Recovery authority path. Rerun the same isolated two-Host profile and require one committed Terminal Decision with actual observations before changing the overall result to PASS. Non-empty OVN, PCI/SR-IOV, source cleanup authority, `EVACUATE`, and repeated Recovery soak remain later gates.
+Define and qualify the minimum explicit source-root safety authority instead of weakening the existing policy. Viable follow-up work is a closed, separately-authorized source Domain/root cleanup operation with exact read-back, or a new typed policy whose positive proof is explicitly `source SHUTOFF + holder closed` and whose safety assumptions are independently qualified. Until one of those authorities exists, do not ingest the secondary `vdb` evidence as the boot Volume proof and do not issue a Terminal Decision. After that gate, rerun the isolated two-Host profile through ordinary Result/Observation ingestion and require one committed Terminal Decision with actual exact-volume observations. Non-empty OVN, PCI/SR-IOV, `EVACUATE`, and repeated Recovery soak remain later gates.

@@ -29,6 +29,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/executionjournal"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/qualification/recoveryauthority"
 )
 
 const optIn = "KIM_REAL_KVM_RECOVERY_QUALIFICATION"
@@ -48,11 +49,13 @@ type request struct {
 	AttemptIndex     int             `json:"attempt_index"`
 	AuthorityGen     int64           `json:"host_authority_generation"`
 	SessionGen       int64           `json:"session_generation"`
+	LeaseGeneration  int64           `json:"lease_generation"`
+	LeaseToken       string          `json:"lease_token"`
 }
 
 type response struct {
 	HostID, Hostname, CommandID, CommandType string
-	Result                                   contract.CommandResult
+	Result                                   recoveryauthority.ResultEvidence
 	Observation                              contract.Observation
 }
 
@@ -139,9 +142,9 @@ func main() {
 
 	payloadDigest := digestBytes(desired.Payload)
 	lease := contract.CommandLease{SchemaVersion: contract.CommandLeaseSchema, CommandID: desired.CommandID,
-		LeaseGeneration: 1, AttemptIndex: desired.AttemptIndex, HostID: desired.HostID,
+		LeaseGeneration: desired.LeaseGeneration, AttemptIndex: desired.AttemptIndex, HostID: desired.HostID,
 		HostAuthorityGeneration: desired.AuthorityGen, SessionGeneration: desired.SessionGen,
-		LeaseToken: "qualification-capability-not-persisted", CommandType: desired.CommandType,
+		LeaseToken: desired.LeaseToken, CommandType: desired.CommandType,
 		CommandSchemaVersion: desired.SchemaVersion, TargetResourceID: desired.TargetResourceID,
 		CommandPayload: desired.Payload, CommandPayloadDigest: payloadDigest, ExecutionTimeoutMillis: 120_000}
 	encoded, _ := json.Marshal(lease)
@@ -167,7 +170,7 @@ func main() {
 		log.Fatalf("typed backend read-back is not MATCHED: %+v", observation)
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(response{HostID: desired.HostID, Hostname: hostname,
-		CommandID: desired.CommandID, CommandType: desired.CommandType, Result: publisher.result,
+		CommandID: desired.CommandID, CommandType: desired.CommandType, Result: recoveryauthority.Redact(publisher.result),
 		Observation: observation}); err != nil {
 		log.Fatal(err)
 	}
@@ -189,7 +192,7 @@ func validate(desired request, hostname string) error {
 	if desired.StateRoot == "" || filepath.Clean(desired.StateRoot) != desired.StateRoot || !strings.HasPrefix(desired.StateRoot, "/var/tmp/kim-real-recovery-") {
 		return errors.New("dedicated qualification state root is required")
 	}
-	if desired.AttemptIndex < 1 || desired.AttemptIndex > 32 || desired.AuthorityGen < 1 || desired.SessionGen < 1 {
+	if desired.AttemptIndex < 1 || desired.AttemptIndex > 32 || desired.AuthorityGen < 1 || desired.SessionGen < 1 || desired.LeaseGeneration < 1 || desired.LeaseToken == "" {
 		return errors.New("current qualification authority generations are required")
 	}
 	wantSchema := map[string]string{
