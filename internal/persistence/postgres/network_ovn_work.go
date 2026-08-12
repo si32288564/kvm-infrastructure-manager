@@ -27,12 +27,12 @@ type OVNRuntimeClaimRequest struct {
 }
 
 type OVNRuntimeWork struct {
-	WorkID, IntentID, PortID, ObjectSetDigest, ClaimMode string
-	IntentGeneration, PortGeneration, BindingGeneration  uint64
-	ClaimGeneration                                      uint64
-	ClaimExpiresAt, ClaimMaximumExpiresAt                time.Time
-	CanonicalObjectSet                                   []byte
-	RequiredWorkSchemaVersion                            string
+	WorkID, IntentID, PortID, ObjectSetDigest, ClaimMode, OperationKind string
+	IntentGeneration, PortGeneration, BindingGeneration                 uint64
+	ClaimGeneration                                                     uint64
+	ClaimExpiresAt, ClaimMaximumExpiresAt                               time.Time
+	CanonicalObjectSet                                                  []byte
+	RequiredWorkSchemaVersion                                           string
 }
 
 type OVNRuntimeClaim struct {
@@ -86,15 +86,18 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 		rows, err := tx.Query(ctx, `
 			SELECT work.work_id,work.intent_id,work.intent_generation,work.port_id,work.port_generation,
 			 work.binding_generation,work.object_set_digest,work.work_state,work.claim_owner,work.claim_generation,
-			 intent.canonical_object_set,work.required_work_schema_version
+			 intent.canonical_object_set,work.required_work_schema_version,work.operation_kind
 			FROM kim.ovn_runtime_work_current work
-			JOIN kim.network_ovn_state_current current ON current.port_id=work.port_id
-			 AND current.intent_id=work.intent_id AND current.intent_generation=work.intent_generation
-			 AND current.port_generation=work.port_generation AND current.binding_generation=work.binding_generation
 			JOIN kim.network_intent_revision_evidence intent ON intent.intent_id=work.intent_id
 			 AND intent.intent_generation=work.intent_generation AND intent.object_set_digest=work.object_set_digest
+			JOIN kim.network_ports_current port ON port.port_id=work.port_id AND port.port_generation=work.port_generation
+			JOIN kim.port_bindings_current binding ON binding.port_id=port.port_id AND binding.binding_generation=work.binding_generation
+			LEFT JOIN kim.network_ovn_state_current current ON current.port_id=work.port_id
+			LEFT JOIN kim.network_port_binding_retirements_current retirement ON retirement.port_id=work.port_id
 			WHERE (work.work_state IN ('PENDING','DISPATCH_UNKNOWN')
 			 OR (work.work_state='CLAIMED' AND work.claim_expires_at<=statement_timestamp()))
+			AND ((work.operation_kind='RECONCILE' AND current.intent_id=work.intent_id AND current.intent_generation=work.intent_generation AND current.port_generation=work.port_generation AND current.binding_generation=work.binding_generation)
+			 OR (work.operation_kind='UNBIND' AND retirement.intent_id=work.intent_id AND retirement.intent_generation=work.intent_generation AND retirement.port_generation=work.port_generation AND retirement.binding_generation=work.binding_generation AND retirement.source_host_id=binding.host_id))
 			AND ($2::bigint=0 OR EXISTS(
 			 SELECT 1 FROM kim.component_release_bindings_current release_binding
 			 JOIN kim.compatibility_decision_evidence compatibility
@@ -126,7 +129,7 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 			var intentGeneration, portGeneration, bindingGeneration int64
 			if err := rows.Scan(&item.work.WorkID, &item.work.IntentID, &intentGeneration, &item.work.PortID,
 				&portGeneration, &bindingGeneration, &item.work.ObjectSetDigest, &item.state,
-				&item.priorOwner, &item.priorGeneration, &item.work.CanonicalObjectSet, &item.work.RequiredWorkSchemaVersion); err != nil {
+				&item.priorOwner, &item.priorGeneration, &item.work.CanonicalObjectSet, &item.work.RequiredWorkSchemaVersion, &item.work.OperationKind); err != nil {
 				rows.Close()
 				return err
 			}
@@ -139,7 +142,13 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 		}
 		rows.Close()
 		for _, item := range candidates {
-			canonical, _, err := ovnadapter.RestoreStoredPortPlan(item.work.CanonicalObjectSet, item.work.ObjectSetDigest)
+			var canonical []byte
+			var err error
+			if item.work.OperationKind == "UNBIND" {
+				canonical, _, err = ovnadapter.RestoreStoredPortBindingRetirementPlan(item.work.CanonicalObjectSet, item.work.ObjectSetDigest)
+			} else {
+				canonical, _, err = ovnadapter.RestoreStoredPortPlan(item.work.CanonicalObjectSet, item.work.ObjectSetDigest)
+			}
 			if err != nil {
 				return fmt.Errorf("restore canonical OVN runtime plan: %w", err)
 			}
@@ -167,8 +176,8 @@ func ClaimOVNRuntimeWork(ctx context.Context, db TxBeginner, request OVNRuntimeC
 			}
 			item.work.ClaimMode, item.work.ClaimGeneration, item.work.ClaimExpiresAt, item.work.ClaimMaximumExpiresAt = mode, uint64(generation), expires, maximumExpires
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.ovn_runtime_work_attempt_evidence(
-				work_id,claim_generation,claim_owner,claim_mode,lease_expires_at,maximum_expires_at,release_binding_generation
-			) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0))`, item.work.WorkID, generation, request.Owner, mode, expires, maximumExpires, request.ReleaseBindingGeneration); err != nil {
+				work_id,claim_generation,claim_owner,claim_mode,lease_expires_at,maximum_expires_at,release_binding_generation,
+			 operation_kind) VALUES($1,$2,$3,$4,$5,$6,NULLIF($7,0),$8)`, item.work.WorkID, generation, request.Owner, mode, expires, maximumExpires, request.ReleaseBindingGeneration, item.work.OperationKind); err != nil {
 				return err
 			}
 			claim := OVNRuntimeClaim{WorkID: item.work.WorkID, Owner: request.Owner, ClaimGeneration: uint64(generation)}
@@ -260,6 +269,13 @@ func QuarantineOVNRuntimeWork(ctx context.Context, db TxBeginner, claim OVNRunti
 			WHERE work_id=$1 AND claim_owner=$2 AND claim_generation=$3`, claim.WorkID, claim.Owner, claim.ClaimGeneration); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirements_current r
+			SET retirement_state='CONFLICTING',updated_at=statement_timestamp()
+			FROM kim.ovn_runtime_work_current w
+			WHERE w.work_id=$1 AND w.operation_kind='UNBIND'
+			  AND r.intent_id=w.intent_id AND r.intent_generation=w.intent_generation`, claim.WorkID); err != nil {
+			return err
+		}
 		return appendOVNRuntimeEventTx(ctx, tx, claim, "CONFLICT_QUARANTINED", map[string]any{"reason": reason})
 	})
 }
@@ -296,6 +312,15 @@ func CompleteOVNRuntimeWork(ctx context.Context, db TxBeginner, claim OVNRuntime
 			return err
 		}
 		return appendOVNRuntimeEventTx(ctx, tx, claim, eventType, map[string]any{"nb_state": observed.Observation.NBState(), "sb_state": observed.Observation.SBState(), "work_state": state})
+	})
+}
+
+func CompleteOVNPortBindingRetirement(ctx context.Context, db TxBeginner, claim OVNRuntimeClaim, observed OVNPortBindingRetirementObservation) error {
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		if err := lockCurrentOVNRuntimeClaim(ctx, tx, claim); err != nil {
+			return err
+		}
+		return completeOVNPortBindingRetirementTx(ctx, tx, claim, observed)
 	})
 }
 

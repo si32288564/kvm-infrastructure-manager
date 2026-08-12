@@ -7,6 +7,8 @@ Date: 2026-08-12
 ```text
 REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY           = PASS (existing zero-Port campaign)
 PORT_BINDING_HANDOFF_AUTHORITY_FOUNDATION      = PASS
+GENERIC_OVN_PORT_UNBIND_AUTHORITY               = PASS
+REAL_SOURCE_OVN_UNBIND                          = BLOCKED
 REAL_OVN_PORT_HANDOFF                          = BLOCKED
 REAL_DESTINATION_OVN_BINDING                   = BLOCKED
 REAL_OVS_DATAPLANE                             = BLOCKED
@@ -48,7 +50,7 @@ read-only preflightで両Hostのproduction `br-int`、OVS system-id、local OVN 
 | g01 | `dba0d9ce-859d-4422-a486-17161ebc1b31` | `unix:/var/run/ovn/ovnsb_db.sock` | `127.0.0.1` |
 | g02 | `aefea4f0-27ed-4a2a-ae77-8e9ce09303ff` | `unix:/var/run/ovn/ovnsb_db.sock` | `127.0.0.1` |
 
-現在の generic OVN runtime workerはPort intentの`ObservePort/ReconcilePort`だけを実装し、source bindingをtypedにunbound/retiredへ進めるoperation authorityを持ちません。production profileはHostごとのlocal SB endpointで、同一shared SB上のrequested-chassis generation transitionとしても実行できません。
+Migration 060でgeneric OVN runtime workerへexact `UNBIND` work、stable ownership pre-read、NB/SB/source OVS read-back、immutable retirement evidence、response-loss後の`READ_BACK_FIRST`を追加し、PostgreSQL integrationではPASSした。production profileは引き続きHostごとのlocal NB/SB endpointであるため、real campaignはsource g01 workerとdestination g02 workerをそれぞれのlocal endpointへ接続しなければならない。
 
 したがってsource LSP/SB bindingを残したままdestinationをpositive convergenceへ進めると、次の禁止状態になります。
 
@@ -76,16 +78,15 @@ qualification harnessから直接`ssh ovn-nbctl/ovs-vsctl`でsource objectを削
 - real g01/g02 read-only OVS/OVN preflight: PASS
 - real non-empty Network Recovery mutation: not started
 
-## Unblock condition
+## Remaining real-campaign gate
 
-Recoveryとは独立した generic Network work packageとして、次を先に実装・qualificationする必要があります。
+generic Network work packageは実装・integration qualification済みである。残る作業は、そのauthorityを実production-shape topologyへ接続したsame-history campaignである。
 
 ```text
-typed OVN Port unbind/retirement intent
-→ PostgreSQL work claim/Lease/UNKNOWN/read-back
-→ stable ownership marker validation
-→ NB/SB source absence or unbound evidence
+source g01 local NB/SB/OVS worker
+→ real generic UNBIND evidence
 → source Handoff quiescence acceptance
+→ destination g02 local NB/SB/OVS worker
+→ destination realization/dataplane
+→ non-empty Recovery Verification / Terminal
 ```
-
-そのauthorityを通常Network consumerとして成立させた後、このcampaignはsame PostgreSQL history、same Port/MAC/IP、g01→g02 binding generationで再実行できます。

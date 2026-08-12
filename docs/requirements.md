@@ -312,6 +312,7 @@
 | NET-052 | OVN runtime worker は PostgreSQL connection pool を明示的に bounded とし、process-local `database-max-connections` を少なくとも `2 × BatchLimit` として claim/renewal/completion 用 headroom を確保する。deployment profile は measured pool wait と OVN endpoint uncertainty に対して claim Lease/renewal interval/maximum lifetime を qualification し、slow endpoint、partial timeout、pool wait を side effect 不在または claim expiry の証明へ昇格させない | Must |
 | NET-053 | OVN runtime worker の scale down は graceful drain を使用し、`DRAINING` 後の新規 claim を停止する一方、current batch は bounded drain deadline 内で renewal、typed apply/read-back、completion を継続する。drain deadline 超過または 2 回目の termination signal だけを hard cancellation とし、残る曖昧な claim は expiry 後の `READ_BACK_FIRST` へ送る | Must |
 | NET-054 | hard drain は process の非正常終了として観測可能にし、current claim の side effect 有無を終了コードから推測しない。deadline 超過または 2 回目の signal 後も current claim を即時再利用せず、DB expiry、immutable `DISPATCH_UNKNOWN`、successor generation の `READ_BACK_FIRST` を経て収束する | Must |
+| NET-055 | logical Port/MAC/IP ownershipを保持したHost binding retirementをclosed typed `UNBIND` workとして実行し、exact Port/Binding/Host generationとKIM ownership markerを再検証する。NB LSP ownership維持、source SB binding inactive、source OVS iface-id absentのimmutable evidenceが揃うまで`VERIFIED`にせず、response lossは`DISPATCH_UNKNOWN → READ_BACK_FIRST`で解決する | Must |
 
 ### 2.13 NFV Dataplane
 

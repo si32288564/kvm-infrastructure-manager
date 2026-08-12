@@ -32,16 +32,18 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 
 type RuntimeConfig struct {
 	NBDatabase, SBDatabase                      string
-	NBCTL, SBCTL                                string
+	NBCTL, SBCTL, OVSCTL                        string
 	PrivateKeyPath, CertificatePath, CACertPath string
 	CommandTimeout                              time.Duration
 }
 
 type RuntimeResult struct {
 	Observation           Observation
+	RetirementObservation PortBindingRetirementObservation
 	ApplyResponseState    string
 	NBObservationDigest   string
 	SBObservationDigest   string
+	OVSObservationDigest  string
 	ChassisIdentityDigest string
 }
 
@@ -59,6 +61,107 @@ func (runtime Runtime) ReconcilePort(ctx context.Context, canonicalPlan []byte, 
 // step after an expired or otherwise uncertain worker claim.
 func (runtime Runtime) ObservePort(ctx context.Context, canonicalPlan []byte, objectSetDigest string) (RuntimeResult, error) {
 	return runtime.reconcilePort(ctx, canonicalPlan, objectSetDigest, false)
+}
+
+func (runtime Runtime) RetirePortBinding(ctx context.Context, canonicalPlan []byte, objectSetDigest string) (RuntimeResult, error) {
+	return runtime.retirePortBinding(ctx, canonicalPlan, objectSetDigest, true)
+}
+
+func (runtime Runtime) ObservePortBindingRetirement(ctx context.Context, canonicalPlan []byte, objectSetDigest string) (RuntimeResult, error) {
+	return runtime.retirePortBinding(ctx, canonicalPlan, objectSetDigest, false)
+}
+
+func (runtime Runtime) retirePortBinding(ctx context.Context, canonicalPlan []byte, objectSetDigest string, apply bool) (RuntimeResult, error) {
+	if err := runtime.Config.validate(); err != nil {
+		return RuntimeResult{}, err
+	}
+	if !filepath.IsAbs(runtime.Config.OVSCTL) || filepath.Base(runtime.Config.OVSCTL) != "ovs-vsctl" {
+		return RuntimeResult{}, errors.New("only standard ovs-vsctl is allowed for Port retirement observation")
+	}
+	canonical, plan, err := RestoreStoredPortBindingRetirementPlan(canonicalPlan, objectSetDigest)
+	if err != nil || len(canonical) == 0 {
+		return RuntimeResult{}, err
+	}
+	for _, value := range []string{plan.OperationID, plan.PortID, plan.SourceHostID, plan.SourceOVNChassisName, plan.LogicalSwitchName, plan.LogicalPortName} {
+		if !safeOVNAtom.MatchString(value) {
+			return RuntimeResult{}, errors.New("OVN Port retirement plan contains an unsafe atom")
+		}
+	}
+	runner := runtime.Runner
+	if runner == nil {
+		runner = ExecRunner{}
+	}
+	run := func(name string, args ...string) ([]byte, error) {
+		commandCtx, cancel := context.WithTimeout(ctx, runtime.Config.CommandTimeout)
+		defer cancel()
+		return runner.Run(commandCtx, name, args...)
+	}
+	nbGlobal := runtime.Config.globalArgs(runtime.Config.NBDatabase)
+	sbGlobal := runtime.Config.globalArgs(runtime.Config.SBDatabase)
+	readMarkers := func() (map[string]string, bool, map[string]string, bool, error) {
+		switchRaw, switchErr := run(runtime.Config.NBCTL, withGlobal(nbGlobal, "--format=json", "--columns=external_ids", "find", "Logical_Switch", "name="+plan.LogicalSwitchName)...)
+		portRaw, portErr := run(runtime.Config.NBCTL, withGlobal(nbGlobal, "--format=json", "--columns=external_ids", "find", "Logical_Switch_Port", "name="+plan.LogicalPortName)...)
+		if switchErr != nil || portErr != nil {
+			return nil, false, nil, false, errors.Join(switchErr, portErr)
+		}
+		switchMarkers, switchPresent, err := parseExternalIDs(switchRaw)
+		if err != nil {
+			return nil, false, nil, false, err
+		}
+		portMarkers, portPresent, err := parseExternalIDs(portRaw)
+		return switchMarkers, switchPresent, portMarkers, portPresent, err
+	}
+	beforeSwitch, beforeSwitchPresent, beforePort, beforePortPresent, err := readMarkers()
+	if err != nil {
+		return RuntimeResult{}, err
+	}
+	if !beforeSwitchPresent || !beforePortPresent || !markersPresent(beforeSwitch, plan.ExpectedNetworkExternalIDs, "") || !markersPresent(beforePort, plan.ExpectedPortExternalIDs, plan.ExpectedObjectSetDigest) {
+		return RuntimeResult{}, ErrForeignOVNObject
+	}
+	applyResponseState := "UNKNOWN"
+	if apply {
+		applyResponseState = "RECEIVED"
+		if _, err := run(runtime.Config.NBCTL, withGlobal(nbGlobal, "remove", "Logical_Switch_Port", plan.LogicalPortName, "options", "requested-chassis")...); err != nil {
+			applyResponseState = "LOST"
+		}
+	}
+	afterSwitch, switchPresent, afterPort, portPresent, err := readMarkers()
+	if err != nil {
+		return RuntimeResult{}, err
+	}
+	requestedChassis, err := run(runtime.Config.NBCTL, withGlobal(nbGlobal, "--if-exists", "get", "Logical_Switch_Port", plan.LogicalPortName, "options:requested-chassis")...)
+	if err != nil {
+		return RuntimeResult{}, err
+	}
+	chassisReference, err := run(runtime.Config.SBCTL, withGlobal(sbGlobal, "--data=bare", "--no-heading", "--columns=chassis", "find", "Port_Binding", "logical_port="+plan.LogicalPortName)...)
+	if err != nil {
+		return RuntimeResult{}, err
+	}
+	observedChassis := ""
+	if chassisUUID := normalizeOVSReference(string(chassisReference)); chassisUUID != "" {
+		name, err := run(runtime.Config.SBCTL, withGlobal(sbGlobal, "--if-exists", "get", "Chassis", chassisUUID, "name")...)
+		if err != nil {
+			return RuntimeResult{}, err
+		}
+		observedChassis = strings.Trim(strings.TrimSpace(string(name)), "\"")
+	}
+	interfaces, err := run(runtime.Config.OVSCTL, "--data=bare", "--no-heading", "--columns=name", "find", "Interface", "external_ids:iface-id="+plan.LogicalPortName)
+	if err != nil {
+		return RuntimeResult{}, err
+	}
+	requested := normalizeOVSReference(string(requestedChassis))
+	interfaceName := strings.TrimSpace(string(interfaces))
+	observation := PortBindingRetirementObservation{
+		OwnershipMarkerMatches: markersPresent(afterSwitch, plan.ExpectedNetworkExternalIDs, "") && markersPresent(afterPort, plan.ExpectedPortExternalIDs, plan.ExpectedObjectSetDigest),
+		ObjectSetDigestMatches: afterPort["kim.object_set_digest"] == plan.ExpectedObjectSetDigest,
+		LogicalSwitchPresent:   switchPresent, LogicalSwitchPortPresent: portPresent,
+		RequestedChassisAbsent: requested == "", SourceChassisInactive: observedChassis != plan.SourceOVNChassisName,
+		SourceOVSInterfaceAbsent: interfaceName == "",
+	}
+	return RuntimeResult{RetirementObservation: observation, ApplyResponseState: applyResponseState,
+		NBObservationDigest:  digestText(fmt.Sprintf("%v\x00%v\x00%s", afterSwitch, afterPort, requested)),
+		SBObservationDigest:  digestText(string(chassisReference) + "\x00" + observedChassis),
+		OVSObservationDigest: digestText(interfaceName), ChassisIdentityDigest: digestText(observedChassis)}, nil
 }
 
 func (runtime Runtime) reconcilePort(ctx context.Context, canonicalPlan []byte, objectSetDigest string, apply bool) (RuntimeResult, error) {

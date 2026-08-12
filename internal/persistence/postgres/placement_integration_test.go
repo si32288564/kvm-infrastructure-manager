@@ -1279,6 +1279,95 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := AcceptOVNPortObservation(ctx, pool, staleOVN); !errors.Is(err, ErrPlacementConflict) {
 		t.Fatalf("stale OVN generation error=%v", err)
 	}
+	retirementRequest := OVNPortBindingRetirementRequest{
+		OperationID: "ovn-retirement-" + suffix, OperationGeneration: 1,
+		IntentID: "ovn-retirement-intent-" + suffix, IntentGeneration: 2,
+		PortID: ovsPortID, PortGeneration: 1, BindingGeneration: 1, SourceHostID: hostID,
+	}
+	staleRetirement := retirementRequest
+	staleRetirement.BindingGeneration = 2
+	if _, err := CommitOVNPortBindingRetirement(ctx, pool, staleRetirement); !errors.Is(err, ErrPlacementStale) {
+		t.Fatalf("stale OVN Port retirement generation error=%v", err)
+	}
+	retirement, err := CommitOVNPortBindingRetirement(ctx, pool, retirementRequest)
+	if err != nil || retirement.PortID != ovsPortID || len(retirement.ObjectSetDigest) != 64 {
+		t.Fatalf("OVN Port retirement=%#v err=%v", retirement, err)
+	}
+	if replay, err := CommitOVNPortBindingRetirement(ctx, pool, retirementRequest); err != nil || replay.WorkID != retirement.WorkID || replay.ObjectSetDigest != retirement.ObjectSetDigest {
+		t.Fatalf("OVN Port retirement replay=%#v/%v want %#v", replay, err, retirement)
+	}
+	retirementClaims, err := ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-retirement-worker-a", Limit: 1, Lease: time.Minute})
+	if err != nil || len(retirementClaims) != 1 || retirementClaims[0].OperationKind != "UNBIND" || retirementClaims[0].ClaimMode != "APPLY_ALLOWED" {
+		t.Fatalf("OVN Port retirement first claim=%#v err=%v", retirementClaims, err)
+	}
+	retirementClaim1 := OVNRuntimeClaim{WorkID: retirement.WorkID, Owner: "ovn-retirement-worker-a", ClaimGeneration: 1}
+	if err := AuthorizeOVNRuntimeApply(ctx, pool, retirementClaim1); err != nil {
+		t.Fatalf("authorize OVN Port retirement apply: %v", err)
+	}
+	verifiedRetirementObservation := ovnadapter.PortBindingRetirementObservation{
+		OwnershipMarkerMatches: true, ObjectSetDigestMatches: true,
+		LogicalSwitchPresent: true, LogicalSwitchPortPresent: true,
+		RequestedChassisAbsent: true, SourceChassisInactive: true, SourceOVSInterfaceAbsent: true,
+	}
+	retirementObservation1 := OVNPortBindingRetirementObservation{
+		EvidenceID: "ovn-retirement-evidence-unknown-" + suffix,
+		IntentID:   retirement.IntentID, IntentGeneration: retirement.IntentGeneration,
+		PortID: ovsPortID, PortGeneration: 1, BindingGeneration: 1,
+		SourceHostID: hostID, OperationGeneration: 1, ApplyResponseState: "LOST",
+		NBObservationGeneration: 1, NBObservationDigest: digestBytes([]byte("retirement-nb-unknown-" + suffix)),
+		SBObservationGeneration: 1, SBObservationDigest: digestBytes([]byte("retirement-sb-unknown-" + suffix)),
+		OVSObservationGeneration: 1, OVSObservationDigest: digestBytes([]byte("retirement-ovs-unknown-" + suffix)),
+		AdapterArtifactDigest: digestBytes([]byte("retirement-adapter")), Observation: verifiedRetirementObservation,
+	}
+	if err := CompleteOVNPortBindingRetirement(ctx, pool, retirementClaim1, retirementObservation1); err != nil {
+		t.Fatalf("record response-loss retirement: %v", err)
+	}
+	retirementClaims, err = ClaimOVNRuntimeWork(ctx, pool, OVNRuntimeClaimRequest{Owner: "ovn-retirement-worker-b", Limit: 1, Lease: time.Minute})
+	if err != nil || len(retirementClaims) != 1 || retirementClaims[0].OperationKind != "UNBIND" || retirementClaims[0].ClaimMode != "READ_BACK_FIRST" || retirementClaims[0].ClaimGeneration != 2 {
+		t.Fatalf("OVN Port retirement recovery claim=%#v err=%v", retirementClaims, err)
+	}
+	retirementClaim2 := OVNRuntimeClaim{WorkID: retirement.WorkID, Owner: "ovn-retirement-worker-b", ClaimGeneration: 2}
+	if err := RecordOVNRuntimeReadBackStarted(ctx, pool, retirementClaim2); err != nil {
+		t.Fatalf("record retirement read-back first: %v", err)
+	}
+	retirementObservation2 := retirementObservation1
+	retirementObservation2.EvidenceID = "ovn-retirement-evidence-verified-" + suffix
+	retirementObservation2.ApplyResponseState = "UNKNOWN"
+	retirementObservation2.NBObservationGeneration = 2
+	retirementObservation2.SBObservationGeneration = 2
+	retirementObservation2.OVSObservationGeneration = 2
+	retirementObservation2.NBObservationDigest = digestBytes([]byte("retirement-nb-verified-" + suffix))
+	retirementObservation2.SBObservationDigest = digestBytes([]byte("retirement-sb-verified-" + suffix))
+	retirementObservation2.OVSObservationDigest = digestBytes([]byte("retirement-ovs-verified-" + suffix))
+	if err := CompleteOVNPortBindingRetirement(ctx, pool, retirementClaim2, retirementObservation2); err != nil {
+		t.Fatalf("complete read-back-first retirement: %v", err)
+	}
+	var retirementState, retirementWorkState string
+	var retirementAttemptCount, retirementEvidenceCount, portCount, identityCount int
+	if err := pool.QueryRow(ctx, `SELECT r.retirement_state,w.work_state FROM kim.network_port_binding_retirements_current r JOIN kim.ovn_runtime_work_current w ON w.intent_id=r.intent_id AND w.intent_generation=r.intent_generation WHERE r.port_id=$1`, ovsPortID).Scan(&retirementState, &retirementWorkState); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.ovn_runtime_work_attempt_evidence WHERE work_id=$1`, retirement.WorkID).Scan(&retirementAttemptCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_port_binding_retirement_evidence WHERE port_id=$1`, ovsPortID).Scan(&retirementEvidenceCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_ports_current WHERE port_id=$1`, ovsPortID).Scan(&portCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_identity_claims WHERE port_id=$1 AND claim_state IN ('RESERVED','ACTIVE')`, ovsPortID).Scan(&identityCount); err != nil {
+		t.Fatal(err)
+	}
+	if retirementState != "VERIFIED" || retirementWorkState != "OBSERVED" || retirementAttemptCount != 2 || retirementEvidenceCount != 2 || portCount != 1 || identityCount != 2 {
+		t.Fatalf("OVN Port retirement convergence=%s/%s attempts=%d evidence=%d port=%d identities=%d", retirementState, retirementWorkState, retirementAttemptCount, retirementEvidenceCount, portCount, identityCount)
+	}
+	if _, err := CommitOVNPortIntent(ctx, pool, OVNPortIntentRequest{IntentID: "ovn-source-revival-" + suffix, IntentGeneration: 3, PortID: ovsPortID}); err != nil {
+		t.Fatalf("commit source binding ABA intent: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT retirement_state FROM kim.network_port_binding_retirements_current WHERE port_id=$1`, ovsPortID).Scan(&retirementState); err != nil || retirementState != "STALE" {
+		t.Fatalf("source binding ABA did not stale Unbound Proof: state=%s err=%v", retirementState, err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_power_observation_evidence SET observed_power_state='SHUTOFF' WHERE verification_id=$1`, powerVerificationID); err == nil {
 		t.Fatal("immutable VM power observation evidence accepted UPDATE")
 	}

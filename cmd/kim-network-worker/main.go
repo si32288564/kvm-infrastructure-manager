@@ -38,6 +38,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	sbDatabase := set.String("ovn-sb-db", os.Getenv("KIM_OVN_SB_DB"), "OVN SB unix: or ssl: endpoint")
 	nbctl := set.String("ovn-nbctl", "/usr/bin/ovn-nbctl", "absolute standard ovn-nbctl path")
 	sbctl := set.String("ovn-sbctl", "/usr/bin/ovn-sbctl", "absolute standard ovn-sbctl path")
+	ovsctl := set.String("ovs-vsctl", "/usr/bin/ovs-vsctl", "absolute standard ovs-vsctl path used for Host-side retirement read-back")
 	privateKey := set.String("ovn-private-key", os.Getenv("KIM_OVN_PRIVATE_KEY"), "OVN SSL private key path")
 	certificate := set.String("ovn-certificate", os.Getenv("KIM_OVN_CERTIFICATE"), "OVN SSL certificate path")
 	caCert := set.String("ovn-ca-cert", os.Getenv("KIM_OVN_CA_CERT"), "OVN SSL CA certificate path")
@@ -137,7 +138,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	worker := ovnruntime.Worker{
 		Store: ovnruntime.PostgresWorkStore{DB: pool, ReleaseBindingGeneration: releaseBinding.BindingGeneration},
 		Adapter: ovnadapter.Runtime{Config: ovnadapter.RuntimeConfig{
-			NBDatabase: *nbDatabase, SBDatabase: *sbDatabase, NBCTL: *nbctl, SBCTL: *sbctl,
+			NBDatabase: *nbDatabase, SBDatabase: *sbDatabase, NBCTL: *nbctl, SBCTL: *sbctl, OVSCTL: *ovsctl,
 			PrivateKeyPath: *privateKey, CertificatePath: *certificate, CACertPath: *caCert,
 			CommandTimeout: *commandTimeout,
 		}},

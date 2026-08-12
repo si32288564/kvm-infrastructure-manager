@@ -708,6 +708,9 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		            AND quiescence.port_id=port.port_id AND quiescence.port_generation=$16
 		            AND quiescence.source_host_id=$17 AND quiescence.source_binding_generation=$18
 		            AND quiescence.quiescence_state='QUIESCED'
+		           JOIN kim.network_port_binding_retirement_evidence retirement ON retirement.evidence_id=quiescence.retirement_evidence_id
+		            AND retirement.port_id=port.port_id AND retirement.port_generation=port.port_generation
+		            AND retirement.binding_generation=$18 AND retirement.source_host_id=$17 AND retirement.retirement_state='VERIFIED'
 		           WHERE port.port_id=$3 AND port.project_id=$1 AND port.workload_id=$4
 		             AND port.port_generation=$16 AND binding.host_id=$17 AND binding.binding_generation=$18
 		             AND binding.binding_type=$10 AND binding.binding_state IN ('RESERVED','BINDING','VERIFYING','ACTIVE','UNKNOWN')
@@ -860,6 +863,8 @@ func claimNetworkPortHandoffTx(ctx context.Context, tx pgx.Tx, admissionID strin
 	err := tx.QueryRow(ctx, `SELECT p.placement_admission_id,b.host_id,p.workload_id,p.port_generation,b.binding_generation,q.evidence_digest,q.quiescence_state='QUIESCED'
 		FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id
 		JOIN kim.network_port_source_quiescence_evidence q ON q.evidence_id=$2 AND q.port_id=p.port_id AND q.port_generation=p.port_generation AND q.source_host_id=b.host_id AND q.source_binding_generation=b.binding_generation
+		JOIN kim.network_port_binding_retirement_evidence re ON re.evidence_id=q.retirement_evidence_id AND re.port_id=p.port_id AND re.port_generation=p.port_generation AND re.binding_generation=b.binding_generation AND re.source_host_id=b.host_id AND re.retirement_state='VERIFIED'
+		JOIN kim.network_port_binding_retirements_current rc ON rc.port_id=p.port_id AND rc.terminal_evidence_id=re.evidence_id AND rc.retirement_state='VERIFIED'
 		WHERE p.port_id=$1 FOR UPDATE OF p,b`, required.PortID, required.SourceQuiescenceEvidenceID).Scan(&sourceAdmission, &sourceHost, &workloadID, &sourcePortGeneration, &sourceBindingGeneration, &quiescenceDigest, &quiesced)
 	if err != nil || !quiesced || workloadID != request.WorkloadID || sourceHost != required.SourceHostID || sourceHost == current.HostID || sourcePortGeneration != required.SourcePortGeneration || sourceBindingGeneration != required.SourceBindingGeneration || quiescenceDigest != required.SourceQuiescenceEvidenceDigest || required.DestinationPortGeneration != sourcePortGeneration+1 || required.DestinationBindingGeneration != sourceBindingGeneration+1 {
 		return ErrPlacementStale

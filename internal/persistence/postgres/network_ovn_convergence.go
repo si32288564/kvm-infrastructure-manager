@@ -99,6 +99,16 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 		if err != nil {
 			return err
 		}
+		// A new ordinary binding intent for the exact retired incarnation is an
+		// authority-level ABA revival.  Fence the old positive UNBOUND proof
+		// before the new backend mutation can be claimed.  Destination handoff
+		// generations do not match and therefore do not invalidate history.
+		if _, err := tx.Exec(ctx, `UPDATE kim.network_port_binding_retirements_current
+			SET retirement_state='STALE',updated_at=statement_timestamp()
+			WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3
+			  AND retirement_state='VERIFIED'`, request.PortID, portGeneration, bindingGeneration); err != nil {
+			return err
+		}
 		workID := fmt.Sprintf("ovn-runtime:%s:%d", request.IntentID, request.IntentGeneration)
 		workSchema := OVNRuntimeWorkSchemaV1
 		if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT write_work_schema_version FROM kim.release_authority_current WHERE singleton=true),$1)`, OVNRuntimeWorkSchemaV1).Scan(&workSchema); err != nil {

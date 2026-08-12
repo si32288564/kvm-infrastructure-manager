@@ -59,6 +59,7 @@ func AcceptNetworkPortSourceQuiescence(ctx context.Context, db TxBeginner, o Net
 	}
 	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		var accepted bool
+		var retirementEvidenceID string
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.failure_epochs_current c JOIN kim.failure_epoch_evidence e ON e.failure_epoch_id=c.failure_epoch_id
 			JOIN kim.network_ports_current p ON p.placement_admission_id=e.source_admission_id AND p.port_id=$2 AND p.port_generation=$3
 			JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.host_id=e.source_host_id AND b.binding_generation=$4
@@ -66,12 +67,16 @@ func AcceptNetworkPortSourceQuiescence(ctx context.Context, db TxBeginner, o Net
 			JOIN kim.command_verification_evidence v ON v.verification_id=$8 AND v.command_id=cmd.command_id AND v.attempt_index=$9 AND v.observation_generation=$10 AND v.observation_digest=$11 AND v.verifier_artifact_digest=$12 AND v.verification_state='MATCHED'
 			WHERE c.failure_epoch_id=$1 AND c.epoch_state='FENCED' AND e.source_host_id=$13 AND e.vm_id=$14::uuid AND e.vm_generation=$15
 			AND cmd.payload->>'desired_state'='QUIESCED' AND (v.evidence_payload->>'domain_running')::boolean=false AND (v.evidence_payload->>'interface_present')::boolean=false
-			AND v.evidence_payload->>'port_id'=p.port_id AND (v.evidence_payload->>'port_generation')::bigint=p.port_generation AND (v.evidence_payload->>'binding_generation')::bigint=b.binding_generation)`, o.FailureEpochID, o.PortID, o.PortGeneration, o.BindingGeneration, o.CommandID, ovsnetwork.DataplaneCommandType, ovsnetwork.DataplaneSchemaVersion, o.VerificationID, o.AttemptIndex, o.ObservationGeneration, o.ObservationDigest, o.VerifierDigest, o.SourceHostID, o.VMID, o.VMGeneration).Scan(&accepted); err != nil || !accepted {
+			AND v.evidence_payload->>'port_id'=p.port_id AND (v.evidence_payload->>'port_generation')::bigint=p.port_generation AND (v.evidence_payload->>'binding_generation')::bigint=b.binding_generation
+			AND EXISTS(SELECT 1 FROM kim.network_port_binding_retirements_current r JOIN kim.network_port_binding_retirement_evidence re ON re.evidence_id=r.terminal_evidence_id WHERE r.port_id=p.port_id AND r.port_generation=p.port_generation AND r.binding_generation=b.binding_generation AND r.source_host_id=e.source_host_id AND r.retirement_state='VERIFIED' AND re.retirement_state='VERIFIED'))`, o.FailureEpochID, o.PortID, o.PortGeneration, o.BindingGeneration, o.CommandID, ovsnetwork.DataplaneCommandType, ovsnetwork.DataplaneSchemaVersion, o.VerificationID, o.AttemptIndex, o.ObservationGeneration, o.ObservationDigest, o.VerifierDigest, o.SourceHostID, o.VMID, o.VMGeneration).Scan(&accepted); err != nil || !accepted {
+			return ErrPlacementStale
+		}
+		if err := tx.QueryRow(ctx, `SELECT terminal_evidence_id FROM kim.network_port_binding_retirements_current WHERE port_id=$1 AND port_generation=$2 AND binding_generation=$3 AND source_host_id=$4 AND retirement_state='VERIFIED'`, o.PortID, o.PortGeneration, o.BindingGeneration, o.SourceHostID).Scan(&retirementEvidenceID); err != nil {
 			return ErrPlacementStale
 		}
 		payload, _ := json.Marshal(o)
 		evidenceDigest := digestReleaseBytes(payload)
-		tag, err := tx.Exec(ctx, `INSERT INTO kim.network_port_source_quiescence_evidence(evidence_id,port_id,port_generation,source_host_id,source_binding_generation,vm_id,vm_generation,command_id,verification_id,observation_generation,observation_digest,source_vm_not_running,source_interface_absent,quiescence_state,evidence_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,true,'QUIESCED',$12) ON CONFLICT(evidence_id) DO NOTHING`, o.EvidenceID, o.PortID, o.PortGeneration, o.SourceHostID, o.BindingGeneration, o.VMID, o.VMGeneration, o.CommandID, o.VerificationID, o.ObservationGeneration, o.ObservationDigest, evidenceDigest)
+		tag, err := tx.Exec(ctx, `INSERT INTO kim.network_port_source_quiescence_evidence(evidence_id,port_id,port_generation,source_host_id,source_binding_generation,vm_id,vm_generation,command_id,verification_id,observation_generation,observation_digest,source_vm_not_running,source_interface_absent,quiescence_state,evidence_digest,retirement_evidence_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,true,'QUIESCED',$12,$13) ON CONFLICT(evidence_id) DO NOTHING`, o.EvidenceID, o.PortID, o.PortGeneration, o.SourceHostID, o.BindingGeneration, o.VMID, o.VMGeneration, o.CommandID, o.VerificationID, o.ObservationGeneration, o.ObservationDigest, evidenceDigest, retirementEvidenceID)
 		if err != nil {
 			return err
 		}

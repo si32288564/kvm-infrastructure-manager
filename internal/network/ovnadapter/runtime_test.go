@@ -86,6 +86,47 @@ func TestRuntimeObservePortNeverApplies(t *testing.T) {
 	}
 }
 
+func TestRuntimeRetiresExactPortBindingAndPreservesLogicalIdentity(t *testing.T) {
+	_, digest, source := runtimePlan(t)
+	retirementRaw, retirementDigest, err := PlanPortBindingRetirement("retirement-1", 1, source, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &scriptedRunner{commands: []scriptedCommand{
+		{output: markerOutput(source.NetworkExternalIDs, "")}, {output: markerOutput(source.PortExternalIDs, digest)},
+		{},
+		{output: markerOutput(source.NetworkExternalIDs, "")}, {output: markerOutput(source.PortExternalIDs, digest)},
+		{output: "[]"}, {output: ""}, {output: ""},
+	}}
+	result, err := (Runtime{Config: testRuntimeConfig(), Runner: runner}).RetirePortBinding(context.Background(), retirementRaw, retirementDigest)
+	if err != nil || result.RetirementObservation.State() != "VERIFIED" || result.ApplyResponseState != "RECEIVED" || len(result.OVSObservationDigest) != 64 {
+		t.Fatalf("retirement result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 8 || !containsCommand(runner.calls[2], "remove", "Logical_Switch_Port", source.LogicalPort.Name, "options", "requested-chassis") {
+		t.Fatalf("closed retirement calls=%#v", runner.calls)
+	}
+	for _, call := range runner.calls {
+		if containsCommand(call, "lsp-del") || containsCommand(call, "destroy") {
+			t.Fatalf("logical Port identity deletion was attempted: %#v", call)
+		}
+	}
+}
+
+func TestRuntimeRetirementResponseLossReadsBackBeforeConvergence(t *testing.T) {
+	_, digest, source := runtimePlan(t)
+	raw, retirementDigest, _ := PlanPortBindingRetirement("retirement-loss", 1, source, digest)
+	runner := &scriptedRunner{commands: []scriptedCommand{
+		{output: markerOutput(source.NetworkExternalIDs, "")}, {output: markerOutput(source.PortExternalIDs, digest)},
+		{err: errors.New("response lost")},
+		{output: markerOutput(source.NetworkExternalIDs, "")}, {output: markerOutput(source.PortExternalIDs, digest)},
+		{output: "[]"}, {output: ""}, {output: ""},
+	}}
+	result, err := (Runtime{Config: testRuntimeConfig(), Runner: runner}).RetirePortBinding(context.Background(), raw, retirementDigest)
+	if err != nil || result.ApplyResponseState != "LOST" || result.RetirementObservation.State() != "VERIFIED" {
+		t.Fatalf("response-loss retirement=%#v err=%v", result, err)
+	}
+}
+
 func TestRuntimeDoesNotOverwriteForeignSharedObject(t *testing.T) {
 	raw, digest, _ := runtimePlan(t)
 	runner := &scriptedRunner{commands: []scriptedCommand{{output: markerOutput(map[string]string{"kim.owner": "FOREIGN"}, "")}}}
@@ -124,7 +165,7 @@ func runtimePlan(t *testing.T) ([]byte, string, PortPlan) {
 }
 
 func testRuntimeConfig() RuntimeConfig {
-	return RuntimeConfig{NBDatabase: "unix:/run/ovn/ovnnb_db.sock", SBDatabase: "unix:/run/ovn/ovnsb_db.sock", NBCTL: "/usr/bin/ovn-nbctl", SBCTL: "/usr/bin/ovn-sbctl", CommandTimeout: 10 * time.Second}
+	return RuntimeConfig{NBDatabase: "unix:/run/ovn/ovnnb_db.sock", SBDatabase: "unix:/run/ovn/ovnsb_db.sock", NBCTL: "/usr/bin/ovn-nbctl", SBCTL: "/usr/bin/ovn-sbctl", OVSCTL: "/usr/bin/ovs-vsctl", CommandTimeout: 10 * time.Second}
 }
 
 func markerOutput(markers map[string]string, digest string) string {

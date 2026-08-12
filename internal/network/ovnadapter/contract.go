@@ -14,6 +14,7 @@ import (
 )
 
 const PortIntentSchema = "kim.network-intent.ovn-port/v2"
+const PortBindingRetirementSchema = "kim.network-intent.ovn-port-binding-retirement/v1"
 
 type PortIntentInput struct {
 	IntentID, ProjectID, NetworkID, PortID, SegmentClaimID, HostID string
@@ -44,6 +45,78 @@ type LogicalPortPlan struct {
 	OVNChassisName string `json:"ovn_chassis_name"`
 	MACAddress     string `json:"mac_address"`
 	IPAddress      string `json:"ip_address"`
+}
+
+// PortBindingRetirementPlan preserves the logical Port and its KIM ownership
+// markers while retiring one exact Host/chassis binding incarnation.
+type PortBindingRetirementPlan struct {
+	SchemaVersion              string            `json:"schema_version"`
+	OperationID                string            `json:"operation_id"`
+	OperationGeneration        uint64            `json:"operation_generation"`
+	PortID                     string            `json:"port_id"`
+	PortGeneration             uint64            `json:"port_generation"`
+	BindingGeneration          uint64            `json:"binding_generation"`
+	SourceHostID               string            `json:"source_host_id"`
+	SourceOVNChassisName       string            `json:"source_ovn_chassis_name"`
+	LogicalSwitchName          string            `json:"logical_switch_name"`
+	LogicalPortName            string            `json:"logical_port_name"`
+	ExpectedNetworkExternalIDs map[string]string `json:"expected_network_external_ids"`
+	ExpectedPortExternalIDs    map[string]string `json:"expected_port_external_ids"`
+	ExpectedObjectSetDigest    string            `json:"expected_object_set_digest"`
+}
+
+func PlanPortBindingRetirement(operationID string, operationGeneration uint64, source PortPlan, sourceObjectSetDigest string) ([]byte, string, error) {
+	if operationID == "" || operationGeneration == 0 || len(sourceObjectSetDigest) != 64 {
+		return nil, "", errors.New("complete typed OVN Port retirement intent is required")
+	}
+	if _, err := json.Marshal(source); err != nil {
+		return nil, "", err
+	}
+	portGeneration, err := strconv.ParseUint(source.PortExternalIDs["kim.port_generation"], 10, 64)
+	if err != nil || portGeneration == 0 {
+		return nil, "", errors.New("source Port generation is required")
+	}
+	bindingGeneration, err := strconv.ParseUint(source.PortExternalIDs["kim.binding_generation"], 10, 64)
+	if err != nil || bindingGeneration == 0 {
+		return nil, "", errors.New("source binding generation is required")
+	}
+	plan := PortBindingRetirementPlan{SchemaVersion: PortBindingRetirementSchema, OperationID: operationID,
+		OperationGeneration: operationGeneration, PortID: source.LogicalPort.PortID, PortGeneration: portGeneration,
+		BindingGeneration: bindingGeneration, SourceHostID: source.LogicalPort.HostID,
+		SourceOVNChassisName: source.LogicalPort.OVNChassisName, LogicalSwitchName: source.LogicalSwitch.Name,
+		LogicalPortName: source.LogicalPort.Name, ExpectedNetworkExternalIDs: source.NetworkExternalIDs,
+		ExpectedPortExternalIDs: source.PortExternalIDs, ExpectedObjectSetDigest: sourceObjectSetDigest}
+	raw, err := json.Marshal(plan)
+	if err != nil {
+		return nil, "", err
+	}
+	digest := sha256.Sum256(raw)
+	return raw, hex.EncodeToString(digest[:]), nil
+}
+
+func RestoreStoredPortBindingRetirementPlan(raw []byte, expectedDigest string) ([]byte, PortBindingRetirementPlan, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var plan PortBindingRetirementPlan
+	if err := decoder.Decode(&plan); err != nil {
+		return nil, plan, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return nil, plan, errors.New("OVN Port retirement plan contains trailing data")
+	}
+	canonical, err := json.Marshal(plan)
+	if err != nil {
+		return nil, plan, err
+	}
+	digest := sha256.Sum256(canonical)
+	if hex.EncodeToString(digest[:]) != expectedDigest || plan.SchemaVersion != PortBindingRetirementSchema ||
+		plan.OperationID == "" || plan.OperationGeneration == 0 || plan.PortID == "" || plan.PortGeneration == 0 ||
+		plan.BindingGeneration == 0 || plan.SourceHostID == "" || plan.SourceOVNChassisName == "" ||
+		plan.LogicalSwitchName == "" || plan.LogicalPortName == "" || len(plan.ExpectedObjectSetDigest) != 64 ||
+		plan.ExpectedPortExternalIDs["kim.owner"] != "KIM" || plan.ExpectedPortExternalIDs["kim.port_id"] != plan.PortID {
+		return nil, plan, errors.New("invalid OVN Port retirement plan")
+	}
+	return canonical, plan, nil
 }
 
 func PlanPort(input PortIntentInput) ([]byte, string, error) {
@@ -144,6 +217,23 @@ type Observation struct {
 	LogicalSwitchPresent, LogicalSwitchPortPresent bool
 	PortBindingPresent, DatapathPresent            bool
 	ExpectedChassisMatches                         bool
+}
+
+type PortBindingRetirementObservation struct {
+	OwnershipMarkerMatches, ObjectSetDigestMatches bool
+	LogicalSwitchPresent, LogicalSwitchPortPresent bool
+	RequestedChassisAbsent, SourceChassisInactive  bool
+	SourceOVSInterfaceAbsent                       bool
+}
+
+func (observation PortBindingRetirementObservation) State() string {
+	if !observation.OwnershipMarkerMatches || !observation.ObjectSetDigestMatches || !observation.LogicalSwitchPresent || !observation.LogicalSwitchPortPresent {
+		return "CONFLICTING"
+	}
+	if observation.RequestedChassisAbsent && observation.SourceChassisInactive && observation.SourceOVSInterfaceAbsent {
+		return "VERIFIED"
+	}
+	return "UNKNOWN"
 }
 
 type ControlPlaneObservation struct {

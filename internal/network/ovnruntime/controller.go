@@ -15,6 +15,8 @@ import (
 type WorkAdapter interface {
 	ObservePort(context.Context, []byte, string) (ovnadapter.RuntimeResult, error)
 	ReconcilePort(context.Context, []byte, string) (ovnadapter.RuntimeResult, error)
+	ObservePortBindingRetirement(context.Context, []byte, string) (ovnadapter.RuntimeResult, error)
+	RetirePortBinding(context.Context, []byte, string) (ovnadapter.RuntimeResult, error)
 }
 
 type WorkStore interface {
@@ -24,6 +26,7 @@ type WorkStore interface {
 	AuthorizeApply(context.Context, postgres.OVNRuntimeClaim) error
 	Quarantine(context.Context, postgres.OVNRuntimeClaim, string) error
 	Complete(context.Context, postgres.OVNRuntimeClaim, postgres.OVNPortObservation) error
+	CompleteRetirement(context.Context, postgres.OVNRuntimeClaim, postgres.OVNPortBindingRetirementObservation) error
 }
 
 type PostgresWorkStore struct {
@@ -95,6 +98,10 @@ func (store PostgresWorkStore) Quarantine(ctx context.Context, claim postgres.OV
 
 func (store PostgresWorkStore) Complete(ctx context.Context, claim postgres.OVNRuntimeClaim, observation postgres.OVNPortObservation) error {
 	return postgres.CompleteOVNRuntimeWork(ctx, store.DB, claim, observation)
+}
+
+func (store PostgresWorkStore) CompleteRetirement(ctx context.Context, claim postgres.OVNRuntimeClaim, observation postgres.OVNPortBindingRetirementObservation) error {
+	return postgres.CompleteOVNPortBindingRetirement(ctx, store.DB, claim, observation)
 }
 
 // Worker is a bounded multi-worker OVN runtime executor. PostgreSQL owns work
@@ -175,6 +182,9 @@ func (worker Worker) processWork(ctx context.Context, item postgres.OVNRuntimeWo
 			return false, err
 		}
 		result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
+			if item.OperationKind == "UNBIND" {
+				return worker.Adapter.ObservePortBindingRetirement(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
+			}
 			return worker.Adapter.ObservePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
 		})
 		if err != nil {
@@ -190,8 +200,8 @@ func (worker Worker) processWork(ctx context.Context, item postgres.OVNRuntimeWo
 			}
 			return false, &itemLocalError{workID: item.WorkID, err: fmt.Errorf("read-back: %w", err)}
 		}
-		if result.Observation.NBState() == "MATCHED" && result.Observation.SBState() == "MATCHED" {
-			if err := worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest)); err != nil {
+		if runtimeResultTerminal(item, result) {
+			if err := worker.complete(ctx, claim, item, result); err != nil {
 				return false, err
 			}
 			return true, nil
@@ -201,6 +211,9 @@ func (worker Worker) processWork(ctx context.Context, item postgres.OVNRuntimeWo
 		return false, err
 	}
 	result, err = worker.runAdapterWithRenewal(ctx, claim, func(operationContext context.Context) (ovnadapter.RuntimeResult, error) {
+		if item.OperationKind == "UNBIND" {
+			return worker.Adapter.RetirePortBinding(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
+		}
 		return worker.Adapter.ReconcilePort(operationContext, item.CanonicalObjectSet, item.ObjectSetDigest)
 	})
 	if err != nil {
@@ -216,10 +229,36 @@ func (worker Worker) processWork(ctx context.Context, item postgres.OVNRuntimeWo
 		}
 		return false, &itemLocalError{workID: item.WorkID, err: fmt.Errorf("apply: %w", err)}
 	}
-	if err := worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest)); err != nil {
+	if err := worker.complete(ctx, claim, item, result); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+func runtimeResultTerminal(item postgres.OVNRuntimeWork, result ovnadapter.RuntimeResult) bool {
+	if item.OperationKind == "UNBIND" {
+		return result.RetirementObservation.State() == "VERIFIED"
+	}
+	return result.Observation.NBState() == "MATCHED" && result.Observation.SBState() == "MATCHED"
+}
+
+func (worker Worker) complete(ctx context.Context, claim postgres.OVNRuntimeClaim, item postgres.OVNRuntimeWork, result ovnadapter.RuntimeResult) error {
+	if item.OperationKind == "UNBIND" {
+		prefix := fmt.Sprintf("ovn-runtime:%s:%d:%d", item.IntentID, item.IntentGeneration, item.ClaimGeneration)
+		_, plan, err := ovnadapter.RestoreStoredPortBindingRetirementPlan(item.CanonicalObjectSet, item.ObjectSetDigest)
+		if err != nil {
+			return err
+		}
+		return worker.Store.CompleteRetirement(ctx, claim, postgres.OVNPortBindingRetirementObservation{
+			EvidenceID: prefix + ":retirement", IntentID: item.IntentID, IntentGeneration: item.IntentGeneration,
+			PortID: item.PortID, PortGeneration: item.PortGeneration, BindingGeneration: item.BindingGeneration,
+			SourceHostID: plan.SourceHostID, OperationGeneration: plan.OperationGeneration,
+			NBObservationGeneration: item.ClaimGeneration, SBObservationGeneration: item.ClaimGeneration, OVSObservationGeneration: item.ClaimGeneration,
+			NBObservationDigest: result.NBObservationDigest, SBObservationDigest: result.SBObservationDigest, OVSObservationDigest: result.OVSObservationDigest,
+			AdapterArtifactDigest: worker.AdapterArtifactDigest, ApplyResponseState: result.ApplyResponseState, Observation: result.RetirementObservation,
+		})
+	}
+	return worker.Store.Complete(ctx, claim, runtimeObservation(item, result, worker.AdapterArtifactDigest))
 }
 
 func (worker Worker) runAdapterWithRenewal(ctx context.Context, claim postgres.OVNRuntimeClaim, operation func(context.Context) (ovnadapter.RuntimeResult, error)) (ovnadapter.RuntimeResult, error) {

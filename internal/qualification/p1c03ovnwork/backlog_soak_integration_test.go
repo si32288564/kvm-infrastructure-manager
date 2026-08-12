@@ -93,6 +93,12 @@ func (adapter *soakAdapter) ObservePort(_ context.Context, _ []byte, objectSetDi
 	}
 	return soakRuntimeResult(objectSetDigest, "UNKNOWN", applied), nil
 }
+func (adapter *soakAdapter) ObservePortBindingRetirement(ctx context.Context, raw []byte, digest string) (ovnadapter.RuntimeResult, error) {
+	return adapter.ObservePort(ctx, raw, digest)
+}
+func (adapter *soakAdapter) RetirePortBinding(ctx context.Context, raw []byte, digest string) (ovnadapter.RuntimeResult, error) {
+	return adapter.ReconcilePort(ctx, raw, digest)
+}
 
 func (adapter *soakAdapter) assertSinglePhysicalApply(t *testing.T) {
 	t.Helper()

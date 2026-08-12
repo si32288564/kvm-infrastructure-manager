@@ -52,6 +52,12 @@ func (adapter *responseLossAdapter) ObservePort(context.Context, []byte, string)
 	}
 	return adapter.matched, nil
 }
+func (adapter *responseLossAdapter) ObservePortBindingRetirement(ctx context.Context, raw []byte, digest string) (ovnadapter.RuntimeResult, error) {
+	return adapter.ObservePort(ctx, raw, digest)
+}
+func (adapter *responseLossAdapter) RetirePortBinding(ctx context.Context, raw []byte, digest string) (ovnadapter.RuntimeResult, error) {
+	return adapter.ReconcilePort(ctx, raw, digest)
+}
 
 func TestOVNRuntimeClaimRenewalResponseLossConvergence(t *testing.T) {
 	if os.Getenv("KIM_RUN_DOCKER_POSTGRES_RENEWAL_RESPONSE_LOSS") != "1" {

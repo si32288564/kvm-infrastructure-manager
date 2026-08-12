@@ -25,6 +25,7 @@ type fakeWorkStore struct {
 	claimCount     atomic.Int32
 	sequence       []string
 	completed      postgres.OVNPortObservation
+	retirement     postgres.OVNPortBindingRetirementObservation
 	claim          postgres.OVNRuntimeClaim
 	renewals       atomic.Int32
 	completedCount atomic.Int32
@@ -124,6 +125,15 @@ func (store *fakeWorkStore) Complete(_ context.Context, claim postgres.OVNRuntim
 	return nil
 }
 
+func (store *fakeWorkStore) CompleteRetirement(_ context.Context, claim postgres.OVNRuntimeClaim, observed postgres.OVNPortBindingRetirementObservation) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.sequence = append(store.sequence, "completed-retirement")
+	store.claim, store.retirement = claim, observed
+	store.completedCount.Add(1)
+	return nil
+}
+
 type fakeWorkAdapter struct {
 	mu                             sync.Mutex
 	observeResult, reconcileResult ovnadapter.RuntimeResult
@@ -145,6 +155,14 @@ func (adapter *fakeWorkAdapter) ObservePort(context.Context, []byte, string) (ov
 		adapter.sequenceMu.Unlock()
 	}
 	return adapter.observeResult, adapter.observeErr
+}
+
+func (adapter *fakeWorkAdapter) ObservePortBindingRetirement(ctx context.Context, raw []byte, digest string) (ovnadapter.RuntimeResult, error) {
+	return adapter.ObservePort(ctx, raw, digest)
+}
+
+func (adapter *fakeWorkAdapter) RetirePortBinding(ctx context.Context, raw []byte, digest string) (ovnadapter.RuntimeResult, error) {
+	return adapter.ReconcilePort(ctx, raw, digest)
 }
 
 func (adapter *fakeWorkAdapter) ReconcilePort(ctx context.Context, _ []byte, _ string) (ovnadapter.RuntimeResult, error) {
