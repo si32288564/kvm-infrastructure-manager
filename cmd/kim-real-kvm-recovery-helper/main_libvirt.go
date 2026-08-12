@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,31 +35,6 @@ import (
 
 const optIn = "KIM_REAL_KVM_RECOVERY_QUALIFICATION"
 
-type request struct {
-	ExpectedHostname string          `json:"expected_hostname"`
-	HostID           string          `json:"host_id"`
-	CommandID        string          `json:"command_id"`
-	CommandType      string          `json:"command_type"`
-	SchemaVersion    string          `json:"schema_version"`
-	TargetResourceID string          `json:"target_resource_id"`
-	Payload          json.RawMessage `json:"payload"`
-	VGName           string          `json:"vg_name"`
-	VGUUID           string          `json:"vg_uuid"`
-	CacheRoot        string          `json:"cache_root"`
-	StateRoot        string          `json:"state_root"`
-	AttemptIndex     int             `json:"attempt_index"`
-	AuthorityGen     int64           `json:"host_authority_generation"`
-	SessionGen       int64           `json:"session_generation"`
-	LeaseGeneration  int64           `json:"lease_generation"`
-	LeaseToken       string          `json:"lease_token"`
-}
-
-type response struct {
-	HostID, Hostname, CommandID, CommandType string
-	Result                                   recoveryauthority.ResultEvidence
-	Observation                              contract.Observation
-}
-
 type capturePublisher struct{ result contract.CommandResult }
 
 func (publisher *capturePublisher) Publish(envelope session.Envelope) error {
@@ -78,7 +54,7 @@ func main() {
 	if os.Getenv(optIn) != "1" {
 		log.Fatal("explicit real KVM Recovery qualification opt-in is required")
 	}
-	var desired request
+	var desired recoveryauthority.HelperRequest
 	decoder := json.NewDecoder(io.LimitReader(os.Stdin, 1<<20))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&desired); err != nil {
@@ -141,13 +117,16 @@ func main() {
 		}
 	}
 
-	payloadDigest := digestBytes(desired.Payload)
+	canonicalPayload, payloadDigest, err := canonicalPayload(desired.Payload)
+	if err != nil || payloadDigest != desired.PayloadDigest {
+		log.Fatal("typed Command payload digest mismatch")
+	}
 	lease := contract.CommandLease{SchemaVersion: contract.CommandLeaseSchema, CommandID: desired.CommandID,
 		LeaseGeneration: desired.LeaseGeneration, AttemptIndex: desired.AttemptIndex, HostID: desired.HostID,
 		HostAuthorityGeneration: desired.AuthorityGen, SessionGeneration: desired.SessionGen,
 		LeaseToken: desired.LeaseToken, CommandType: desired.CommandType,
 		CommandSchemaVersion: desired.SchemaVersion, TargetResourceID: desired.TargetResourceID,
-		CommandPayload: desired.Payload, CommandPayloadDigest: payloadDigest, ExecutionTimeoutMillis: 120_000}
+		CommandPayload: canonicalPayload, CommandPayloadDigest: payloadDigest, ExecutionTimeoutMillis: 120_000}
 	encoded, _ := json.Marshal(lease)
 	envelope := session.NewEnvelope(desired.HostID, uint64(desired.SessionGen), session.StreamCommand,
 		"real-kvm-recovery/"+desired.CommandID, contract.CommandLeaseSchema, desired.CommandID, 1, encoded)
@@ -162,7 +141,7 @@ func main() {
 		CommandID: desired.CommandID, AttemptIndex: desired.AttemptIndex, HostID: desired.HostID,
 		SessionGeneration: desired.SessionGen, CommandType: desired.CommandType,
 		CommandSchemaVersion: desired.SchemaVersion, TargetResourceID: desired.TargetResourceID,
-		CommandPayload: desired.Payload, CommandPayloadDigest: payloadDigest}
+		CommandPayload: canonicalPayload, CommandPayloadDigest: payloadDigest}
 	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, verification)
 	if err != nil {
 		log.Fatal(err)
@@ -170,18 +149,22 @@ func main() {
 	if observation.State != "MATCHED" {
 		log.Fatalf("typed backend read-back is not MATCHED: %+v", observation)
 	}
-	if err := json.NewEncoder(os.Stdout).Encode(response{HostID: desired.HostID, Hostname: hostname,
-		CommandID: desired.CommandID, CommandType: desired.CommandType, Result: recoveryauthority.Redact(publisher.result),
+	identity := recoveryauthority.ExecutionIdentity{LeaseGeneration: desired.LeaseGeneration, HostID: desired.HostID,
+		HostAuthorityGeneration: desired.AuthorityGen, SessionGeneration: desired.SessionGen,
+		CommandType: desired.CommandType, CommandSchemaVersion: desired.SchemaVersion,
+		TargetResourceID: desired.TargetResourceID, CommandPayloadDigest: payloadDigest}
+	if err := json.NewEncoder(os.Stdout).Encode(recoveryauthority.HelperResponse{HostID: desired.HostID, Hostname: hostname,
+		CommandID: desired.CommandID, CommandType: desired.CommandType, Result: recoveryauthority.Redact(publisher.result, identity),
 		Observation: observation}); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func validate(desired request, hostname string) error {
+func validate(desired recoveryauthority.HelperRequest, hostname string) error {
 	if desired.ExpectedHostname == "" || desired.ExpectedHostname != hostname || desired.HostID != hostname {
 		return errors.New("exact Host allow-list identity mismatch")
 	}
-	if !strings.HasPrefix(desired.CommandID, "real-recovery-") || desired.TargetResourceID == "" || len(desired.Payload) == 0 {
+	if !strings.HasPrefix(desired.CommandID, "real-recovery-") || desired.TargetResourceID == "" || len(desired.Payload) == 0 || len(desired.PayloadDigest) != 64 {
 		return errors.New("dedicated qualification command identity is required")
 	}
 	if desired.VGName == "" || !strings.HasPrefix(desired.VGName, "kimrr_") || desired.VGUUID == "" {
@@ -208,6 +191,20 @@ func validate(desired request, hostname string) error {
 		return fmt.Errorf("unsupported typed command %q/%q", desired.CommandType, desired.SchemaVersion)
 	}
 	return nil
+}
+
+func canonicalPayload(payload []byte) ([]byte, string, error) {
+	var semantic any
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&semantic); err != nil {
+		return nil, "", err
+	}
+	encoded, err := json.Marshal(semantic)
+	if err != nil {
+		return nil, "", err
+	}
+	return encoded, digestBytes(encoded), nil
 }
 
 func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, root libvirtvolume.SourceRootSafetyBackend, power libvirtdomain.Backend, request contract.VerificationRequest) (contract.Observation, error) {
