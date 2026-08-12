@@ -66,7 +66,7 @@ func AcceptVMDefinitionObservation(ctx context.Context, db TxBeginner, observati
 			WHERE vm.vm_id=$1 AND vm.vm_generation=$2 AND vm.current_plan_id=$3
 			  AND vm.host_id=$4 AND plan.plan_digest=$5
 			  AND (verification.evidence_payload->>'domain_uuid')=vm.vm_id::text
-			  AND (verification.evidence_payload->>'materialization_generation')::bigint=vm.vm_generation
+			  AND (verification.evidence_payload->>'materialization_generation')::bigint=(plan.plan_payload->>'materialization_generation')::bigint
 			  AND verification.evidence_payload->>'plan_digest'=plan.plan_digest
 			  AND (verification.evidence_payload->>'domain_present')::boolean=$12
 			  AND (verification.evidence_payload->>'domain_identity_matches')::boolean=$13

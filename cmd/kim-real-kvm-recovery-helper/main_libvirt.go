@@ -27,6 +27,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/localimage"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/statemarker"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/executionjournal"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
@@ -111,7 +112,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, backend := range []agentexecution.Backend{volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend} {
+	markerBackend := statemarker.Backend{Directory: filepath.Join(desired.StateRoot, "markers")}
+	for _, backend := range []agentexecution.Backend{volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, markerBackend} {
 		if err := module.RegisterBackend(backend); err != nil {
 			log.Fatal(err)
 		}
@@ -142,7 +144,7 @@ func main() {
 		SessionGeneration: desired.SessionGen, CommandType: desired.CommandType,
 		CommandSchemaVersion: desired.SchemaVersion, TargetResourceID: desired.TargetResourceID,
 		CommandPayload: canonicalPayload, CommandPayloadDigest: payloadDigest}
-	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, verification)
+	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, markerBackend, verification)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -186,6 +188,7 @@ func validate(desired recoveryauthority.HelperRequest, hostname string) error {
 		libvirtvolume.CommandType:                         libvirtvolume.SchemaVersion,
 		libvirtvolume.SourceRootSafetyReadBackCommandType: libvirtvolume.SourceRootSafetyReadBackSchema,
 		libvirtdomain.CommandType:                         libvirtdomain.SchemaVersion,
+		statemarker.CommandType:                           statemarker.SchemaVersion,
 	}[desired.CommandType]
 	if wantSchema == "" || desired.SchemaVersion != wantSchema {
 		return fmt.Errorf("unsupported typed command %q/%q", desired.CommandType, desired.SchemaVersion)
@@ -207,7 +210,7 @@ func canonicalPayload(payload []byte) ([]byte, string, error) {
 	return encoded, digestBytes(encoded), nil
 }
 
-func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, root libvirtvolume.SourceRootSafetyBackend, power libvirtdomain.Backend, request contract.VerificationRequest) (contract.Observation, error) {
+func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, root libvirtvolume.SourceRootSafetyBackend, power libvirtdomain.Backend, marker statemarker.Backend, request contract.VerificationRequest) (contract.Observation, error) {
 	switch commandType {
 	case locallvm.CommandType:
 		return volume.Observe(ctx, request)
@@ -221,6 +224,8 @@ func observe(ctx context.Context, commandType string, volume locallvm.Backend, i
 		return root.Observe(ctx, request)
 	case libvirtdomain.CommandType:
 		return power.Observe(ctx, request)
+	case statemarker.CommandType:
+		return marker.Observe(ctx, request)
 	default:
 		return contract.Observation{}, errors.New("unsupported typed command")
 	}

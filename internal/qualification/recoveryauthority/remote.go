@@ -81,7 +81,13 @@ func Execute(ctx context.Context, db postgres.TxBeginner, config RemoteConfig, c
 		return AcceptedExecution{}, err
 	}
 	grant, err := postgres.AcquireCommandLease(ctx, db, postgres.CommandLeaseRequest{CommandID: commandID,
-		HostAuthorityGeneration: candidate.HostAuthorityGeneration, Duration: duration})
+		HostAuthorityGeneration: candidate.HostAuthorityGeneration, Duration: duration,
+		AuthorityScope: func() string {
+			if candidate.CommandType == postgres.SourceRootSafetyReadBackCommandType && candidate.SchemaVersion == postgres.SourceRootSafetyReadBackSchema {
+				return postgres.CommandLeaseScopeReadOnlyVerification
+			}
+			return postgres.CommandLeaseScopeMutation
+		}()})
 	if err != nil {
 		return AcceptedExecution{}, err
 	}
@@ -170,6 +176,11 @@ func AcceptResponse(ctx context.Context, db postgres.TxBeginner, grant postgres.
 	envelope := session.NewEnvelope(grant.HostID, uint64(grant.SessionGeneration), session.StreamResult,
 		messageID, contract.CommandResultSchema, grant.CommandID, uint64(grant.AttemptIndex), payload)
 	envelope.CorrelationKey = grant.CommandID
+	evidence := make(map[string]any, len(response.Observation.Evidence)+1)
+	for key, value := range response.Observation.Evidence {
+		evidence[key] = value
+	}
+	evidence["journal_digest"] = result.JournalDigest
 	return postgres.AcceptAgentCommandResult(ctx, db, envelope, 1<<20, postgres.AgentCommandResultDecision{
 		Start: postgres.CommandAttemptStart{CommandID: grant.CommandID, AttemptIndex: grant.AttemptIndex,
 			LeaseToken: grant.Token, JournalEvidenceDigest: result.JournalDigest},
@@ -179,7 +190,7 @@ func AcceptResponse(ctx context.Context, db postgres.TxBeginner, grant postgres.
 			AttemptIndex: grant.AttemptIndex, ObservationGeneration: response.Observation.Generation,
 			ObservationDigest: response.Observation.Digest, State: response.Observation.State,
 			VerifierArtifactDigest: result.VerifierDigest,
-			Evidence:               map[string]any{"journal_digest": result.JournalDigest, "read_back": response.Observation.Evidence}},
+			Evidence:               evidence},
 	})
 }
 

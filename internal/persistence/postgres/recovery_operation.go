@@ -108,10 +108,15 @@ func recoveryPlacementRequest(operationID string, source PlacementAdmissionReque
 		request.Network[index].IPAddress, request.Network[index].MACAddress = "", ""
 	}
 	for index := range request.Storage {
-		request.Storage[index].VolumeID = fmt.Sprintf("recovery-volume:%s:%d", operationID, index+1)
-		request.Storage[index].AttachmentID = fmt.Sprintf("recovery-attachment:%s:%d", operationID, index+1)
+		request.Storage[index].VolumeID = recoveryPlacementResourceID("volume", operationID, index+1)
+		request.Storage[index].AttachmentID = recoveryPlacementResourceID("attachment", operationID, index+1)
 	}
 	return request
+}
+
+func recoveryPlacementResourceID(kind, operationID string, index int) string {
+	digest := digestReleaseBytes([]byte(operationID))
+	return fmt.Sprintf("recovery-%s-%s-%d", kind, digest[:32], index)
 }
 
 // addRecoveryBootStorageRequirementTx converts the source boot-volume shape
@@ -135,7 +140,7 @@ func addRecoveryBootStorageRequirementTx(ctx context.Context, tx pgx.Tx, operati
 		return ErrRecoveryOperationBlocked
 	}
 	request.Storage = []placement.StorageRequirement{{
-		VolumeID: "recovery-volume:" + operationID + ":1", AttachmentID: "recovery-attachment:" + operationID + ":1",
+		VolumeID: recoveryPlacementResourceID("volume", operationID, 1), AttachmentID: recoveryPlacementResourceID("attachment", operationID, 1),
 		BackendID: backendID, VGUUID: vgUUID, StorageClassID: classID,
 		BackendGeneration: backendGeneration, StorageClassRevision: classRevision,
 		CapacityGeneration: capacityGeneration, AttachmentGeneration: 1,

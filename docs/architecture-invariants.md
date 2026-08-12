@@ -335,6 +335,7 @@
 | INV-AVR-038 | root `vda` backendはobservation-onlyとし、configured inactive rootとactive QEMU holderを区別する。Source Root Safety/Retirementはroot attach、detach、delete、Domain undefine、artifact cleanup、compute fencingを許可しない | AT-AVR-024, FI-AVR-018 |
 | INV-AVR-039 | composite Local LVM Storage Safetyはauthoritative planのroot positive Proofと全data Attachmentのexisting detached/no-holder evidenceを要求する。Eligibility/Operation start/dangerous-stepはroot power/holder、Binding、Attachment、current plan generation/digestを再検証し、ABA/drift後のold Proofを再利用しない | AT-AVR-024, FI-AVR-018 |
 | INV-AVR-040 | real helperのphysical successはexecution authorityではない。exact CP Leaseとcapability-free helper evidenceのHost/Lease/Attempt/session/typed Command/payload digestを結合し、ordinary Agent Result transactionがResult、Verification、Receipt、Job convergenceをatomic commitした場合だけaccepted execution evidenceとする。transport/helper errorはside effect不在証明にしない | AT-AVR-025, FI-AVR-019 |
+| INV-AVR-041 | FENCED Hostへのread-only Leaseはcurrent AUTHORIZED sessionとexact Host/Fencing generationにbindした`SOURCE_ROOT_SAFETY_READ_BACK/v1`だけを許し、Hostをrearmせずmutation Commandを受理しない。real backend observationもordinary acceptanceとexact Failure Epoch provenanceを通らない限りRecovery authorityへ昇格せず、accepted Terminal DecisionだけがVERIFIED/RECOVERED/RELEASEDをatomic commitする | AT-AVR-026, FI-AVR-020 |
 
 ## 12. Workload Resilience Intent
 

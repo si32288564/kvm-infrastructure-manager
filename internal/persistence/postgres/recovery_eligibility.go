@@ -118,6 +118,12 @@ func loadRecoveryDestinationRequestTx(ctx context.Context, tx pgx.Tx, epoch Fail
 	if err := json.Unmarshal(storageRaw, &request.Storage); err != nil {
 		return request, err
 	}
+	// Source-local storage identity is a safety input, not destination
+	// visibility. Recovery Planning fixes one destination Host and then derives
+	// its exact boot backend/capacity requirement from the immutable source
+	// Volume shape. Carrying the source backend ID into this multi-Host dry
+	// snapshot would make every other Local LVM Host ineligible by definition.
+	request.Storage = nil
 	request.RequestID = "recovery-eligibility:" + evaluationID
 	request.PlacementScopeID = placementScopeID
 	return request, nil

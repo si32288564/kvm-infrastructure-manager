@@ -50,7 +50,7 @@ func PrepareVMImageMaterialization(ctx context.Context, db TxBeginner, request V
 			  AND command.target_resource_id='vm:' || $3
 			  AND plan.plan_id=$6
 			  AND command.payload->>'domain_uuid'=vm.vm_id::text
-			  AND (command.payload->>'materialization_generation')::bigint=vm.vm_generation
+			  AND (command.payload->>'materialization_generation')::bigint=(plan.plan_payload->>'materialization_generation')::bigint
 			  AND command.payload->>'image_id'=plan.image_id
 			  AND (command.payload->>'image_revision')::bigint=plan.image_revision
 			  AND command.payload->>'image_checksum'=image.observed_checksum
@@ -74,9 +74,9 @@ func PrepareVMImageMaterialization(ctx context.Context, db TxBeginner, request V
 			return err
 		}
 		var hostID, imageID, checksum, volumeID, bindingID, vgUUID, lvUUID, resourceKey, planDigest string
-		var vmGeneration, imageRevision, imageSize, bindingGeneration int64
+		var vmGeneration, materializationGeneration, imageRevision, imageSize, bindingGeneration int64
 		if err := tx.QueryRow(ctx, `
-			SELECT vm.host_id,vm.vm_generation,plan.image_id,plan.image_revision,
+			SELECT vm.host_id,vm.vm_generation,(plan.plan_payload->>'materialization_generation')::bigint,plan.image_id,plan.image_revision,
 			       image.observed_checksum,image.size_bytes,plan.root_volume_id,
 			       plan.root_binding_id,plan.root_binding_generation,binding.vg_uuid,
 			       binding.lv_uuid,binding.backend_resource_key,plan.plan_digest
@@ -106,7 +106,7 @@ func PrepareVMImageMaterialization(ctx context.Context, db TxBeginner, request V
 			 AND claim.claim_state='RESERVED'
 			WHERE vm.vm_id=$1 AND vm.current_plan_id=$2 AND vm.lifecycle_state='DEFINED'
 			FOR UPDATE OF vm,readiness,binding,claim
-		`, request.VMID, request.PlanID).Scan(&hostID, &vmGeneration, &imageID,
+		`, request.VMID, request.PlanID).Scan(&hostID, &vmGeneration, &materializationGeneration, &imageID,
 			&imageRevision, &checksum, &imageSize, &volumeID, &bindingID,
 			&bindingGeneration, &vgUUID, &lvUUID, &resourceKey, &planDigest); err != nil {
 			return ErrVMMaterializationConflict
@@ -115,7 +115,7 @@ func PrepareVMImageMaterialization(ctx context.Context, db TxBeginner, request V
 			return err
 		}
 		payload, err := json.Marshal(map[string]any{
-			"domain_uuid": request.VMID, "materialization_generation": vmGeneration,
+			"domain_uuid": request.VMID, "materialization_generation": materializationGeneration,
 			"image_id": imageID, "image_revision": imageRevision,
 			"image_checksum": checksum, "image_size_bytes": imageSize,
 			"volume_id": volumeID, "vg_uuid": vgUUID, "lv_uuid": lvUUID,
@@ -192,7 +192,7 @@ func AcceptVMImageRealizationObservation(ctx context.Context, db TxBeginner, val
 			  AND binding.vg_uuid=$11 AND binding.lv_uuid=$12
 			  AND verification.evidence_payload->>'expected_content_digest'=$21 AND verification.evidence_payload->>'observed_content_digest'=$22
 			  AND verification.evidence_payload->>'domain_uuid'=vm.vm_id::text
-			  AND (verification.evidence_payload->>'materialization_generation')::bigint=vm.vm_generation
+			  AND (verification.evidence_payload->>'materialization_generation')::bigint=(plan.plan_payload->>'materialization_generation')::bigint
 			  AND verification.evidence_payload->>'image_id'=plan.image_id
 			  AND (verification.evidence_payload->>'image_revision')::bigint=plan.image_revision
 			  AND (verification.evidence_payload->>'image_size_bytes')::bigint=$23 AND verification.evidence_payload->>'volume_id'=$8
@@ -200,7 +200,7 @@ func AcceptVMImageRealizationObservation(ctx context.Context, db TxBeginner, val
 			  AND verification.evidence_payload->>'backend_resource_key'=$24 AND (verification.evidence_payload->>'holder_open')::boolean=$25
 			  AND (verification.evidence_payload->>'content_identity_matches')::boolean=$26
 			  AND command.payload->>'domain_uuid'=vm.vm_id::text
-			  AND (command.payload->>'materialization_generation')::bigint=vm.vm_generation
+			  AND (command.payload->>'materialization_generation')::bigint=(plan.plan_payload->>'materialization_generation')::bigint
 			  AND command.payload->>'image_id'=plan.image_id
 			  AND (command.payload->>'image_revision')::bigint=plan.image_revision
 			  AND command.payload->>'image_checksum'=image.observed_checksum

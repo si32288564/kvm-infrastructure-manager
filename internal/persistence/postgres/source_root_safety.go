@@ -283,7 +283,11 @@ func loadSourceRetirementUsabilityTx(ctx context.Context, tx pgx.Tx, epoch Failu
 	if decisionID == "" || state != "RETIRED" || acceptedRootID != rootProofID || acceptedRootDigest != rootProofDigest {
 		return "STALE", nil
 	}
-	fid, fdig, fu, err := loadFencingProofUsabilityTx(ctx, tx, epoch)
+	// A retired source materialization remains guarded by the exact source
+	// FENCED event and the newest source-Host power observation. Once the
+	// rebuildable VM projection points at the destination Admission, generic
+	// current-VM lookup must not erase that historical source authority.
+	fid, fdig, fu, err := loadRecoverySourceFencingProofUsabilityTx(ctx, tx, epoch)
 	if err != nil {
 		return "UNKNOWN", err
 	}

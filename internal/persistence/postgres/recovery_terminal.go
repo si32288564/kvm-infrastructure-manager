@@ -151,10 +151,18 @@ func PrepareRecoveryMaterialization(ctx context.Context, db TxBeginner, request 
 		if _, err := tx.Exec(ctx, `DELETE FROM kim.vm_power_state_current WHERE vm_id=$1; DELETE FROM kim.vm_materialization_readiness_current WHERE vm_id=$1; DELETE FROM kim.vm_network_port_realizations_current WHERE vm_id=$1`, pgx.QueryExecModeSimpleProtocol, request.VMID); err != nil {
 			return err
 		}
-		if tag, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET placement_admission_id=$2,host_id=$3,desired_power_state='SHUTOFF',lifecycle_state='MATERIALIZATION_PENDING',current_plan_id=NULL,updated_at=statement_timestamp() WHERE vm_id=$1 AND placement_admission_id=$4 AND host_id=$5`, request.VMID, admissionID, destinationHost, sourceAdmission, sourceHost); err != nil || tag.RowsAffected() != 1 {
+		if tag, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET placement_admission_id=$2,host_id=$3,desired_power_state='SHUTOFF',lifecycle_state='MATERIALIZATION_PENDING',current_plan_id=NULL,updated_at=statement_timestamp() WHERE vm_id=$1 AND placement_admission_id=$4 AND host_id=$5 AND vm_generation=$6`, request.VMID, admissionID, destinationHost, sourceAdmission, sourceHost, vmGeneration); err != nil || tag.RowsAffected() != 1 {
 			return ErrRecoveryOperationStale
 		}
-		decision, err := PrepareVMMaterialization(ctx, scopeTxBeginner{tx}, VMMaterializationRequest{VMID: request.VMID, AdmissionID: admissionID, PlanID: request.VMPlanID, JobID: request.DefineJobID, CommandID: request.DefineCommandID})
+		var materializationGeneration uint64
+		// Older immutable source plans predate the explicit materialization
+		// generation field. Their VM generation is the historical incarnation
+		// authority; use it as the read-only compatibility value without
+		// rewriting any evidence.
+		if err := tx.QueryRow(ctx, `SELECT coalesce(max(coalesce((plan_payload->>'materialization_generation')::bigint,vm_generation)),0)+1 FROM kim.vm_materialization_plan_evidence WHERE vm_id=$1`, request.VMID).Scan(&materializationGeneration); err != nil || materializationGeneration < 2 {
+			return ErrRecoveryOperationStale
+		}
+		decision, err := PrepareVMMaterialization(ctx, scopeTxBeginner{tx}, VMMaterializationRequest{VMID: request.VMID, AdmissionID: admissionID, PlanID: request.VMPlanID, JobID: request.DefineJobID, CommandID: request.DefineCommandID, MaterializationGeneration: materializationGeneration})
 		if err != nil {
 			return err
 		}
@@ -165,10 +173,6 @@ func PrepareRecoveryMaterialization(ctx context.Context, db TxBeginner, request 
 		}
 		var networkDigest, pciDigest string
 		if err := tx.QueryRow(ctx, `SELECT network_requirements_digest,pci_requirements_digest FROM kim.placement_admission_decisions WHERE admission_id=$1`, admissionID).Scan(&networkDigest, &pciDigest); err != nil {
-			return err
-		}
-		var materializationGeneration uint64
-		if err := tx.QueryRow(ctx, `SELECT greatest($2::bigint,coalesce(max(materialization_generation),0)+1) FROM kim.recovery_materialization_evidence WHERE vm_id=$1`, request.VMID, vmGeneration).Scan(&materializationGeneration); err != nil {
 			return err
 		}
 		payload := map[string]any{"recovery_operation_id": request.RecoveryOperationID, "destination_admission_id": admissionID, "destination_host_id": destinationHost, "vm_id": request.VMID, "workload_id": workloadID, "vm_generation": vmGeneration, "materialization_generation": materializationGeneration, "vm_plan_id": request.VMPlanID, "vm_plan_digest": decision.PlanDigest, "image_id": imageID, "image_revision": imageRevision, "flavor_id": flavorID, "flavor_revision": flavorRevision, "root_volume_id": rootVolume, "root_binding_id": rootBinding, "root_binding_generation": bindingGeneration, "root_attachment_id": rootAttachment, "root_attachment_generation": attachmentGeneration, "network_requirements_digest": networkDigest, "pci_requirements_digest": pciDigest}

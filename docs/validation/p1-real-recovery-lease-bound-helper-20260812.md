@@ -2,11 +2,12 @@
 
 - Date: 2026-08-12
 - Sub-gate: `REAL_CP_LEASE_BOUND_HELPER = PASS`
-- Overall Recovery gate: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = BLOCKED`
+- Overall Recovery gate after the subsequent campaign: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = PASS`
 - Migration: none
 
-This increment closes the previously missing physical execution binding, but
-does not claim the complete Failure Epoch through Terminal Decision campaign.
+This increment closed the reusable physical execution binding. The subsequent
+[real two-Host campaign](p1-real-two-host-kvm-recovery-20260811.md) reused it and
+qualified the complete Failure Epoch through Terminal Decision history.
 
 ```text
 PostgreSQL typed Command
@@ -48,11 +49,12 @@ from the original canonical payload bytes. The final path uses fixed `sudo -n`
 for the allow-listed helper and reconstructs canonical semantic JSON, requiring
 its digest to equal the immutable Control-Plane payload digest.
 
-## Remaining overall blocker
+## Subsequent closure
 
-The physical run above qualifies the reusable Lease-bound ingestion primitive.
-It does not substitute its LVM observation into one real g01/g02 Failure Epoch,
-Fencing/Root Safety, Eligibility, Operation, destination materialization,
-Recovery Verification and Terminal Decision history. Therefore Operation
-`VERIFIED`, Epoch `RECOVERED`, Budget `RELEASED`, and the requested overall PASS
-remain unclaimed until that complete campaign is run.
+This artifact remains the qualification record for the reusable Lease-bound
+ingestion primitive. Migration 058 and the later g01→g02 campaign added a
+closed read-only source-root Lease and joined actual Fencing/Root Safety,
+Eligibility, Operation, destination materialization, Recovery Verification and
+Terminal Decision in one PostgreSQL history. That later artifact is the
+authority for Operation `VERIFIED`, Epoch `RECOVERED`, Budget `RELEASED`, and
+the overall PASS.

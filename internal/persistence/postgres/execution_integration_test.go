@@ -215,6 +215,57 @@ func TestExecutionAuthorityLeaseResultAndVerificationPostgreSQLIntegration(t *te
 		t.Fatalf("fenced Result error = %v", err)
 	}
 	assertExecutionState(t, ctx, pool, fenced.CommandID, "UNKNOWN", "ACTION_REQUIRED", 1)
+
+	// A current AUTHORIZED session may perform only the closed observation-only
+	// source-root read-back while mutation authority remains FENCED. It does not
+	// rearm the Host and cannot be applied to an arbitrary Command type.
+	rootReadBack := ExecutionCommandRequest{JobID: hostID + "-root-readback-job", CommandID: hostID + "-root-readback-command",
+		HostID: hostID, ResourceType: "SOURCE_ROOT_SAFETY", ResourceID: "attachment-1", DesiredRevision: 1,
+		CommandType: SourceRootSafetyReadBackCommandType, SchemaVersion: SourceRootSafetyReadBackSchema,
+		TargetResourceID: "attachment:attachment-1", Payload: map[string]any{"attachment_id": "attachment-1"}}
+	if err := CreateExecutionCommand(ctx, pool, rootReadBack); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: rootReadBack.CommandID,
+		HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute}); !errors.Is(err, ErrHostAuthorityNotArmed) {
+		t.Fatalf("FENCED Host received mutation Lease for root read-back: %v", err)
+	}
+	readOnlyGrant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: rootReadBack.CommandID,
+		HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute,
+		AuthorityScope: CommandLeaseScopeReadOnlyVerification})
+	if err != nil || readOnlyGrant.AuthorityScope != CommandLeaseScopeReadOnlyVerification || readOnlyGrant.SessionGeneration != 2 {
+		t.Fatalf("read-only Lease=%+v err=%v", readOnlyGrant, err)
+	}
+	readOnlyJournal := digestBytes([]byte("read-only-root-journal"))
+	if err := MarkCommandAttemptJournaled(ctx, pool, CommandAttemptStart{CommandID: rootReadBack.CommandID,
+		AttemptIndex: readOnlyGrant.AttemptIndex, LeaseToken: readOnlyGrant.Token, JournalEvidenceDigest: readOnlyJournal}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcceptCommandResult(ctx, pool, CommandResultSubmission{CommandID: rootReadBack.CommandID,
+		AttemptIndex: readOnlyGrant.AttemptIndex, LeaseToken: readOnlyGrant.Token, ResultID: rootReadBack.CommandID + "-result",
+		Outcome: "SUCCEEDED", Payload: map[string]any{"state": "MATCHED"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordCommandVerification(ctx, pool, CommandVerification{VerificationID: rootReadBack.CommandID + "-verification",
+		CommandID: rootReadBack.CommandID, AttemptIndex: readOnlyGrant.AttemptIndex, ObservationGeneration: 1,
+		ObservationDigest: digestBytes([]byte("root-readback")), State: "MATCHED",
+		VerifierArtifactDigest: digestBytes([]byte("root-verifier")), Evidence: map[string]any{"target_device": "vda"}}); err != nil {
+		t.Fatal(err)
+	}
+	assertExecutionState(t, ctx, pool, rootReadBack.CommandID, "SUCCEEDED", "SUCCEEDED", 1)
+	var finalAuthorityState string
+	if err := pool.QueryRow(ctx, `SELECT authority_state FROM kim.host_operation_authorities_current WHERE host_id=$1`, hostID).Scan(&finalAuthorityState); err != nil || finalAuthorityState != "FENCED" {
+		t.Fatalf("read-only Lease implicitly rearmed Host state=%s err=%v", finalAuthorityState, err)
+	}
+	arbitrary := commandFixture(hostID, "read-only-scope-reject")
+	if err := CreateExecutionCommand(ctx, pool, arbitrary); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: arbitrary.CommandID,
+		HostAuthorityGeneration: authority.AuthorityGeneration, Duration: time.Minute,
+		AuthorityScope: CommandLeaseScopeReadOnlyVerification}); !errors.Is(err, ErrCommandNotDispatchable) {
+		t.Fatalf("arbitrary Command received read-only verification Lease: %v", err)
+	}
 }
 
 func commandFixture(hostID, suffix string) ExecutionCommandRequest {

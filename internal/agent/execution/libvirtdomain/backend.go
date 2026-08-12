@@ -12,6 +12,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	agentexecution "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
@@ -33,16 +34,22 @@ type Client interface {
 }
 
 type request struct {
-	DesiredState string `json:"desired_state"`
+	DesiredState          string `json:"desired_state"`
+	ObservationGeneration int64  `json:"observation_generation,omitempty"`
 }
 
 type Backend struct{ Client Client }
+
+const (
+	powerReadBackInterval = 50 * time.Millisecond
+	powerReadBackTimeout  = 5 * time.Second
+)
 
 func (Backend) CommandType() string   { return CommandType }
 func (Backend) SchemaVersion() string { return SchemaVersion }
 
 func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease) (agentexecution.BackendResult, error) {
-	domainUUID, desired, err := decode(lease.TargetResourceID, lease.CommandPayload)
+	domainUUID, desired, observationGeneration, err := decode(lease.TargetResourceID, lease.CommandPayload)
 	if err != nil || backend.Client == nil {
 		return agentexecution.BackendResult{}, errors.New("invalid typed libvirt power-state request")
 	}
@@ -50,7 +57,8 @@ func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease)
 	if err != nil {
 		return agentexecution.BackendResult{}, err
 	}
-	if current != desired {
+	mutated := current != desired
+	if mutated {
 		switch desired {
 		case StateRunning:
 			err = backend.Client.StartDomain(ctx, domainUUID)
@@ -61,9 +69,32 @@ func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease)
 			return agentexecution.BackendResult{}, err
 		}
 	}
-	observation, err := backend.observe(ctx, domainUUID, desired, lease.TargetResourceID, lease.AttemptIndex)
+	generation := int64(lease.AttemptIndex)
+	if observationGeneration > 0 {
+		generation = observationGeneration
+	}
+	observation, err := backend.observe(ctx, domainUUID, desired, lease.TargetResourceID, int(generation))
 	if err != nil {
 		return agentexecution.BackendResult{}, err
+	}
+	if mutated && observation.State != "MATCHED" {
+		deadline := time.NewTimer(powerReadBackTimeout)
+		defer deadline.Stop()
+		ticker := time.NewTicker(powerReadBackInterval)
+		defer ticker.Stop()
+		for observation.State != "MATCHED" {
+			select {
+			case <-ctx.Done():
+				return agentexecution.BackendResult{}, ctx.Err()
+			case <-deadline.C:
+				return agentexecution.BackendResult{Outcome: "UNKNOWN", Result: map[string]any{"state": observation.State}, Observation: observation}, nil
+			case <-ticker.C:
+				observation, err = backend.observe(ctx, domainUUID, desired, lease.TargetResourceID, int(generation))
+				if err != nil {
+					return agentexecution.BackendResult{}, err
+				}
+			}
+		}
 	}
 	outcome := "SUCCEEDED"
 	if observation.State != "MATCHED" {
@@ -73,11 +104,15 @@ func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease)
 }
 
 func (backend Backend) Observe(ctx context.Context, verification contract.VerificationRequest) (contract.Observation, error) {
-	domainUUID, desired, err := decode(verification.TargetResourceID, verification.CommandPayload)
+	domainUUID, desired, observationGeneration, err := decode(verification.TargetResourceID, verification.CommandPayload)
 	if err != nil || backend.Client == nil {
 		return contract.Observation{}, errors.New("invalid typed libvirt verification request")
 	}
-	return backend.observe(ctx, domainUUID, desired, verification.TargetResourceID, verification.AttemptIndex)
+	generation := int64(verification.AttemptIndex)
+	if observationGeneration > 0 {
+		generation = observationGeneration
+	}
+	return backend.observe(ctx, domainUUID, desired, verification.TargetResourceID, int(generation))
 }
 
 func (backend Backend) observe(ctx context.Context, domainUUID, desired, target string, generation int) (contract.Observation, error) {
@@ -95,24 +130,27 @@ func (backend Backend) observe(ctx context.Context, domainUUID, desired, target 
 	return contract.Observation{State: state, Generation: int64(generation), Digest: hex.EncodeToString(digest[:]), Evidence: evidence}, nil
 }
 
-func decode(target string, payload []byte) (string, string, error) {
+func decode(target string, payload []byte) (string, string, int64, error) {
 	match := vmTargetPattern.FindStringSubmatch(target)
 	if match == nil {
-		return "", "", errors.New("invalid VM target identity")
+		return "", "", 0, errors.New("invalid VM target identity")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	var desired request
 	if err := decoder.Decode(&desired); err != nil {
-		return "", "", err
+		return "", "", 0, err
 	}
 	desired.DesiredState = strings.ToUpper(desired.DesiredState)
 	if desired.DesiredState != StateRunning && desired.DesiredState != StateShutoff {
-		return "", "", errors.New("unsupported VM power state")
+		return "", "", 0, errors.New("unsupported VM power state")
+	}
+	if desired.ObservationGeneration < 0 {
+		return "", "", 0, errors.New("invalid VM power observation generation")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return "", "", errors.New("trailing VM power-state payload")
+		return "", "", 0, errors.New("trailing VM power-state payload")
 	}
-	return match[1], desired.DesiredState, nil
+	return match[1], desired.DesiredState, desired.ObservationGeneration, nil
 }

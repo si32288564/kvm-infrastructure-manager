@@ -55,7 +55,7 @@ No pre-existing evidence is backfilled or rewritten and no unrelated UNIQUE/CHEC
 
 This increment reuses the previously qualified standard libvirt define/power/read-back implementation, but the complete two-physical-Host Recovery chain was **not** executed in this increment. The available second Host is production-sensitive, so no destructive destination rematerialization was performed. Therefore this report certifies PostgreSQL authority integration and existing typed backend reuse; it does **not** claim a new real two-Host KVM Recovery qualification.
 
-Remaining gates include exact ingestion of real two-Host observations into the PostgreSQL terminal authority, non-empty Network/OVN readiness, PCI/SR-IOV recovery, `EVACUATE`, cleanup/reconciliation authority, and coordinated multi-VM/cross-site recovery. The subsequent [real two-Host qualification](p1-real-two-host-kvm-recovery-20260811.md) safely passed the isolated same-UUID physical backend sequence and cleanup on g01/g02, but remains overall `BLOCKED` because real receipts/observations have not yet driven the committed Terminal Decision chain.
+The subsequent [real two-Host qualification](p1-real-two-host-kvm-recovery-20260811.md) joined actual g01/g02 observations and ordinary receipts to one PostgreSQL Terminal Decision history and is overall `PASS` for Local LVM/zero-Port/no-PCI `RESTART_ON_OTHER_HOST`. Remaining gates include non-empty Network/OVN readiness, PCI/SR-IOV recovery, `EVACUATE`, cleanup/reconciliation authority, and coordinated multi-VM/cross-site recovery.
 
 ## Commands
 

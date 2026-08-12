@@ -1,151 +1,129 @@
-# P1 Real Two-Host KVM Recovery Qualification
+# P1 Real Two-Host KVM Recovery Authority E2E Qualification
 
 - Date: 2026-08-12
-- Overall result: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = BLOCKED`
-- Physical backend sub-gate: `REAL_TWO_HOST_KVM_BACKEND_SEQUENCE = PASS`
-- Source root backend sub-gate: `REAL_SOURCE_ROOT_VDA_SAFETY_BACKEND = PASS`
-- Blocker: Migration 057 and the physical source-root read-back both pass, but this physical helper run did not consume a Lease capability granted by the same PostgreSQL Failure Epoch history. The real Result/Observation therefore was not accepted into the same Operation/Verification/Terminal transaction history. Fixture-backed terminal authority remains distinct from physical backend evidence.
-- Repository baseline: `e34941330480f38ea27af67bdbead0ded7177e2c` plus the Migration 057 change set under qualification
+- Overall result: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = PASS`
+- `REAL_TWO_HOST_KVM_BACKEND_SEQUENCE = PASS`
+- `REAL_SOURCE_ROOT_VDA_SAFETY_BACKEND = PASS`
+- `REAL_CP_LEASE_BOUND_HELPER = PASS`
+- `REAL_FAILURE_TO_STORAGE_AUTHORITY = PASS`
+- `REAL_RECOVERY_OPERATION_EXECUTION = PASS`
+- `REAL_RECOVERY_TERMINAL_AUTHORITY = PASS`
+- Migration: 058
 
-The operator explicitly authorized g02 only for isolated, non-disruptive, fully removable artifacts. The run therefore used loop-backed VGs, one deterministic disposable VM, zero Ports, and no PCI. Existing production Domains, `vg0`, addresses, routes, OVS/OVN configuration, and services were outside the allow-list.
-
-## Exact profile and guards
-
-```text
-action: RESTART_ON_OTHER_HOST
-source: kvm-base-g01-n001-p.core.s01.si1230.com
-destination: kvm-base-g02-n001-p.core.s01.si1230.com
-VM UUID: f1c06a00-0000-4000-8000-202608120001
-image: dedicated RAW, 268435456 bytes
-image SHA-256: 7e423a1dc718d83c204e2def60b2fa63fcd4fa4814a9b2e40b29b5ae6a8502a1
-flavor: 1 vCPU / 256 MiB
-network: zero-Port
-PCI/SR-IOV: excluded
-storage: isolated loop-backed Local LVM only
-```
-
-The opt-in helper requires `KIM_REAL_KVM_RECOVERY_QUALIFICATION=1`, exact hostname/Host ID, `real-recovery-` command identity, a `kimrr_` VG, `/var/tmp/kim-real-recovery-` cache/state roots, bounded attempt/generation values, and one of the compile-time registered typed backends. It accepts no XML, path, VG/LV name, libvirt method, LVM argv, flag, or shell command from the request.
-
-## Actual backend evidence
-
-| Boundary | Actual result |
-|---|---|
-| source initial state | standard libvirt read-back `RUNNING` |
-| source typed shutdown immediate result | `UNKNOWN / CONFLICTING`; this was not treated as non-execution |
-| source later power read-back | `SHUTOFF / MATCHED`, digest `01b05033d3cc35a1e727c7bcf86e400c06decb6753cb392fa72cbee641178b4d` |
-| source safety disk | typed detach `MATCHED`, device absent and holder closed, digest `e62f08d94db8fdbe7f9c07d99702d39fa3835e0395b357143c68673a6693719c` |
-| destination before | exact VM UUID absent; isolated VG empty |
-| destination LV | 512 MiB, LV UUID `1M2peE-K93k-1pCy-QOt7-TfjT-w6Hg-uSt8mf`, `MATCHED` |
-| destination image | target-LV digest read-back exactly matched the declared RAW digest |
-| destination define | inactive Domain with same UUID, materialization generation 2, fixed plan/root identity `MATCHED` |
-| destination power | typed power state `RUNNING / MATCHED`, digest `f249701cff2ee03bae1880bf8ed4f0cddc760815903c5ff27e3bb98754e10071` |
-| destination root | observation-only `vda` identity, source identity and LVM holder-open all true, digest `b229a814d79865da0c892580650e28655ab41d854656510901e9ea0b54ced330` |
-| split-brain assertion | g01 `SHUTOFF`; g02 `RUNNING`; identical UUID |
-
-The backend sequence used materialization generation 1 on g01 and generation 2 on g02. A second VM UUID was never generated.
-
-## Migration 057 source-root follow-up
-
-The follow-up used a fresh deterministic UUID `f1c06a00-0000-4000-8000-202608120057`, isolated loop-backed `kimrr_root057_g01` / `kimrr_root057_g02` VGs, a 1 MiB digest-addressed zero image, one root Volume identity, zero Ports, and no PCI/SR-IOV. Both Hosts were guarded by exact hostname, UUID, Domain name, VG UUID, root path, loop backing path, and explicit opt-in.
-
-| Boundary | Actual result |
-|---|---|
-| source materialization | generation 1, exact root LV UUID `wUTIgd-keRh-7Sry-FEnH-4OD8-dmQp-fivujJ` |
-| source initial power | typed `RUNNING/MATCHED` |
-| failure injection | exact dedicated Domain hard-stop after UUID/name/root-path guards |
-| source power read-back | typed `SHUTOFF/MATCHED`, digest `fa71c5452d7f577a779c5fba404c5ae0a3906975e1e3903af671c9a178d36b93` |
-| source root read-back | `SOURCE_ROOT_SAFETY_READ_BACK/v1`, exact configured `vda`, device/source identity matched, holder closed, digest `e394ee48df76665613b0672cb214d5191acbc31ce2d74a7e9bd19a76a2dab0fb` |
-| destination materialization | generation 2, same VM/Volume identity, LV UUID `YIaM9r-FbZz-AQqq-qG0D-3j89-KgpN-6ES4Fo` |
-| destination power/root | `RUNNING/MATCHED`; exact `vda`, holder open, digest `047364d881ca1666a3bc9a19f84232ad7423945957541e2babd5d7fe9a654705` |
-| split-brain assertion | g01 `SHUTOFF`; g02 `RUNNING`; same UUID |
-| root mutation | source root backend is observation-only; no attach/detach/delete/undefine operation exists in the command type |
-
-The source Domain retained configured `vda` while stopped, and standard LVM read-back reported no holder. This directly qualifies the required `configured != actively held` backend semantic. The physical run used no detached `vdb` as root evidence.
-
-The helper inputs used an ephemeral lab-only placeholder capability rather than a capability issued by a PostgreSQL `AcquireCommandLease` in the same Recovery history. Its output remained capability-free. Consequently these actual observations are physical qualification evidence only; they were not substituted into fixture SQL and do not authorize a real Terminal Decision.
-
-## Defects exposed by the real run
-
-The run found two authority/backend gaps that a fixture had hidden:
-
-1. the fixed typed Domain XML did not expose ACPI or a serial console, so a minimal guest could not perform typed graceful shutdown. The fixed profile now always includes ACPI and a PTY serial console; callers still cannot supply XML or machine flags;
-2. pre-power zero-Port readiness required `holder_open=true`, although QEMU opens the root LV only after start. Pre-power readiness now requires current immutable inactive-Domain root identity plus exact BOUND binding and current root claim. Post-power Recovery Verification and Terminal Decision still require current `ATTACHED`, device-present, identity-matched, holder-open evidence.
-
-Migration 056 only widens the attachment observation target CHECK from secondary `vdb-vdz` to `vda-vdz`. The Agent permits slot zero only for observation of an already-defined `vda`; it rejects root attach/detach mutation. No unrelated CHECK or UNIQUE constraint is changed.
-
-## Ordinary Result / Observation ingestion follow-up
-
-The follow-up increment removed direct success-state SQL from the destination define, image, and root-attachment terminal fixture. Those steps now use the ordinary execution authority path:
+This campaign joined the actual g01/g02 libvirt and Local LVM observations to one ordinary PostgreSQL authority history. No fixture Result, direct success-state SQL, or physical-observation substitution was used between Failure Epoch open and Terminal Decision.
 
 ```text
-Execution Job / Command
-→ random PostgreSQL Lease capability
-→ Attempt
-→ typed Agent Result + Observation
-→ AcceptAgentCommandResult
-→ durable Receipt / Result / Verification
-→ Job SUCCEEDED
-```
-
-The ambiguous power step now uses an ordinary Lease expiry to reach `UNKNOWN`, followed by `AcceptAgentVerificationObservation` over a stable RESYNC envelope. The real helper accepts the exact granted Lease generation/capability on stdin, but returns capability-free `ResultEvidence`; the Control Plane can bind the capability back only when Command and Attempt exactly match. The raw Lease token is not emitted in helper JSON or persisted in the qualification artifact.
-
-This closes the previously hidden direct-SQL execution-evidence shortcut. It does not by itself make the prior physical observations part of one committed real Recovery history.
-
-## Why the overall gate remains BLOCKED
-
-The original physical profile and Migration 057 follow-up now prove the physical backend and exact source boot-root condition. The remaining separation is evidence ingestion identity:
-
-```text
-physical helper Result/Observation
-!= Result accepted against the same PostgreSQL Command Lease/Attempt
-!= one Failure Epoch/Eligibility/Operation/Terminal history
-```
-
-Migration 057 intentionally permits `vda` only through a dedicated observation-only backend and continues to reject root mutation. It adds exact root Evaluation/Proof, logical source retirement, composite root/data Storage Safety, and consumer revalidation. PostgreSQL qualification proves that chain with ordinary Lease/Attempt/Result/Verification fixture transport; the physical run proves the actual libvirt/LVM observations. They have not yet been combined in one physical PostgreSQL authority history.
-
-Consequently this run does **not** claim:
-
-```text
-actual g01/g02 evidence
-→ EvaluateRecoveryDangerousStep AUTHORIZED
-→ AuthorizeRecoveryPowerOn
-→ EvaluateRecoveryVerification VERIFIED
-→ CommitRecoveryTerminalDecision
+real source RUNNING
+→ real guarded failure injection
+→ ordinary source SHUTOFF read-back
+→ read-only source-root Command Lease
+→ real exact vda/no-holder observation
+→ Confirmation / Fencing / Root Safety / Retirement / Storage Proof
+→ Eligibility / Decision / Budget Claim
+→ Recovery Operation / destination Final Admission
+→ ordinary destination materialization Commands and Leases
+→ real destination RUNNING and exact vda/holder-open observation
+→ Recovery Verification
+→ Terminal Decision
 → Operation VERIFIED / Epoch RECOVERED / Budget RELEASED
 ```
 
-Fixture-backed `AUTHORIZED`, `VERIFIED`, `RECOVERED`, and `RELEASED` remain regression evidence only. Physical `RUNNING` and SQL state transition success are not substituted for the missing exact ingestion chain.
+## Exact isolated profile
 
-## Negative gates
+| Item | Value |
+|---|---|
+| source | `kvm-base-g01-n001-p.core.s01.si1230.com` |
+| destination | `kvm-base-g02-n001-p.core.s01.si1230.com` |
+| action | `RESTART_ON_OTHER_HOST` |
+| VM UUID | `f1c06a00-0000-4000-8000-202608120058` |
+| flavor | 1 vCPU / 256 MiB |
+| Network | zero Port |
+| PCI/SR-IOV | excluded |
+| source VG | `kimrr_campaign058_g01`, UUID `vfGTho-4dc7-b8bV-L3fV-4BrJ-HaE3-dWnw7Q`, `/dev/loop0` |
+| destination VG | `kimrr_campaign058_g02`, UUID `ZZiDJk-J904-46bg-ssxp-rnuH-ocwt-RJEHqQ`, `/dev/loop0` |
+| image | 1 MiB zero RAW, SHA-256 `30e14955ebf1352266dc2ff8067e68104607e750abb9d3b36582b8af909fcb58` |
+| helper/cache root | `/var/tmp/kim-real-recovery-campaign058` |
+| PostgreSQL | disposable PostgreSQL 17, one database history |
 
-- Source shutdown response ambiguity remained `UNKNOWN` until standard libvirt read-back.
-- Slot-zero/root absence does not cause an attach; root detach remains rejected.
-- A detached secondary `vdb` is never accepted as Storage Safety proof for the boot Volume bound as `vda`.
-- Capability-free helper evidence cannot be accepted against a different Command or Attempt, and helper output never contains the raw Lease token.
-- Pre-power readiness cannot use a holder-open claim fabricated before QEMU start.
-- Post-power terminal verification still requires holder-open.
-- Source and destination Host equality, hostname mismatch, foreign command identity, non-`kimrr_` VG, non-qualification state/cache roots, unsupported command type/schema, and missing opt-in fail closed.
-- `EVACUATE` remains unsupported/blocked.
+The operator authorized g02 only for non-disruptive, fully removable artifacts. Exact hostname, VM UUID, VG UUID, loop device, helper root, command identity, and opt-in guards were checked before every physical mutation. Existing Domains, `vg0`, addresses, routes, OVS/OVN configuration, and services remained outside the allow-list.
+
+## Authority evidence
+
+| Boundary | Accepted evidence |
+|---|---|
+| source Admission | `admission:real-recovery-source-admission` on g01 |
+| source materialization | generation 1 |
+| source power | `RUNNING` generation 1, then real `SHUTOFF/MATCHED` generation 2 |
+| Failure Epoch | `real-recovery-failure-epoch`, opened `2026-08-12 09:54:14.557839 UTC` |
+| Confirmation | `real-recovery-confirmation-decision`, `CONFIRMED` |
+| source root | exact `vda`, LV UUID `ac4z0G-zAfa-apGn-7b2d-6Oej-rZal-B1neVz`, holder closed |
+| Fencing Proof | `real-recovery-fencing-proof`, `PROVEN`, digest `96dc...5c01b` |
+| Root Safety Proof | `real-recovery-source-root-proof`, `SAFE`, digest `fb73...15c3` |
+| source retirement | `real-recovery-source-retirement`, materialization generation 1, `RETIRED` |
+| Storage Proof | `LOCAL_LVM_SOURCE_ROOT_QUIESCED_DATA_DETACHED`, `SAFE`, digest `2bb3...6c542` |
+| Eligibility | `real-recovery-eligibility-evaluation`, `ELIGIBLE`, one destination |
+| Decision / Budget | `real-recovery-eligibility-decision`, `ACCEPTED`; claim later `RELEASED` generation 3 |
+| Operation | `real-recovery-operation`, final `VERIFIED` generation 4 |
+| destination Admission | `admission:recovery-placement:real-recovery-operation` on g02 |
+| destination materialization | generation 2 |
+| destination power/root | real `RUNNING/MATCHED`; exact `vda` LV UUID `YWB689-nizd-yqmy-gm4E-Sf3c-i0eA-mipTb3`, holder open |
+| Verification | `real-recovery-terminal-verification`, `VERIFIED` |
+| Terminal Decision | `real-recovery-terminal-decision`, `VERIFIED`, digest `496a...0178` |
+| terminal transition | Epoch `RECOVERED` generation 4 and Budget `RELEASED` committed with Operation `VERIFIED` |
+
+The final physical assertion was g01 `SHUTOFF`, g02 `RUNNING`, and the same VM UUID. Materialization identity advanced from 1 to 2; VM/workload identity did not change.
+
+## Lease and ingestion evidence
+
+Migration 058 adds a closed `authority_scope` to Command Lease authority:
+
+- `MUTATION` remains the default and requires current Host mutation authority;
+- `READ_ONLY_VERIFICATION` is allowed only for `SOURCE_ROOT_SAFETY_READ_BACK/v1`, a current `AUTHORIZED` session, and the exact `FENCED` Host generation;
+- read-only Verification never arms or rearms the Host and cannot carry a mutation Command.
+
+The source-root read-only Lease, destination power mutation Lease, and final source read-only Lease were all generation 1 / Attempt 1 and bound to the exact Command, Host, session, authority generation, target, schema, and payload digest. The remote helper consumed the random capability only on stdin and returned capability-free evidence. The ordinary Result/Verification/Receipt acceptance path committed all domain decisions.
+
+The database contained 13 Jobs, 13 Commands, 13 Lease Grants, 13 Attempts, 13 Results, 13 Verifications, and 13 Receipts. Raw token columns were absent, and searches of repository artifacts, runner output, and journal evidence found no raw Lease capability. Helper SHA-256 was `5d9fbbf6a766dc86df47bc67c458bed1e2f2be8c9a13f385356794500e57980e` on both Hosts.
+
+## Failure semantics and atomic terminal result
+
+- source physical failure was not inferred from transport loss;
+- `SHUTOFF` and root holder closure came from standard libvirt/LVM read-back;
+- Lease expiry was not used as proof of non-execution;
+- helper success, Command success, or destination `RUNNING` alone did not emit `RECOVERED`;
+- one accepted Recovery Verification fed one Terminal Decision;
+- Terminal Decision count, `VERIFIED` Operation transition, `RECOVERED` Epoch transition, and `RELEASED` Budget transition were each exactly one;
+- terminal state changes committed atomically;
+- root `vda` mutation Command count remained zero.
+
+Measured latency was 4.591218 seconds from Epoch open to `RECOVERED`, 2.642123 seconds from Fencing Proof to destination `RUNNING`, and 3.727349 seconds from Fencing Proof to `RECOVERED`.
+
+## Defects exposed and fixed
+
+1. source-local LVM backend identity was incorrectly carried into multi-Host dry Placement; Eligibility now treats it as source safety provenance and derives the exact destination backend only during Recovery planning/Final Admission;
+2. generated Recovery Volume/Attachment identities contained characters rejected by the closed Local LVM grammar; they now use bounded digest identities;
+3. VM generation and materialization incarnation had been conflated; VM generation remains stable while immutable plan payloads advance materialization generation 1→2;
+4. source retirement usability used the rebuildable current VM projection after it moved to g02; it now revalidates the exact historical source Host fencing/power evidence;
+5. libvirt power observations needed an explicit generation so source `RUNNING` generation 1 could advance to `SHUTOFF` generation 2;
+6. Migration 057-era immutable plans without the new payload field are read compatibly through their historical VM generation and are not backfilled or rewritten.
 
 ## Cleanup and non-disruption
 
-After the final split-brain assertion, g02 was gracefully shut down. On both Hosts, cleanup revalidated the exact VM UUID, Domain name, VG UUID, and loop backing path before removing only the disposable Domain, `kimrr_*` VG/LVs, loop PV/device, helper, cache, journal, and build directory.
+After evidence capture, both exact Domains were absent, both `kimrr_campaign058_*` VGs were absent, `/dev/loop0` was detached, and the dedicated helper/cache roots were absent. OVS external IDs were identical to preflight: g01 retained `phys0:brphys0`; g02 retained `phys0:brphys0,phys1:brphys1`; both retained `ovn-encap-ip=127.0.0.1`. No production Domain, `vg0`, address, route, OVS/OVN state, or service was changed.
 
-Post-cleanup Domain, address, route, and OVS fingerprints exactly matched the preflight baseline on both Hosts. No production Domain, `vg0`, network configuration, route, OVS/OVN state, or service was changed. Immutable repository/qualification evidence was not rewritten; backend cleanup is an operator procedure and is not claimed as KIM cleanup authority.
+Backend cleanup is an operator procedure and is not claimed as KIM source cleanup authority.
 
 ## Regression
 
 | Check | Result |
 |---|---|
-| typed Local LVM attachment/root observation unit tests | PASS |
-| ordinary Lease/Attempt/Result/Receipt/Verification Recovery terminal PostgreSQL 17 integration | PASS |
-| ordinary UNKNOWN → RESYNC Verification Observation ingestion | PASS |
-| capability-free helper Result binding and libvirt-tag build | PASS |
-| fresh migration 001-057 | PASS |
+| real same-history two-Host campaign | PASS, 9.68 seconds |
+| fresh migration 001-058 / full PostgreSQL 17 persistence integration | PASS |
+| libvirt typed backend tests/build | PASS |
 | `go test -race ./...` | PASS |
 | `make check` | PASS |
-| documentation lint | PASS: 472 requirements, 717 test contracts, 234 links |
+| documentation lint / link check | PASS |
 
-## Next gate
+## Remaining gates
 
-Run the isolated two-Host helper from Commands and Lease capabilities created by the same PostgreSQL Recovery history, ingest each capability-free remote Result through the ordinary Control Plane acceptance path, and require the exact physical root/power/materialization observations to reach one Recovery Verification and Terminal Decision. Only then may the overall gate become PASS. Non-empty OVN, PCI/SR-IOV, `EVACUATE`, generic source cleanup, and repeated Recovery soak remain later gates.
+This PASS is deliberately limited to `RESTART_ON_OTHER_HOST`, Local LVM, zero Port, and no PCI/SR-IOV. Non-empty Network/OVN recovery, PCI/SR-IOV recovery, generic source cleanup authority, `EVACUATE`, and repeated Recovery soak/chaos remain separate gates.

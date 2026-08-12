@@ -48,6 +48,20 @@ func TestBackendExecutesClosedTypedPowerStateAndReadsBack(t *testing.T) {
 	}
 }
 
+func TestBackendUsesAuthoritySuppliedObservationGeneration(t *testing.T) {
+	client := &fakeClient{state: StateShutoff}
+	backend := Backend{Client: client}
+	payload := []byte(`{"desired_state":"RUNNING","observation_generation":9}`)
+	result, err := backend.Execute(t.Context(), contract.CommandLease{TargetResourceID: "vm:11111111-2222-3333-4444-555555555555", CommandPayload: payload, AttemptIndex: 2})
+	if err != nil || result.Outcome != "SUCCEEDED" || result.Observation.Generation != 9 {
+		t.Fatalf("authority observation generation = %#v, %v", result, err)
+	}
+	observation, err := backend.Observe(t.Context(), contract.VerificationRequest{TargetResourceID: "vm:11111111-2222-3333-4444-555555555555", CommandPayload: payload, AttemptIndex: 3})
+	if err != nil || observation.Generation != 9 {
+		t.Fatalf("authority verification generation = %#v, %v", observation, err)
+	}
+}
+
 func TestBackendDoesNotPromoteUnconvergedMutation(t *testing.T) {
 	client := &fakeClient{state: StateShutoff, holdAfterCall: true}
 	backend := Backend{Client: client}
@@ -67,6 +81,7 @@ func TestBackendRejectsRawLibvirtSurface(t *testing.T) {
 		{"vm:11111111-2222-3333-4444-555555555555", `{"desired_state":"RUNNING","xml":"<domain/>"}`},
 		{"/var/run/libvirt/libvirt-sock", `{"desired_state":"RUNNING"}`},
 		{"vm:11111111-2222-3333-4444-555555555555", `{"desired_state":"PAUSED"}`},
+		{"vm:11111111-2222-3333-4444-555555555555", `{"desired_state":"RUNNING","observation_generation":-1}`},
 	} {
 		if _, err := backend.Execute(t.Context(), contract.CommandLease{TargetResourceID: test.target, CommandPayload: []byte(test.payload), AttemptIndex: 1}); err == nil {
 			t.Fatalf("unsafe libvirt request accepted: %s %s", test.target, test.payload)

@@ -49,6 +49,7 @@ type CommandLeaseGrant struct {
 	Token                   string
 	NotBefore               time.Time
 	ExpiresAt               time.Time
+	AuthorityScope          string
 }
 
 type CommandLeaseRequest struct {
@@ -57,7 +58,13 @@ type CommandLeaseRequest struct {
 	Duration                time.Duration
 	ExecutionTimeout        time.Duration
 	DeliveryProtector       tokenprotect.Protector
+	AuthorityScope          string
 }
+
+const (
+	CommandLeaseScopeMutation             = "MUTATION"
+	CommandLeaseScopeReadOnlyVerification = "READ_ONLY_VERIFICATION"
+)
 
 // CommandLeaseDeliveryIntent contains only immutable grant identity and an
 // AEAD-protected capability. It never persists the plaintext Lease token.
@@ -368,6 +375,9 @@ func CreateExecutionCommand(ctx context.Context, db TxBeginner, request Executio
 }
 
 func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeaseRequest) (CommandLeaseGrant, error) {
+	if request.AuthorityScope == "" {
+		request.AuthorityScope = CommandLeaseScopeMutation
+	}
 	if request.CommandID == "" || request.HostAuthorityGeneration < 1 || request.Duration <= 0 || request.Duration > time.Hour {
 		return CommandLeaseGrant{}, errors.New("complete bounded Command Lease request is required")
 	}
@@ -390,12 +400,12 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 	}
 	var grant CommandLeaseGrant
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		var hostID, jobID string
+		var hostID, jobID, commandType, schemaVersion string
 		if err := tx.QueryRow(ctx, `
-			SELECT command.host_id, command.job_id
+			SELECT command.host_id, command.job_id,command.command_type,command.schema_version
 			FROM kim.execution_commands command
 			WHERE command.command_id=$1
-		`, request.CommandID).Scan(&hostID, &jobID); err != nil {
+		`, request.CommandID).Scan(&hostID, &jobID, &commandType, &schemaVersion); err != nil {
 			return ErrCommandNotDispatchable
 		}
 		if err := lockHostAuthorityTx(ctx, tx, hostID); err != nil {
@@ -416,7 +426,19 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 			}
 			return ErrCommandNotDispatchable
 		}
-		authority, err := readHostMutationAuthorityTx(ctx, tx, hostID, request.HostAuthorityGeneration)
+		var authority HostMutationAuthority
+		var err error
+		switch request.AuthorityScope {
+		case CommandLeaseScopeMutation:
+			authority, err = readHostMutationAuthorityTx(ctx, tx, hostID, request.HostAuthorityGeneration)
+		case CommandLeaseScopeReadOnlyVerification:
+			if commandType != SourceRootSafetyReadBackCommandType || schemaVersion != SourceRootSafetyReadBackSchema {
+				return ErrCommandNotDispatchable
+			}
+			authority, err = readHostReadOnlyVerificationAuthorityTx(ctx, tx, hostID, request.HostAuthorityGeneration)
+		default:
+			return errors.New("unsupported Command Lease authority scope")
+		}
 		if err != nil {
 			return err
 		}
@@ -434,19 +456,19 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 			INSERT INTO kim.command_lease_grants (
 				command_id, lease_generation, attempt_index, host_id,
 				host_authority_generation, session_generation, token_digest,
-				not_before, expires_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+				not_before, expires_at,authority_scope
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 		`, request.CommandID, leaseGeneration, attemptIndex, hostID,
 			authority.AuthorityGeneration, authority.SessionGeneration, tokenDigest,
-			grant.NotBefore, grant.ExpiresAt); err != nil {
+			grant.NotBefore, grant.ExpiresAt, request.AuthorityScope); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO kim.command_leases_current (
 				command_id, lease_generation, attempt_index, host_id,
 				host_authority_generation, session_generation, token_digest,
-				lease_state, not_before, expires_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,'ACTIVE',$8,$9)
+				lease_state, not_before, expires_at,authority_scope
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,'ACTIVE',$8,$9,$10)
 			ON CONFLICT (command_id) DO UPDATE SET
 				lease_generation=EXCLUDED.lease_generation,
 				attempt_index=EXCLUDED.attempt_index,
@@ -455,10 +477,10 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 				session_generation=EXCLUDED.session_generation,
 				token_digest=EXCLUDED.token_digest,
 				lease_state='ACTIVE', not_before=EXCLUDED.not_before,
-				expires_at=EXCLUDED.expires_at, updated_at=statement_timestamp()
+				expires_at=EXCLUDED.expires_at,authority_scope=EXCLUDED.authority_scope, updated_at=statement_timestamp()
 		`, request.CommandID, leaseGeneration, attemptIndex, hostID,
 			authority.AuthorityGeneration, authority.SessionGeneration, tokenDigest,
-			grant.NotBefore, grant.ExpiresAt); err != nil {
+			grant.NotBefore, grant.ExpiresAt, request.AuthorityScope); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -485,6 +507,7 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 		grant.LeaseGeneration, grant.AttemptIndex = leaseGeneration, attemptIndex
 		grant.HostAuthorityGeneration, grant.SessionGeneration = authority.AuthorityGeneration, authority.SessionGeneration
 		grant.Token = token
+		grant.AuthorityScope = request.AuthorityScope
 		if request.DeliveryProtector != nil {
 			intent := CommandLeaseDeliveryIntent{SchemaVersion: "kim.internal.command-lease-delivery/v1", CommandID: request.CommandID, LeaseGeneration: leaseGeneration, AttemptIndex: attemptIndex, HostID: hostID, HostAuthorityGeneration: authority.AuthorityGeneration, SessionGeneration: authority.SessionGeneration, TokenDigest: tokenDigest, ProtectedToken: protectedToken, ExecutionTimeoutMillis: request.ExecutionTimeout.Milliseconds(), ExpiresAt: grant.ExpiresAt}
 			payload, err := json.Marshal(intent)
@@ -785,6 +808,7 @@ type currentLease struct {
 	HostID                  string
 	HostAuthorityGeneration int64
 	SessionGeneration       int64
+	AuthorityScope          string
 }
 
 func validateActiveLeaseTx(ctx context.Context, tx pgx.Tx, commandID string, attemptIndex int, token string) (currentLease, error) {
@@ -801,19 +825,51 @@ func validateActiveLeaseTx(ctx context.Context, tx pgx.Tx, commandID string, att
 	}
 	if err := tx.QueryRow(ctx, `
 		SELECT lease_generation, host_authority_generation,
-		       session_generation, token_digest, lease_state
+		       session_generation, token_digest, lease_state,authority_scope
 		FROM kim.command_leases_current
 		WHERE command_id=$1 AND attempt_index=$2
 		  AND not_before <= statement_timestamp() AND expires_at > statement_timestamp()
 		FOR UPDATE
-	`, commandID, attemptIndex).Scan(&lease.LeaseGeneration, &lease.HostAuthorityGeneration, &lease.SessionGeneration, &tokenDigest, &state); err != nil || state != "ACTIVE" || tokenDigest != tokenSHA256(token) {
+	`, commandID, attemptIndex).Scan(&lease.LeaseGeneration, &lease.HostAuthorityGeneration, &lease.SessionGeneration, &tokenDigest, &state, &lease.AuthorityScope); err != nil || state != "ACTIVE" || tokenDigest != tokenSHA256(token) {
 		return currentLease{}, ErrStaleCommandLease
 	}
-	authority, err := readHostMutationAuthorityTx(ctx, tx, lease.HostID, lease.HostAuthorityGeneration)
+	var authority HostMutationAuthority
+	var err error
+	switch lease.AuthorityScope {
+	case CommandLeaseScopeMutation:
+		authority, err = readHostMutationAuthorityTx(ctx, tx, lease.HostID, lease.HostAuthorityGeneration)
+	case CommandLeaseScopeReadOnlyVerification:
+		var commandType, schemaVersion string
+		if queryErr := tx.QueryRow(ctx, `SELECT command_type,schema_version FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&commandType, &schemaVersion); queryErr != nil || commandType != SourceRootSafetyReadBackCommandType || schemaVersion != SourceRootSafetyReadBackSchema {
+			return currentLease{}, ErrStaleCommandLease
+		}
+		authority, err = readHostReadOnlyVerificationAuthorityTx(ctx, tx, lease.HostID, lease.HostAuthorityGeneration)
+	default:
+		return currentLease{}, ErrStaleCommandLease
+	}
 	if err != nil || authority.SessionGeneration != lease.SessionGeneration {
 		return currentLease{}, ErrStaleCommandLease
 	}
 	return lease, nil
+}
+
+func readHostReadOnlyVerificationAuthorityTx(ctx context.Context, tx pgx.Tx, hostID string, authorityGeneration int64) (HostMutationAuthority, error) {
+	var authority HostMutationAuthority
+	var authorityState, sessionState, authorizationState string
+	err := tx.QueryRow(ctx, `
+		SELECT authority.host_id,authority.authority_generation,session.session_generation,
+		       authority.authority_state,session.state,session_auth.authorization_state
+		FROM kim.host_operation_authorities_current authority
+		JOIN kim.host_identities host ON host.host_id=authority.host_id AND host.host_authority_generation=authority.authority_generation
+		JOIN kim.agent_transport_sessions_current session ON session.host_id=authority.host_id AND session.state='CURRENT'
+		JOIN kim.host_session_authorizations_current session_auth ON session_auth.host_id=authority.host_id AND session_auth.session_generation=session.session_generation
+		WHERE authority.host_id=$1 AND authority.authority_generation=$2
+	`, hostID, authorityGeneration).Scan(&authority.HostID, &authority.AuthorityGeneration, &authority.SessionGeneration,
+		&authorityState, &sessionState, &authorizationState)
+	if err != nil || authorityState != "FENCED" || sessionState != "CURRENT" || authorizationState != "AUTHORIZED" {
+		return HostMutationAuthority{}, ErrHostAuthorityNotArmed
+	}
+	return authority, nil
 }
 
 func readHostMutationAuthorityTx(ctx context.Context, tx pgx.Tx, hostID string, authorityGeneration int64) (HostMutationAuthority, error) {

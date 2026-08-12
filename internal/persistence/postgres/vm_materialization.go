@@ -16,6 +16,7 @@ var (
 
 type VMMaterializationRequest struct {
 	VMID, AdmissionID, PlanID, JobID, CommandID string
+	MaterializationGeneration                   uint64
 }
 
 type VMMaterializationDecision struct {
@@ -35,11 +36,17 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 			return err
 		}
 		var existingVMID, existingAdmission, existingHost, existingDigest string
+		var existingMaterializationGeneration uint64
 		existingErr := tx.QueryRow(ctx, `
-			SELECT vm_id::text, placement_admission_id, host_id, plan_digest
+			SELECT vm_id::text, placement_admission_id, host_id, plan_digest,
+			       (plan_payload->>'materialization_generation')::bigint
 			FROM kim.vm_materialization_plan_evidence WHERE plan_id=$1
-		`, request.PlanID).Scan(&existingVMID, &existingAdmission, &existingHost, &existingDigest)
+		`, request.PlanID).Scan(&existingVMID, &existingAdmission, &existingHost, &existingDigest, &existingMaterializationGeneration)
 		if existingErr == nil {
+			expectedMaterializationGeneration := request.MaterializationGeneration
+			if expectedMaterializationGeneration == 0 {
+				expectedMaterializationGeneration = 1
+			}
 			var jobResourceType, jobResourceID, commandJobID, commandHost, commandType, commandSchema, commandTarget, commandDigest string
 			if err := tx.QueryRow(ctx, `
 				SELECT job.resource_type,job.resource_id,command.job_id,command.host_id,
@@ -54,7 +61,7 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 				jobResourceID != request.VMID || commandJobID != request.JobID ||
 				commandHost != existingHost || commandType != "VIRTUAL_MACHINE_DEFINE" ||
 				commandSchema != "kim.command.virtual-machine-define/v1" ||
-				commandTarget != "vm:"+request.VMID || commandDigest != existingDigest {
+				commandTarget != "vm:"+request.VMID || commandDigest != existingDigest || existingMaterializationGeneration != expectedMaterializationGeneration {
 				return ErrVMMaterializationConflict
 			}
 			decision = VMMaterializationDecision{VMID: request.VMID, HostID: existingHost,
@@ -121,8 +128,19 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 			&attachmentGeneration); err != nil {
 			return ErrVMMaterializationConflict
 		}
+		var vmGeneration int64
+		err := tx.QueryRow(ctx, `SELECT placement_admission_id,project_id,workload_id,host_id,vm_generation FROM kim.virtual_machines_current WHERE vm_id=$1 FOR UPDATE`, request.VMID).Scan(&existingAdmission, &existingVMID, &existingDigest, &existingHost, &vmGeneration)
+		if errors.Is(err, pgx.ErrNoRows) {
+			vmGeneration = 1
+		} else if err != nil || existingAdmission != request.AdmissionID || existingVMID != projectID || existingDigest != workloadID || existingHost != hostID || vmGeneration < 1 {
+			return ErrVMMaterializationConflict
+		}
+		materializationGeneration := request.MaterializationGeneration
+		if materializationGeneration == 0 {
+			materializationGeneration = 1
+		}
 		payload := map[string]any{
-			"domain_uuid": request.VMID, "materialization_generation": int64(1),
+			"domain_uuid": request.VMID, "materialization_generation": materializationGeneration,
 			"vcpus": vcpus, "memory_mib": memoryMiB, "desired_state": "DEFINED",
 			"image_id": imageID, "image_revision": imageRevision,
 			"image_materialization_state": "PENDING",
@@ -141,14 +159,14 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 			INSERT INTO kim.virtual_machines_current (
 				vm_id, placement_admission_id, project_id, workload_id, host_id,
 				vm_generation, desired_power_state, lifecycle_state
-			) VALUES ($1,$2,$3,$4,$5,1,'SHUTOFF','MATERIALIZATION_PENDING')
+			) VALUES ($1,$2,$3,$4,$5,$6,'SHUTOFF','MATERIALIZATION_PENDING')
 			ON CONFLICT (vm_id) DO NOTHING
-		`, request.VMID, request.AdmissionID, projectID, workloadID, hostID); err != nil {
+		`, request.VMID, request.AdmissionID, projectID, workloadID, hostID, vmGeneration); err != nil {
 			return err
 		}
 		var acceptedVMAdmission, acceptedVMProject, acceptedVMWorkload, acceptedVMHost string
 		var acceptedVMGeneration int64
-		if err := tx.QueryRow(ctx, `SELECT placement_admission_id,project_id,workload_id,host_id,vm_generation FROM kim.virtual_machines_current WHERE vm_id=$1 FOR UPDATE`, request.VMID).Scan(&acceptedVMAdmission, &acceptedVMProject, &acceptedVMWorkload, &acceptedVMHost, &acceptedVMGeneration); err != nil || acceptedVMAdmission != request.AdmissionID || acceptedVMProject != projectID || acceptedVMWorkload != workloadID || acceptedVMHost != hostID || acceptedVMGeneration != 1 {
+		if err := tx.QueryRow(ctx, `SELECT placement_admission_id,project_id,workload_id,host_id,vm_generation FROM kim.virtual_machines_current WHERE vm_id=$1 FOR UPDATE`, request.VMID).Scan(&acceptedVMAdmission, &acceptedVMProject, &acceptedVMWorkload, &acceptedVMHost, &acceptedVMGeneration); err != nil || acceptedVMAdmission != request.AdmissionID || acceptedVMProject != projectID || acceptedVMWorkload != workloadID || acceptedVMHost != hostID || acceptedVMGeneration != vmGeneration {
 			return ErrVMMaterializationConflict
 		}
 		if _, err := tx.Exec(ctx, `
@@ -158,9 +176,9 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 				compute_allocation_id, root_volume_id, root_binding_id,
 				root_binding_generation, root_attachment_id, root_attachment_generation,
 				plan_payload, plan_digest
-			) VALUES ($1,$2,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 			ON CONFLICT (plan_id) DO NOTHING
-		`, request.PlanID, request.VMID, request.AdmissionID, hostID, imageID,
+		`, request.PlanID, request.VMID, vmGeneration, request.AdmissionID, hostID, imageID,
 			imageRevision, flavorID, flavorRevision, shapeDigest, allocationID,
 			volumeID, bindingID, bindingGeneration, attachmentID,
 			attachmentGeneration, planPayload, planDigest); err != nil {
@@ -173,20 +191,20 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 		`, request.PlanID).Scan(&acceptedVMID, &acceptedAdmission, &acceptedHost, &acceptedDigest); err != nil || acceptedVMID != request.VMID || acceptedAdmission != request.AdmissionID || acceptedHost != hostID || acceptedDigest != planDigest {
 			return ErrVMMaterializationConflict
 		}
-		if tag, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET current_plan_id=$2 WHERE vm_id=$1 AND vm_generation=1`, request.VMID, request.PlanID); err != nil {
+		if tag, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET current_plan_id=$2 WHERE vm_id=$1 AND vm_generation=$3`, request.VMID, request.PlanID, vmGeneration); err != nil {
 			return err
 		} else if tag.RowsAffected() != 1 {
 			return ErrVMMaterializationConflict
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO kim.execution_jobs (job_id, resource_type, resource_id, desired_revision, job_state)
-			VALUES ($1,'VIRTUAL_MACHINE',$2,1,'DISPATCHABLE') ON CONFLICT (job_id) DO NOTHING
-		`, request.JobID, request.VMID); err != nil {
+			VALUES ($1,'VIRTUAL_MACHINE',$2,$3,'DISPATCHABLE') ON CONFLICT (job_id) DO NOTHING
+		`, request.JobID, request.VMID, vmGeneration); err != nil {
 			return err
 		}
 		var acceptedResourceType, acceptedResourceID string
 		var acceptedDesiredRevision int64
-		if err := tx.QueryRow(ctx, `SELECT resource_type,resource_id,desired_revision FROM kim.execution_jobs WHERE job_id=$1`, request.JobID).Scan(&acceptedResourceType, &acceptedResourceID, &acceptedDesiredRevision); err != nil || acceptedResourceType != "VIRTUAL_MACHINE" || acceptedResourceID != request.VMID || acceptedDesiredRevision != 1 {
+		if err := tx.QueryRow(ctx, `SELECT resource_type,resource_id,desired_revision FROM kim.execution_jobs WHERE job_id=$1`, request.JobID).Scan(&acceptedResourceType, &acceptedResourceID, &acceptedDesiredRevision); err != nil || acceptedResourceType != "VIRTUAL_MACHINE" || acceptedResourceID != request.VMID || acceptedDesiredRevision != vmGeneration {
 			return ErrVMMaterializationConflict
 		}
 		commandDigest := digestBytes(planPayload)
