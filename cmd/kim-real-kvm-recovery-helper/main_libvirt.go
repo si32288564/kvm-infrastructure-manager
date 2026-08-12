@@ -118,6 +118,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer closeAttachment()
+	rootSafetyBackend := libvirtvolume.SourceRootSafetyBackend{Attachment: attachmentBackend}
 	powerBackend, closePower, err := libvirtdomain.New("qemu:///system")
 	if err != nil {
 		log.Fatal(err)
@@ -134,7 +135,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, backend := range []agentexecution.Backend{volumeBackend, imageBackend, *vmBackend, *attachmentBackend, *powerBackend} {
+	for _, backend := range []agentexecution.Backend{volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend} {
 		if err := module.RegisterBackend(backend); err != nil {
 			log.Fatal(err)
 		}
@@ -162,7 +163,7 @@ func main() {
 		SessionGeneration: desired.SessionGen, CommandType: desired.CommandType,
 		CommandSchemaVersion: desired.SchemaVersion, TargetResourceID: desired.TargetResourceID,
 		CommandPayload: desired.Payload, CommandPayloadDigest: payloadDigest}
-	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, *powerBackend, verification)
+	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, verification)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -196,11 +197,12 @@ func validate(desired request, hostname string) error {
 		return errors.New("current qualification authority generations are required")
 	}
 	wantSchema := map[string]string{
-		locallvm.CommandType:      locallvm.SchemaVersion,
-		localimage.CommandType:    localimage.SchemaVersion,
-		libvirtvm.CommandType:     libvirtvm.SchemaVersion,
-		libvirtvolume.CommandType: libvirtvolume.SchemaVersion,
-		libvirtdomain.CommandType: libvirtdomain.SchemaVersion,
+		locallvm.CommandType:                              locallvm.SchemaVersion,
+		localimage.CommandType:                            localimage.SchemaVersion,
+		libvirtvm.CommandType:                             libvirtvm.SchemaVersion,
+		libvirtvolume.CommandType:                         libvirtvolume.SchemaVersion,
+		libvirtvolume.SourceRootSafetyReadBackCommandType: libvirtvolume.SourceRootSafetyReadBackSchema,
+		libvirtdomain.CommandType:                         libvirtdomain.SchemaVersion,
 	}[desired.CommandType]
 	if wantSchema == "" || desired.SchemaVersion != wantSchema {
 		return fmt.Errorf("unsupported typed command %q/%q", desired.CommandType, desired.SchemaVersion)
@@ -208,7 +210,7 @@ func validate(desired request, hostname string) error {
 	return nil
 }
 
-func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, power libvirtdomain.Backend, request contract.VerificationRequest) (contract.Observation, error) {
+func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, root libvirtvolume.SourceRootSafetyBackend, power libvirtdomain.Backend, request contract.VerificationRequest) (contract.Observation, error) {
 	switch commandType {
 	case locallvm.CommandType:
 		return volume.Observe(ctx, request)
@@ -218,6 +220,8 @@ func observe(ctx context.Context, commandType string, volume locallvm.Backend, i
 		return vm.Observe(ctx, request)
 	case libvirtvolume.CommandType:
 		return attachment.Observe(ctx, request)
+	case libvirtvolume.SourceRootSafetyReadBackCommandType:
+		return root.Observe(ctx, request)
 	case libvirtdomain.CommandType:
 		return power.Observe(ctx, request)
 	default:

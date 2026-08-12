@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 )
 
 func availabilityPolicyFixture(id string, revision uint64, responsibility, action, lifecycle string) AvailabilityPolicyRevision {
@@ -945,30 +948,37 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if _, err := pool.Exec(ctx, `INSERT INTO kim.virtual_machines_current(vm_id,placement_admission_id,project_id,workload_id,host_id,vm_generation,desired_power_state,lifecycle_state) VALUES($1,$2,'project',$3,$4,1,'SHUTOFF','DEFINED')`, vmID, admission.AdmissionID, r1.WorkloadID, host); err != nil {
 		t.Fatal(err)
 	}
-	seedVerification := func(label, resourceType, resourceID string, payload map[string]any) (string, string) {
+	seedTypedVerification := func(label, resourceType, resourceID, commandType, schemaVersion, targetResourceID string, observationGeneration int64, payload map[string]any) (string, string) {
 		jobID, commandID, verificationID := label+"-job-"+suffix, label+"-command-"+suffix, label+"-verification-"+suffix
-		payloadDigest := digestBytes([]byte(label + "/payload"))
 		observationDigest := digestBytes([]byte(label + "/observation"))
 		verifierDigest := digestBytes([]byte(label + "/verifier"))
-		statements := []struct {
-			sql  string
-			args []any
-		}{
-			{`INSERT INTO kim.execution_jobs(job_id,resource_type,resource_id,desired_revision,job_state) VALUES($1,$2,$3,1,'SUCCEEDED')`, []any{jobID, resourceType, resourceID}},
-			{`INSERT INTO kim.execution_commands(command_id,job_id,host_id,command_type,schema_version,target_resource_id,payload,payload_digest) VALUES($1,$2,$3,'QUALIFICATION_READ_BACK','kim.qualification.read-back/v1',$4,$5,$6)`, []any{commandID, jobID, host, resourceID, payload, payloadDigest}},
-			{`INSERT INTO kim.execution_commands_current(command_id,command_state,current_attempt_index) VALUES($1,'SUCCEEDED',1)`, []any{commandID}},
-			{`INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,1,$2,1,1,$3,statement_timestamp()-interval '2 minutes',statement_timestamp()-interval '1 minute')`, []any{commandID, host, digestBytes([]byte(label + "/token"))}},
-			{`INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,1,1,1,1)`, []any{commandID}},
-			{`INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($1,$2,1,1,$3,'MATCHED',$4,$5)`, []any{verificationID, commandID, observationDigest, verifierDigest, payload}},
+		if err := CreateExecutionCommand(ctx, pool, ExecutionCommandRequest{JobID: jobID, CommandID: commandID, HostID: host, ResourceType: resourceType, ResourceID: resourceID, DesiredRevision: 1, CommandType: commandType, SchemaVersion: schemaVersion, TargetResourceID: targetResourceID, Payload: payload}); err != nil {
+			t.Fatalf("create verification command %s: %v", label, err)
 		}
-		for _, statement := range statements {
-			if _, seedErr := pool.Exec(ctx, statement.sql, statement.args...); seedErr != nil {
-				t.Fatalf("seed verification %s: %v", label, seedErr)
-			}
+		var authorityGeneration int64
+		if err := pool.QueryRow(ctx, `SELECT authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1 AND authority_state='ARMED'`, host).Scan(&authorityGeneration); err != nil {
+			t.Fatal(err)
+		}
+		grant, err := AcquireCommandLease(ctx, pool, CommandLeaseRequest{CommandID: commandID, HostAuthorityGeneration: authorityGeneration, Duration: time.Minute})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := contract.CommandResult{SchemaVersion: contract.CommandResultSchema, CommandID: commandID, AttemptIndex: grant.AttemptIndex, LeaseToken: grant.Token, JournalDigest: digestBytes([]byte(label + "/journal")), ResultID: label + "-result-" + suffix, Outcome: "SUCCEEDED", Result: map[string]any{"state": "OBSERVED"}, Observation: contract.Observation{State: "MATCHED", Digest: observationDigest, Generation: observationGeneration, Evidence: payload}, VerifierDigest: verifierDigest}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope := session.NewEnvelope(host, uint64(grant.SessionGeneration), session.StreamResult, label+"-message-"+suffix, contract.CommandResultSchema, commandID, uint64(grant.AttemptIndex), encoded)
+		envelope.CorrelationKey = commandID
+		if receipt, err := AcceptAgentCommandResult(ctx, pool, envelope, 1<<20, AgentCommandResultDecision{Start: CommandAttemptStart{CommandID: commandID, AttemptIndex: grant.AttemptIndex, LeaseToken: grant.Token, JournalEvidenceDigest: result.JournalDigest}, Result: CommandResultSubmission{CommandID: commandID, AttemptIndex: grant.AttemptIndex, LeaseToken: grant.Token, ResultID: result.ResultID, Outcome: result.Outcome, Payload: result.Result}, Verification: &CommandVerification{VerificationID: verificationID, CommandID: commandID, AttemptIndex: grant.AttemptIndex, ObservationGeneration: observationGeneration, ObservationDigest: observationDigest, State: "MATCHED", VerifierArtifactDigest: verifierDigest, Evidence: payload}}); err != nil || receipt.Disposition != "ACCEPTED" {
+			t.Fatalf("accept verification %s receipt=%+v err=%v", label, receipt, err)
 		}
 		return commandID, verificationID
 	}
-	powerCommand, powerVerification := seedVerification("safety-power", "VIRTUAL_MACHINE_POWER", vmID, map[string]any{"domain_uuid": vmID, "desired_state": "SHUTOFF", "observed_state": "SHUTOFF"})
+	seedVerification := func(label, resourceType, resourceID string, payload map[string]any) (string, string) {
+		return seedTypedVerification(label, resourceType, resourceID, "QUALIFICATION_READ_BACK", "kim.qualification.read-back/v1", resourceID, 1, payload)
+	}
+	powerCommand, powerVerification := seedVerification("safety-power", "QUALIFICATION_OBSERVATION", vmID, map[string]any{"domain_uuid": vmID, "desired_state": "SHUTOFF", "observed_state": "SHUTOFF"})
 	powerEvidenceID := "safety-power-evidence-" + suffix
 	if _, err := pool.Exec(ctx, `INSERT INTO kim.vm_power_observation_evidence(evidence_id,vm_id,vm_generation,host_id,command_id,attempt_index,verification_id,desired_power_state,observed_power_state,observation_generation,observation_digest,verifier_digest) VALUES($1,$2,1,$3,$4,1,$5,'SHUTOFF','SHUTOFF',1,$6,$7); INSERT INTO kim.vm_power_state_current(vm_id,vm_generation,desired_power_state,observed_power_state,convergence_state,observation_generation,evidence_id) VALUES($2,1,'SHUTOFF','SHUTOFF','MATCHED',1,$1)`, pgx.QueryExecModeSimpleProtocol, powerEvidenceID, vmID, host, powerCommand, powerVerification, digestBytes([]byte("safety power observation")), digestBytes([]byte("safety power verifier"))); err != nil {
 		t.Fatal(err)
@@ -991,6 +1001,12 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	if _, err := pool.Exec(ctx, `INSERT INTO kim.volume_attachment_observation_evidence(evidence_id,attachment_id,volume_id,attachment_generation,binding_id,binding_generation,host_id,domain_uuid,target_device,observed_lv_uuid,desired_state,device_present,device_identity_matches,source_identity_matches,holder_open,read_only,command_id,attempt_index,verification_id,observation_generation,observation_digest,verifier_digest,evidence_state) VALUES($1,$2,$3,1,$4,1,$5,$6,'vdb',$7,'DETACHED',false,false,false,false,false,$8,1,$9,1,$10,$11,'UNKNOWN'); INSERT INTO kim.volume_attachment_observations_current(attachment_id,volume_id,attachment_generation,observation_generation,evidence_id,attachment_state,binding_id,binding_generation,host_id,domain_uuid,target_device,observed_lv_uuid,device_present,holder_open) VALUES($2,$3,1,1,$1,'UNKNOWN',$4,1,$5,$6,'vdb',$7,false,false)`, pgx.QueryExecModeSimpleProtocol, unknownAttachmentEvidence, attachmentID, volumeID, bindingID, host, vmID, lvUUID, attachmentCommand, attachmentVerification, digestBytes([]byte("unknown attachment observation")), digestBytes([]byte("attachment verifier"))); err != nil {
 		t.Fatal(err)
 	}
+	sourcePlanID, sourcePlanDigest := "source-root-plan-"+suffix, digestBytes([]byte("source root materialization plan "+suffix))
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.vm_materialization_plan_evidence(plan_id,vm_id,vm_generation,placement_admission_id,host_id,image_id,image_revision,flavor_id,flavor_revision,flavor_shape_digest,compute_allocation_id,root_volume_id,root_binding_id,root_binding_generation,root_attachment_id,root_attachment_generation,plan_payload,plan_digest) SELECT $1,$2::uuid,1,a.admission_id,a.host_id,a.image_id,a.image_revision,a.flavor_id,a.flavor_revision,a.flavor_shape_digest,c.allocation_id,$3,$4,1,$5,1,'{}'::jsonb,$6 FROM kim.placement_admission_decisions a JOIN kim.compute_allocation_claims c ON c.admission_id=a.admission_id WHERE a.admission_id=$7; UPDATE kim.virtual_machines_current SET current_plan_id=$1 WHERE vm_id=$2::uuid`, pgx.QueryExecModeSimpleProtocol, sourcePlanID, vmID, volumeID, bindingID, attachmentID, sourcePlanDigest, admission.AdmissionID); err != nil {
+		t.Fatal(err)
+	}
+	rootObservationPayload := map[string]any{"attachment_id": attachmentID, "volume_id": volumeID, "binding_id": bindingID, "domain_uuid": vmID, "target_device": "vda", "observed_lv_uuid": lvUUID, "device_present": true, "device_identity_matches": true, "source_identity_matches": true, "holder_open": false}
+	rootCommand, rootVerification := seedTypedVerification("source-root-safe", "SOURCE_ROOT_SAFETY", attachmentID, SourceRootSafetyReadBackCommandType, SourceRootSafetyReadBackSchema, "attachment:"+attachmentID, 3, rootObservationPayload)
 
 	safetyEpoch, _ := openConfirmationEpoch("failure-safety", "ABSENT", "CURRENT")
 	if safetyEpoch.AvailabilityBindingRevision != safetyBinding.BindingRevision {
@@ -1638,6 +1654,180 @@ func TestAvailabilityPolicyPlacementConsumerPostgreSQLIntegration(t *testing.T) 
 	var hostAuthorityGeneration uint64
 	if err := pool.QueryRow(ctx, `SELECT authority_state,authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, host).Scan(&hostAuthorityState, &hostAuthorityGeneration); err != nil || hostAuthorityState != "FENCED" || hostAuthorityGeneration != 1 {
 		t.Fatalf("Safety proof/Confirmation changed explicit Host fence state=%s generation=%d err=%v", hostAuthorityState, hostAuthorityGeneration, err)
+	}
+
+	// Migration 057: a configured inactive root vda is observation-only safety
+	// evidence, never generic attach/detach authority. The exact source plan
+	// derives its identity; wrong vdb is conflicting, UNKNOWN is never safe.
+	compositeStoragePolicy, err := PublishStorageSafetyPolicy(ctx, pool, StorageSafetyPolicy{PolicyID: "root-composite-storage-policy-" + suffix, PolicyRevision: 1, StorageClass: "LOCAL_LVM", SafetyMode: "SOURCE_ROOT_QUIESCED_DATA_DETACHED", LifecycleState: "ACTIVE", CreatedBy: "fixture", ApprovedBy: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootConfirmationPolicy := confirmationPolicy
+	rootConfirmationPolicy.PolicyID, rootConfirmationPolicy.PolicyRevision = "root-confirmation-policy-"+suffix, 1
+	rootConfirmationPolicy.RequirementsDigest, rootConfirmationPolicy.PolicyDigest = "", ""
+	rootConfirmationPolicy, err = PublishFailureConfirmationPolicy(ctx, pool, rootConfirmationPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootFencingPolicy, err := PublishFailureFencingPolicy(ctx, pool, FailureFencingPolicy{PolicyID: "root-fencing-policy-" + suffix, PolicyRevision: 1, FencingMode: "KIM_AUTHORITY_FENCED_AND_LIBVIRT_SHUTOFF", LifecycleState: "ACTIVE", CreatedBy: "fixture", ApprovedBy: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootBudgetPolicy, err := PublishRecoveryBudgetPolicy(ctx, pool, RecoveryBudgetPolicy{PolicyID: "root-budget-policy-" + suffix, PolicyRevision: 1, ScopeType: "GLOBAL", Phase: "PLANNING", MaxActiveRecoveries: 2, LifecycleState: "ACTIVE", CreatedBy: "fixture", ApprovedBy: "fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rootSourceRevision uint64
+	var rootSourceDigest string
+	if err := pool.QueryRow(ctx, `SELECT binding_revision,binding_digest FROM kim.vm_availability_bindings_current WHERE workload_id=$1`, r1.WorkloadID).Scan(&rootSourceRevision, &rootSourceDigest); err != nil {
+		t.Fatal(err)
+	}
+	rootAvailability := availabilityPolicyFixture("root-safety-availability-"+suffix, 1, "INFRASTRUCTURE_MANAGED", "RESTART_ON_OTHER_HOST", "ACTIVE")
+	rootAvailability.FailureConfirmationPolicyID, rootAvailability.FailureConfirmationPolicyRevision, rootAvailability.FailureConfirmationPolicyDigest = rootConfirmationPolicy.PolicyID, 1, rootConfirmationPolicy.PolicyDigest
+	rootAvailability.FencingPolicyID, rootAvailability.FencingPolicyRevision, rootAvailability.FencingPolicyDigest = rootFencingPolicy.PolicyID, 1, rootFencingPolicy.PolicyDigest
+	rootAvailability.StorageSafetyPolicyID, rootAvailability.StorageSafetyPolicyRevision, rootAvailability.StorageSafetyPolicyDigest = compositeStoragePolicy.PolicyID, 1, compositeStoragePolicy.PolicyDigest
+	rootAvailability.RecoveryBudgetPolicyID, rootAvailability.RecoveryBudgetPolicyRevision, rootAvailability.RecoveryBudgetPolicyDigest = rootBudgetPolicy.PolicyID, 1, rootBudgetPolicy.PolicyDigest
+	rootAvailabilityDigest, err := PublishAvailabilityPolicy(ctx, pool, rootAvailability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PublishGroupPolicyBinding(ctx, pool, GroupPolicyBindingRequest{PublishRequestID: "root-safety-group-binding-" + suffix, BindingID: binding.BindingID, ExpectedCurrentGeneration: 3, HostGroupID: groupID, HostGroupGeneration: 1, PolicyType: "AVAILABILITY_POLICY", ConsumerType: "VM_PLACEMENT", PolicyID: rootAvailability.PolicyID, PolicyRevision: 1, PolicyDigest: rootAvailabilityDigest, Priority: 100, LifecycleState: "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
+	rootRebind := VMAvailabilityRebindRequest{RebindID: "root-safety-rebind-" + suffix, WorkloadID: r1.WorkloadID, ExpectedCurrentBindingRevision: rootSourceRevision, SourceBindingDigest: rootSourceDigest, TargetPolicyID: rootAvailability.PolicyID, TargetPolicyRevision: 1, TargetPolicyDigest: rootAvailabilityDigest, RequestedBy: "operator", AuthorizedBy: "availability-authority", AuthorizationReference: "approval/root-safety", Reason: "qualify exact source root retirement"}
+	if _, err := RecordVMAvailabilityRebindRequest(ctx, pool, rootRebind); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := DecideVMAvailabilityRebind(ctx, pool, rootRebind.RebindID, "availability-authority"); err != nil {
+		t.Fatal(err)
+	}
+	rootEpoch, _ := openConfirmationEpoch("source-root-safety", "ABSENT", "CURRENT")
+	appendAuthorityEvidence(rootEpoch, "source-root-safety", "PRESENT", "CURRENT")
+	rootConfirmation := evaluate(rootEpoch, "source-root-safety")
+	if _, _, err := ConfirmFailureEpoch(ctx, pool, "source-root-confirmation-"+suffix, rootConfirmation.EvaluationID, "failure-authority/v1"); err != nil {
+		t.Fatal(err)
+	}
+	wrongRoot, err := EvaluateSourceRootSafety(ctx, pool, "source-root-wrong-vdb-"+suffix, rootEpoch.FailureEpochID, "source-root-evaluator/v1", digestBytes([]byte("source-root-evaluator/v1")))
+	if err != nil || wrongRoot.ResultState != "CONFLICTING_INPUT" || wrongRoot.TargetDevice != "vdb" {
+		t.Fatalf("wrong-volume root evaluation=%+v err=%v", wrongRoot, err)
+	}
+	if _, err := MaterializeSourceRootSafetyProof(ctx, pool, "source-root-wrong-proof-"+suffix, wrongRoot.EvaluationID, "source-root-authority/v1"); !errors.Is(err, ErrFailureSafetyBlocked) {
+		t.Fatalf("wrong-volume root proof=%v", err)
+	}
+	rootObservationDigest, rootVerifierDigest := digestBytes([]byte("source-root-safe/observation")), digestBytes([]byte("source-root-safe/verifier"))
+	if err := AcceptSourceRootSafetyObservation(ctx, pool, LocalLVMAttachmentObservation{EvidenceID: "source-root-safe-evidence-" + suffix, AttachmentID: attachmentID, VolumeID: volumeID, BindingID: bindingID, HostID: host, DomainUUID: vmID, TargetDevice: "vda", ObservedLVUUID: lvUUID, DesiredState: "ATTACHED", CommandID: rootCommand, VerificationID: rootVerification, ObservationDigest: rootObservationDigest, VerifierDigest: rootVerifierDigest, EvidenceState: "MATCHED", AttachmentGeneration: 1, BindingGeneration: 1, ObservationGeneration: 3, AttemptIndex: 1, DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true, HolderOpen: false}); err != nil {
+		t.Fatal(err)
+	}
+	rootEvaluation, err := EvaluateSourceRootSafety(ctx, pool, "source-root-safe-evaluation-"+suffix, rootEpoch.FailureEpochID, "source-root-evaluator/v1", digestBytes([]byte("source-root-evaluator/v1")))
+	if err != nil || rootEvaluation.ResultState != "SAFE" || rootEvaluation.TargetDevice != "vda" || rootEvaluation.HolderOpen {
+		t.Fatalf("safe root evaluation=%+v err=%v", rootEvaluation, err)
+	}
+	rootProof, err := MaterializeSourceRootSafetyProof(ctx, pool, "source-root-safe-proof-"+suffix, rootEvaluation.EvaluationID, "source-root-authority/v1")
+	if err != nil || rootProof.ProofState != "SAFE" {
+		t.Fatalf("root proof=%+v err=%v", rootProof, err)
+	}
+	compositeStorageEvaluation, err := EvaluateStorageSafety(ctx, pool, "root-composite-storage-evaluation-"+suffix, rootEpoch.FailureEpochID, "storage-safety-evaluator/v1", digestBytes([]byte("storage-safety-evaluator/v1")))
+	if err != nil || compositeStorageEvaluation.ResultState != "SAFE" || compositeStorageEvaluation.RootSafetyProofID != rootProof.ProofID {
+		t.Fatalf("composite Storage evaluation=%+v err=%v", compositeStorageEvaluation, err)
+	}
+	compositeStorageProof, err := MaterializeStorageSafetyProof(ctx, pool, "root-composite-storage-proof-"+suffix, compositeStorageEvaluation.EvaluationID, "storage-safety-authority/v1")
+	if err != nil || compositeStorageProof.ProofType != "LOCAL_LVM_SOURCE_ROOT_QUIESCED_DATA_DETACHED" {
+		t.Fatalf("composite Storage proof=%+v err=%v", compositeStorageProof, err)
+	}
+	if _, err := RecordSourceExecutionFencingObservation(ctx, pool, "source-root-fencing-observation-"+suffix, rootEpoch.FailureEpochID); err != nil {
+		t.Fatal(err)
+	}
+	rootFencingEvaluation, err := EvaluateFailureFencing(ctx, pool, "source-root-fencing-evaluation-"+suffix, rootEpoch.FailureEpochID, "fencing-evaluator/v1", digestBytes([]byte("fencing-evaluator/v1")))
+	if err != nil || rootFencingEvaluation.ResultState != "PROVEN" {
+		t.Fatalf("root fencing evaluation=%+v err=%v", rootFencingEvaluation, err)
+	}
+	rootFencingProof, _, err := MaterializeFailureFencingProof(ctx, pool, "source-root-fencing-proof-"+suffix, rootFencingEvaluation.EvaluationID, "fencing-authority/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retirement, err := RetireSourceMaterialization(ctx, pool, "source-root-retirement-"+suffix, rootEpoch.FailureEpochID, rootProof.ProofID, rootFencingProof.ProofID, "source-retirement-authority/v1")
+	if err != nil || retirement.DecisionState != "RETIRED" {
+		t.Fatalf("source retirement=%+v err=%v", retirement, err)
+	}
+	rootEligibility, err := EvaluateRecoveryEligibility(ctx, pool, "source-root-recovery-eligibility-"+suffix, rootEpoch.FailureEpochID, scopeID, "recovery-eligibility-evaluator/v1", digestBytes([]byte("recovery-eligibility-evaluator/v1")))
+	if err != nil || rootEligibility.ResultState != "ELIGIBLE" || rootEligibility.StorageSafetyProofID != compositeStorageProof.ProofID {
+		t.Fatalf("root-safe Recovery Eligibility=%+v err=%v", rootEligibility, err)
+	}
+	// ABA: holder/observation generation may return to the same boolean state,
+	// but the old root/composite proof must remain stale by exact generation.
+	rootABARollback := errors.New("rollback root holder ABA")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.volume_attachment_observations_current SET observation_generation=observation_generation+2 WHERE attachment_id=$1`, attachmentID); err != nil {
+			return err
+		}
+		_, _, usability, err := loadSourceRootSafetyProofUsabilityTx(ctx, tx, rootEpoch)
+		if err != nil || usability != "STALE" {
+			t.Fatalf("root observation ABA usability=%s err=%v", usability, err)
+		}
+		return rootABARollback
+	})
+	if !errors.Is(err, rootABARollback) {
+		t.Fatalf("root ABA rollback=%v", err)
+	}
+	for _, drift := range []struct {
+		label, mutation string
+		args            []any
+	}{
+		{label: "power-generation", mutation: `UPDATE kim.vm_power_state_current SET observation_generation=observation_generation+2 WHERE vm_id=$1::uuid`, args: []any{vmID}},
+		{label: "binding-generation", mutation: `UPDATE kim.volume_backend_bindings_current SET observation_generation=observation_generation+2 WHERE binding_id=$1`, args: []any{bindingID}},
+		{label: "materialization-identity", mutation: `UPDATE kim.virtual_machines_current SET current_plan_id=NULL WHERE vm_id=$1::uuid`, args: []any{vmID}},
+	} {
+		rollback := errors.New("rollback root " + drift.label + " ABA")
+		err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, drift.mutation, drift.args...); err != nil {
+				return err
+			}
+			_, _, usability, err := loadSourceRootSafetyProofUsabilityTx(ctx, tx, rootEpoch)
+			if err != nil || usability != "STALE" {
+				t.Fatalf("root %s ABA usability=%s err=%v", drift.label, usability, err)
+			}
+			return rollback
+		})
+		if !errors.Is(err, rollback) {
+			t.Fatalf("root %s rollback=%v", drift.label, err)
+		}
+	}
+
+	rootDecision, err := MaterializeRecoveryEligibilityDecision(ctx, pool, "source-root-recovery-decision-"+suffix, rootEligibility.EvaluationID, "recovery-authority/v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootOperationID, rootPlanID := "source-root-recovery-operation-"+suffix, "source-root-recovery-plan-"+suffix
+	if _, err := RecordRecoveryOperationRequest(ctx, pool, rootOperationID, rootDecision.DecisionID, rootDecision.BudgetClaimID, "RESTART_ON_OTHER_HOST", "recovery-operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := PlanRecoveryOperation(ctx, pool, rootOperationID, rootPlanID, destinationHost); err != nil {
+		t.Fatal(err)
+	}
+	startDriftRollback := errors.New("rollback root stale start")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.volume_attachment_observations_current SET observation_generation=observation_generation+2 WHERE attachment_id=$1`, attachmentID); err != nil {
+			return err
+		}
+		if _, err := StartRecoveryOperation(ctx, scopeTxBeginner{tx}, rootOperationID, "source-root-stale-start-job-"+suffix, "source-root-stale-start-command-"+suffix); !errors.Is(err, ErrRecoveryOperationStale) {
+			t.Fatalf("root drift StartRecoveryOperation=%v", err)
+		}
+		return startDriftRollback
+	})
+	if !errors.Is(err, startDriftRollback) {
+		t.Fatalf("root stale start rollback=%v", err)
+	}
+	// The ordinary Recovery Operation has already crossed Start authority by
+	// the time this block runs. Its formerly accepted secondary-disk Storage
+	// proof is now stale because the exact current root observation is vda.
+	gate, err := EvaluateRecoveryDangerousStep(ctx, pool, "source-root-dangerous-drift-"+suffix, recoveryOperationID, digestBytes([]byte("source-root-dangerous-step/v1")))
+	if err != nil || gate.ResultState != "BLOCKED_STORAGE" || gate.StorageUsability != "STALE" {
+		t.Fatalf("root dangerous-step gate=%+v err=%v", gate, err)
+	}
+
+	if _, err := PublishGroupPolicyBinding(ctx, pool, GroupPolicyBindingRequest{PublishRequestID: "root-safety-group-binding-restore-" + suffix, BindingID: binding.BindingID, ExpectedCurrentGeneration: 4, HostGroupID: groupID, HostGroupGeneration: 1, PolicyType: "AVAILABILITY_POLICY", ConsumerType: "VM_PLACEMENT", PolicyID: safetyAvailability.PolicyID, PolicyRevision: 1, PolicyDigest: safetyAvailabilityDigest, Priority: 100, LifecycleState: "ACTIVE"}); err != nil {
+		t.Fatal(err)
 	}
 
 	// FENCED generation N -> ARMED N+1 -> FENCED N+1 never revives a proof

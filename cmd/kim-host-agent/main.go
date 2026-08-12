@@ -97,7 +97,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				return 2
 			}
 			defer closeAttachmentBackend()
-			executionBackends = append(executionBackends, attachmentBackend)
+			executionBackends = append(executionBackends, attachmentBackend, libvirtvolume.SourceRootSafetyBackend{Attachment: attachmentBackend})
 			vmBackend, closeVMBackend, vmErr := libvirtvm.New(*libvirtURI, libvirtvolume.LocalLVMResolver{Client: client, VolumeGroups: volumeGroups})
 			if vmErr != nil {
 				fmt.Fprintf(stderr, "kim-host-agent libvirt VM error: %v\n", vmErr)

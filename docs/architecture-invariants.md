@@ -331,6 +331,9 @@
 | INV-AVR-034 | Recovery preparation、define/image/attachment/network realization、power Command success、単一RUNNING observationのいずれもRecovery VERIFIEDではない。Recovery Verificationはexact destination Admission/materialization、current power、attachment、network、PCI requirement、source Fencing/Storage Proof、CONSUMED Budgetの世代付きread-backをimmutableに束ねるpure authorityである | AT-AVR-023, FI-AVR-017 |
 | INV-AVR-035 | dangerous-step AUTHORIZED evidenceはpower capabilityではない。explicit power authority transactionがsource Fencing/Storage、Budget、destination Admission/readiness/Host authorityを再読込し、drift時はJob/Commandを一件も発行しない。power outcome UNKNOWNではblind StartせずBudgetをCONSUMEDに維持する | AT-AVR-023, FI-AVR-017 |
 | INV-AVR-036 | accepted Recovery Terminal DecisionだけがOperation VERIFYING→VERIFIED、Failure Epoch FENCED→RECOVERED、Budget CONSUMED→RELEASEDをone transactionで進める。RECOVERED causeはexact Terminal Decisionだけであり、Verification/Observation/Command/VM RUNNINGを代用しない。response-loss/parallel replayは各transitionを増幅しない | AT-AVR-023, FI-AVR-017 |
+| INV-AVR-037 | Source Root SafetyはFailure Epochのexact source planが固定した`vda`/Volume/Binding/LV/Attachmentを対象とし、actual `SHUTOFF/MATCHED`、configured identity match、current `BOUND`、holder closedが揃ったpositive ProofだけをSAFEにする。`vdb`、Command success、desired SHUTOFF、UNKNOWNを代用しない | AT-AVR-024, FI-AVR-018 |
+| INV-AVR-038 | root `vda` backendはobservation-onlyとし、configured inactive rootとactive QEMU holderを区別する。Source Root Safety/Retirementはroot attach、detach、delete、Domain undefine、artifact cleanup、compute fencingを許可しない | AT-AVR-024, FI-AVR-018 |
+| INV-AVR-039 | composite Local LVM Storage Safetyはauthoritative planのroot positive Proofと全data Attachmentのexisting detached/no-holder evidenceを要求する。Eligibility/Operation start/dangerous-stepはroot power/holder、Binding、Attachment、current plan generation/digestを再検証し、ABA/drift後のold Proofを再利用しない | AT-AVR-024, FI-AVR-018 |
 
 ## 12. Workload Resilience Intent
 

@@ -460,6 +460,8 @@ Phase 1 Storage Safetyは`LOCAL_LVM / SOURCE_DETACHED_NO_HOLDER`に限定する�
 
 Migration 052はfailure detection、Recovery Eligibility、Recovery Operationを発行しない。live Policy/Binding driftはhistorical Failure Epochまたは既存VM Binding revisionを変更しない。
 
+Migration 057はFencingと独立したSource Root Safetyを追加する。Failure Epochのsource Admission/materialization planが固定したroot `vda`だけを対象とし、actual SHUTOFF、current BOUND Local LVM identity、configured device/source identity、holder closedのimmutable Evaluation/Proofを分離する。configuredのままの停止Domain rootをunsafeと決めつけず、active holderまたはUNKNOWNをSAFEにしない。exact Fencing+Root Proofはsource incarnationのlogical Retirementを許すがcleanupまたはroot mutationを許さない。Eligibility、Operation start、dangerous-stepはpower/holder/Binding/current-plan generationを再読込し、ABA後のold authorityをblockする。
+
 Migration 053はclosed typed `RecoveryBudgetPolicy`を追加する。Phase 1 profileは`GLOBAL / PLANNING / max_active_recoveries`だけであり、AvailabilityPolicy revisionからexact ID/revision/digest associationで参照する。pre-053 AvailabilityPolicy/Epochをrewriteせず、typed associationがない場合は`NO_RECOVERY_BUDGET_POLICY`でfail closedにする。
 
 Recovery Eligibility Evaluationはexact historical Epoch/Binding/Policy、responsibility/action、Confirmation Decision、Fencing/Storage Proof identitiesとcurrent usability、budget snapshot、read-only destination candidate snapshotをimmutableに記録する。結果はproofの`MISSING / STALE / UNKNOWN`、responsibility block、budget欠損/失効/枯渇、destination欠損を区別する。`WORKLOAD_MANAGED`と`MANUAL`をautomatic permissionへ昇格させない。

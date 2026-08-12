@@ -208,8 +208,8 @@ func loadFencingProofUsabilityTx(ctx context.Context, tx pgx.Tx, epoch FailureEp
 }
 
 func loadStorageProofUsabilityTx(ctx context.Context, tx pgx.Tx, epoch FailureEpoch) (proofID, proofDigest, usability string, err error) {
-	var evaluationID string
-	err = tx.QueryRow(ctx, `SELECT proof_id,proof_digest,evaluation_id FROM kim.storage_safety_proof_evidence WHERE failure_epoch_id=$1`, epoch.FailureEpochID).Scan(&proofID, &proofDigest, &evaluationID)
+	var evaluationID, proofType string
+	err = tx.QueryRow(ctx, `SELECT proof_id,proof_digest,evaluation_id,proof_type FROM kim.storage_safety_proof_evidence WHERE failure_epoch_id=$1`, epoch.FailureEpochID).Scan(&proofID, &proofDigest, &evaluationID, &proofType)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", "MISSING", nil
 	}
@@ -221,7 +221,29 @@ func loadStorageProofUsabilityTx(ctx context.Context, tx pgx.Tx, epoch FailureEp
 	if err != nil {
 		return proofID, proofDigest, "UNKNOWN", err
 	}
-	if inputCount == 0 || inputCount != currentCount {
+	if inputCount != currentCount {
+		return proofID, proofDigest, "STALE", nil
+	}
+	if proofType == "LOCAL_LVM_SOURCE_ROOT_QUIESCED_DATA_DETACHED" {
+		var rootID, rootDigest string
+		if err := tx.QueryRow(ctx, `SELECT root_safety_proof_id,root_safety_proof_digest FROM kim.storage_safety_root_input_evidence WHERE evaluation_id=$1`, evaluationID).Scan(&rootID, &rootDigest); err != nil {
+			return proofID, proofDigest, "UNKNOWN", err
+		}
+		currentRootID, currentRootDigest, rootUsability, err := loadSourceRootSafetyProofUsabilityTx(ctx, tx, epoch)
+		if err != nil {
+			return proofID, proofDigest, "UNKNOWN", err
+		}
+		if rootUsability != "USABLE" || rootID != currentRootID || rootDigest != currentRootDigest {
+			return proofID, proofDigest, "STALE", nil
+		}
+		retirementUsability, err := loadSourceRetirementUsabilityTx(ctx, tx, epoch, rootID, rootDigest)
+		if err != nil {
+			return proofID, proofDigest, "UNKNOWN", err
+		}
+		if retirementUsability != "USABLE" {
+			return proofID, proofDigest, "STALE", nil
+		}
+	} else if inputCount == 0 {
 		return proofID, proofDigest, "STALE", nil
 	}
 	return proofID, proofDigest, "USABLE", nil

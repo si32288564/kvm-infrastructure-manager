@@ -51,6 +51,7 @@ type FailureFencingProof struct {
 type StorageSafetyEvaluation struct {
 	EvaluationID, FailureEpochID, EvaluatedEpochState, AvailabilityBindingDigest string
 	PolicyID, PolicyDigest, EvidenceSetDigest, ResultState, ReasonCode           string
+	RootSafetyProofID, RootSafetyProofDigest                                     string
 	EvaluatorVersion, EvaluatorDigest, EvaluationDigest                          string
 	EvaluatedTransitionGeneration, AvailabilityBindingRevision, PolicyRevision   uint64
 }
@@ -63,13 +64,13 @@ type StorageSafetyProof struct {
 }
 
 type storageSafetyInput struct {
-	EvidenceID, AttachmentID, ObservationDigest  string
-	AttachmentClaimID, ClaimState, BindingID     string
-	BindingState, AttachmentState, EvidenceState string
-	AttachmentGeneration, ObservationGeneration  uint64
-	ClaimStateGeneration, BindingGeneration      uint64
-	BindingObservationGeneration                 uint64
-	DevicePresent, HolderOpen                    bool
+	EvidenceID, AttachmentID, VolumeID, ObservationDigest string
+	AttachmentClaimID, ClaimState, BindingID              string
+	BindingState, AttachmentState, EvidenceState          string
+	AttachmentGeneration, ObservationGeneration           uint64
+	ClaimStateGeneration, BindingGeneration               uint64
+	BindingObservationGeneration                          uint64
+	DevicePresent, HolderOpen                             bool
 }
 
 func PublishFailureFencingPolicy(ctx context.Context, db TxBeginner, p FailureFencingPolicy) (FailureFencingPolicy, error) {
@@ -108,7 +109,7 @@ func PublishFailureFencingPolicy(ctx context.Context, db TxBeginner, p FailureFe
 }
 
 func PublishStorageSafetyPolicy(ctx context.Context, db TxBeginner, p StorageSafetyPolicy) (StorageSafetyPolicy, error) {
-	if p.PolicyID == "" || p.PolicyRevision == 0 || p.StorageClass != "LOCAL_LVM" || p.SafetyMode != "SOURCE_DETACHED_NO_HOLDER" || p.LifecycleState == "" || p.CreatedBy == "" || p.ApprovedBy == "" {
+	if p.PolicyID == "" || p.PolicyRevision == 0 || p.StorageClass != "LOCAL_LVM" || (p.SafetyMode != "SOURCE_DETACHED_NO_HOLDER" && p.SafetyMode != "SOURCE_ROOT_QUIESCED_DATA_DETACHED") || p.LifecycleState == "" || p.CreatedBy == "" || p.ApprovedBy == "" {
 		return StorageSafetyPolicy{}, ErrFailureSafetyConflict
 	}
 	copy := p
@@ -364,7 +365,7 @@ func MaterializeFailureFencingProof(ctx context.Context, db TxBeginner, proofID,
 }
 
 func loadStorageSafetyInputs(ctx context.Context, tx pgx.Tx, epoch FailureEpoch) ([]storageSafetyInput, error) {
-	rows, err := tx.Query(ctx, `SELECT o.evidence_id,o.attachment_id,o.attachment_generation,o.observation_generation,o.observation_digest,cl.attachment_claim_id,cl.claim_state,cl.claim_state_generation,b.binding_id,b.binding_generation,b.observation_generation,b.binding_state,c.attachment_state,o.evidence_state,o.device_present,o.holder_open FROM kim.volume_attachments_current a JOIN kim.volume_attachment_claims cl ON cl.attachment_id=a.attachment_id AND cl.attachment_generation=a.attachment_generation JOIN kim.volume_attachment_observations_current c ON c.attachment_id=a.attachment_id AND c.attachment_generation=a.attachment_generation JOIN kim.volume_attachment_observation_evidence o ON o.evidence_id=c.evidence_id AND o.attachment_id=c.attachment_id AND o.attachment_generation=c.attachment_generation JOIN kim.volume_backend_bindings_current b ON b.binding_id=o.binding_id AND b.binding_generation=o.binding_generation WHERE a.placement_admission_id=$1 ORDER BY a.attachment_id`, epoch.AdmissionID)
+	rows, err := tx.Query(ctx, `SELECT o.evidence_id,o.attachment_id,o.volume_id,o.attachment_generation,o.observation_generation,o.observation_digest,cl.attachment_claim_id,cl.claim_state,cl.claim_state_generation,b.binding_id,b.binding_generation,b.observation_generation,b.binding_state,c.attachment_state,o.evidence_state,o.device_present,o.holder_open FROM kim.volume_attachments_current a JOIN kim.volume_attachment_claims cl ON cl.attachment_id=a.attachment_id AND cl.attachment_generation=a.attachment_generation JOIN kim.volume_attachment_observations_current c ON c.attachment_id=a.attachment_id AND c.attachment_generation=a.attachment_generation JOIN kim.volume_attachment_observation_evidence o ON o.evidence_id=c.evidence_id AND o.attachment_id=c.attachment_id AND o.attachment_generation=c.attachment_generation JOIN kim.volume_backend_bindings_current b ON b.binding_id=o.binding_id AND b.binding_generation=o.binding_generation WHERE a.placement_admission_id=$1 ORDER BY a.attachment_id`, epoch.AdmissionID)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +373,7 @@ func loadStorageSafetyInputs(ctx context.Context, tx pgx.Tx, epoch FailureEpoch)
 	var out []storageSafetyInput
 	for rows.Next() {
 		var i storageSafetyInput
-		if err := rows.Scan(&i.EvidenceID, &i.AttachmentID, &i.AttachmentGeneration, &i.ObservationGeneration, &i.ObservationDigest, &i.AttachmentClaimID, &i.ClaimState, &i.ClaimStateGeneration, &i.BindingID, &i.BindingGeneration, &i.BindingObservationGeneration, &i.BindingState, &i.AttachmentState, &i.EvidenceState, &i.DevicePresent, &i.HolderOpen); err != nil {
+		if err := rows.Scan(&i.EvidenceID, &i.AttachmentID, &i.VolumeID, &i.AttachmentGeneration, &i.ObservationGeneration, &i.ObservationDigest, &i.AttachmentClaimID, &i.ClaimState, &i.ClaimStateGeneration, &i.BindingID, &i.BindingGeneration, &i.BindingObservationGeneration, &i.BindingState, &i.AttachmentState, &i.EvidenceState, &i.DevicePresent, &i.HolderOpen); err != nil {
 			return nil, err
 		}
 		out = append(out, i)
@@ -414,9 +415,8 @@ func EvaluateStorageSafety(ctx context.Context, db TxBeginner, evaluationID, epo
 		if err != nil {
 			return err
 		}
-		rawInputs, _ := json.Marshal(inputs)
-		out.EvidenceSetDigest = digestReleaseBytes(rawInputs)
 		err = tx.QueryRow(ctx, `SELECT b.storage_safety_policy_id,b.storage_safety_policy_revision,b.storage_safety_policy_digest FROM kim.failure_epoch_evidence e JOIN kim.availability_policy_storage_safety_binding_evidence b ON b.availability_policy_id=e.availability_policy_id AND b.availability_policy_revision=e.availability_policy_revision AND b.availability_policy_digest=e.availability_policy_digest WHERE e.failure_epoch_id=$1`, epochID).Scan(&out.PolicyID, &out.PolicyRevision, &out.PolicyDigest)
+		var safetyMode string
 		if errors.Is(err, pgx.ErrNoRows) {
 			out.ResultState, out.ReasonCode = "NO_STORAGE_SAFETY_POLICY", "availability_policy_has_no_typed_storage_safety_reference"
 		} else if err != nil {
@@ -426,8 +426,55 @@ func EvaluateStorageSafety(ctx context.Context, db TxBeginner, evaluationID, epo
 		} else {
 			var rev uint64
 			var digest, lifecycle string
-			if err := tx.QueryRow(ctx, `SELECT policy_revision,policy_digest,lifecycle_state FROM kim.storage_safety_policies_current WHERE policy_id=$1 FOR SHARE`, out.PolicyID).Scan(&rev, &digest, &lifecycle); err != nil || rev != out.PolicyRevision || digest != out.PolicyDigest || lifecycle != "ACTIVE" {
+			if err := tx.QueryRow(ctx, `SELECT c.policy_revision,c.policy_digest,c.lifecycle_state,e.safety_mode FROM kim.storage_safety_policies_current c JOIN kim.storage_safety_policy_revision_evidence e ON e.policy_id=c.policy_id AND e.policy_revision=c.policy_revision AND e.policy_digest=c.policy_digest WHERE c.policy_id=$1 FOR SHARE OF c`, out.PolicyID).Scan(&rev, &digest, &lifecycle, &safetyMode); err != nil || rev != out.PolicyRevision || digest != out.PolicyDigest || lifecycle != "ACTIVE" {
 				out.ResultState, out.ReasonCode = "STALE_POLICY", "storage_safety_policy_not_current_active"
+			} else if safetyMode == "SOURCE_ROOT_QUIESCED_DATA_DETACHED" {
+				rootID, rootDigest, rootUsability, err := loadSourceRootSafetyProofUsabilityTx(ctx, tx, epoch)
+				if err != nil {
+					return err
+				}
+				out.RootSafetyProofID, out.RootSafetyProofDigest = rootID, rootDigest
+				var rootAttachment, rootVolume string
+				if rootID != "" {
+					if err := tx.QueryRow(ctx, `SELECT root_attachment_id,root_volume_id FROM kim.source_root_safety_proof_evidence WHERE proof_id=$1`, rootID).Scan(&rootAttachment, &rootVolume); err != nil {
+						return err
+					}
+				}
+				data := inputs[:0]
+				for _, i := range inputs {
+					if i.AttachmentID != rootAttachment {
+						data = append(data, i)
+					} else if i.VolumeID != rootVolume {
+						out.ResultState, out.ReasonCode = "CONFLICTING_INPUT", "root_attachment_volume_identity_conflicting"
+					}
+				}
+				inputs = data
+				if out.ResultState == "" {
+					switch rootUsability {
+					case "MISSING":
+						out.ResultState, out.ReasonCode = "NOT_SAFE", "source_root_safety_proof_missing"
+					case "STALE":
+						out.ResultState, out.ReasonCode = "NOT_SAFE", "source_root_safety_proof_stale"
+					case "UNKNOWN":
+						out.ResultState, out.ReasonCode = "UNKNOWN", "source_root_safety_proof_unknown"
+					default:
+						out.ResultState, out.ReasonCode = "SAFE", "source_root_safe_and_all_data_detached"
+					}
+				}
+				for _, i := range inputs {
+					if i.AttachmentState == "UNKNOWN" || i.EvidenceState == "UNKNOWN" {
+						out.ResultState, out.ReasonCode = "UNKNOWN", "data_storage_evidence_unknown"
+						break
+					}
+					if i.AttachmentState == "CONFLICTING" || i.EvidenceState == "CONFLICTING" {
+						out.ResultState, out.ReasonCode = "CONFLICTING_INPUT", "data_storage_evidence_conflicting"
+						break
+					}
+					if i.AttachmentState != "DETACHED" || i.ClaimState != "RELEASED" || i.BindingState != "BOUND" || i.EvidenceState != "MATCHED" || i.DevicePresent || i.HolderOpen {
+						out.ResultState, out.ReasonCode = "NOT_SAFE", "source_data_attachment_not_safely_detached"
+						break
+					}
+				}
 			} else if len(inputs) == 0 {
 				out.ResultState, out.ReasonCode = "NOT_SAFE", "local_lvm_attachment_evidence_missing"
 			} else {
@@ -448,6 +495,8 @@ func EvaluateStorageSafety(ctx context.Context, db TxBeginner, evaluationID, epo
 				}
 			}
 		}
+		rawInputs, _ := json.Marshal(map[string]any{"root_proof_id": out.RootSafetyProofID, "root_proof_digest": out.RootSafetyProofDigest, "data": inputs})
+		out.EvidenceSetDigest = digestReleaseBytes(rawInputs)
 		raw, _ := json.Marshal(out)
 		out.EvaluationDigest = digestReleaseBytes(raw)
 		var pid, prev, pdig any
@@ -459,6 +508,11 @@ func EvaluateStorageSafety(ctx context.Context, db TxBeginner, evaluationID, epo
 		}
 		for n, i := range inputs {
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.storage_safety_evaluation_input_evidence(evaluation_id,input_ordinal,attachment_evidence_id,attachment_id,attachment_generation,observation_generation,observation_digest,attachment_claim_id,claim_state,claim_state_generation,binding_id,binding_generation,binding_observation_generation,binding_state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, out.EvaluationID, n+1, i.EvidenceID, i.AttachmentID, i.AttachmentGeneration, i.ObservationGeneration, i.ObservationDigest, i.AttachmentClaimID, i.ClaimState, i.ClaimStateGeneration, i.BindingID, i.BindingGeneration, i.BindingObservationGeneration, i.BindingState); err != nil {
+				return err
+			}
+		}
+		if out.RootSafetyProofID != "" {
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.storage_safety_root_input_evidence(evaluation_id,volume_role,root_safety_proof_id,root_safety_proof_digest,root_volume_id,root_binding_id,root_binding_generation,root_attachment_id,root_attachment_generation,source_materialization_generation) SELECT $1,'ROOT',p.proof_id,p.proof_digest,p.root_volume_id,p.root_binding_id,p.root_binding_generation,p.root_attachment_id,p.root_attachment_generation,p.source_materialization_generation FROM kim.source_root_safety_proof_evidence p WHERE p.proof_id=$2`, out.EvaluationID, out.RootSafetyProofID); err != nil {
 				return err
 			}
 		}
@@ -507,15 +561,29 @@ func MaterializeStorageSafetyProof(ctx context.Context, db TxBeginner, proofID, 
 			return ErrFailureSafetyStale
 		}
 		var rev uint64
-		var digest, lifecycle string
-		if err := tx.QueryRow(ctx, `SELECT policy_revision,policy_digest,lifecycle_state FROM kim.storage_safety_policies_current WHERE policy_id=$1 FOR SHARE`, e.PolicyID).Scan(&rev, &digest, &lifecycle); err != nil || rev != e.PolicyRevision || digest != e.PolicyDigest || lifecycle != "ACTIVE" {
+		var digest, lifecycle, safetyMode string
+		if err := tx.QueryRow(ctx, `SELECT c.policy_revision,c.policy_digest,c.lifecycle_state,p.safety_mode FROM kim.storage_safety_policies_current c JOIN kim.storage_safety_policy_revision_evidence p ON p.policy_id=c.policy_id AND p.policy_revision=c.policy_revision AND p.policy_digest=c.policy_digest WHERE c.policy_id=$1 FOR SHARE OF c`, e.PolicyID).Scan(&rev, &digest, &lifecycle, &safetyMode); err != nil || rev != e.PolicyRevision || digest != e.PolicyDigest || lifecycle != "ACTIVE" {
 			return ErrFailureSafetyStale
 		}
 		var inputCount, currentCount int
-		if err := tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE c.evidence_id IS NOT NULL AND cl.attachment_claim_id IS NOT NULL AND b.binding_id IS NOT NULL) FROM kim.storage_safety_evaluation_input_evidence i LEFT JOIN kim.volume_attachment_observations_current c ON c.evidence_id=i.attachment_evidence_id AND c.attachment_id=i.attachment_id AND c.attachment_generation=i.attachment_generation AND c.observation_generation=i.observation_generation LEFT JOIN kim.volume_attachment_claims cl ON cl.attachment_claim_id=i.attachment_claim_id AND cl.claim_state=i.claim_state AND cl.claim_state_generation=i.claim_state_generation LEFT JOIN kim.volume_backend_bindings_current b ON b.binding_id=i.binding_id AND b.binding_generation=i.binding_generation AND b.observation_generation=i.binding_observation_generation AND b.binding_state=i.binding_state WHERE i.evaluation_id=$1`, evaluationID).Scan(&inputCount, &currentCount); err != nil || inputCount == 0 || inputCount != currentCount {
+		if err := tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE c.evidence_id IS NOT NULL AND cl.attachment_claim_id IS NOT NULL AND b.binding_id IS NOT NULL) FROM kim.storage_safety_evaluation_input_evidence i LEFT JOIN kim.volume_attachment_observations_current c ON c.evidence_id=i.attachment_evidence_id AND c.attachment_id=i.attachment_id AND c.attachment_generation=i.attachment_generation AND c.observation_generation=i.observation_generation LEFT JOIN kim.volume_attachment_claims cl ON cl.attachment_claim_id=i.attachment_claim_id AND cl.claim_state=i.claim_state AND cl.claim_state_generation=i.claim_state_generation LEFT JOIN kim.volume_backend_bindings_current b ON b.binding_id=i.binding_id AND b.binding_generation=i.binding_generation AND b.observation_generation=i.binding_observation_generation AND b.binding_state=i.binding_state WHERE i.evaluation_id=$1`, evaluationID).Scan(&inputCount, &currentCount); err != nil || inputCount != currentCount {
 			return ErrFailureSafetyStale
 		}
-		proof = StorageSafetyProof{ProofID: proofID, FailureEpochID: e.FailureEpochID, ExpectedTransitionGeneration: e.EvaluatedTransitionGeneration, EvaluationID: evaluationID, ProofType: "LOCAL_LVM_SOURCE_DETACHED_NO_HOLDER", ProofState: "SAFE", PolicyID: e.PolicyID, PolicyRevision: e.PolicyRevision, PolicyDigest: e.PolicyDigest, EvidenceSetDigest: e.EvidenceSetDigest, DecidedBy: decidedBy}
+		proofType := "LOCAL_LVM_SOURCE_DETACHED_NO_HOLDER"
+		if safetyMode == "SOURCE_ROOT_QUIESCED_DATA_DETACHED" {
+			rootID, rootDigest, usability, err := loadSourceRootSafetyProofUsabilityTx(ctx, tx, epoch)
+			if err != nil || usability != "USABLE" {
+				return ErrFailureSafetyStale
+			}
+			var acceptedID, acceptedDigest string
+			if err := tx.QueryRow(ctx, `SELECT root_safety_proof_id,root_safety_proof_digest FROM kim.storage_safety_root_input_evidence WHERE evaluation_id=$1`, evaluationID).Scan(&acceptedID, &acceptedDigest); err != nil || acceptedID != rootID || acceptedDigest != rootDigest {
+				return ErrFailureSafetyStale
+			}
+			proofType = "LOCAL_LVM_SOURCE_ROOT_QUIESCED_DATA_DETACHED"
+		} else if inputCount == 0 {
+			return ErrFailureSafetyStale
+		}
+		proof = StorageSafetyProof{ProofID: proofID, FailureEpochID: e.FailureEpochID, ExpectedTransitionGeneration: e.EvaluatedTransitionGeneration, EvaluationID: evaluationID, ProofType: proofType, ProofState: "SAFE", PolicyID: e.PolicyID, PolicyRevision: e.PolicyRevision, PolicyDigest: e.PolicyDigest, EvidenceSetDigest: e.EvidenceSetDigest, DecidedBy: decidedBy}
 		raw, _ := json.Marshal(proof)
 		proof.ProofDigest = digestReleaseBytes(raw)
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.storage_safety_proof_evidence(proof_id,failure_epoch_id,expected_transition_generation,evaluation_id,proof_type,proof_state,storage_safety_policy_id,storage_safety_policy_revision,storage_safety_policy_digest,evidence_set_digest,decided_by,proof_digest) VALUES($1,$2,$3,$4,$5,'SAFE',$6,$7,$8,$9,$10,$11)`, proof.ProofID, proof.FailureEpochID, proof.ExpectedTransitionGeneration, proof.EvaluationID, proof.ProofType, proof.PolicyID, proof.PolicyRevision, proof.PolicyDigest, proof.EvidenceSetDigest, proof.DecidedBy, proof.ProofDigest); err != nil {

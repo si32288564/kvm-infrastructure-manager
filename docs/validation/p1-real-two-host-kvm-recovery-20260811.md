@@ -3,8 +3,9 @@
 - Date: 2026-08-12
 - Overall result: `REAL_TWO_HOST_KVM_RECOVERY_AUTHORITY = BLOCKED`
 - Physical backend sub-gate: `REAL_TWO_HOST_KVM_BACKEND_SEQUENCE = PASS`
-- Blocker: ordinary Result/Observation ingestion is now exercised, but the real source boot Volume remains configured as `vda`; the physical run's detached `vdb` safety disk is not the boot Volume bound to the Recovery Epoch. The current `SOURCE_DETACHED_NO_HOLDER` policy therefore cannot honestly issue the exact source Storage Safety Proof without a separately-authorized root/source cleanup operation.
-- Repository baseline: `8260b70692f3618c65d19ba4f38bdf6960be1289`
+- Source root backend sub-gate: `REAL_SOURCE_ROOT_VDA_SAFETY_BACKEND = PASS`
+- Blocker: Migration 057 and the physical source-root read-back both pass, but this physical helper run did not consume a Lease capability granted by the same PostgreSQL Failure Epoch history. The real Result/Observation therefore was not accepted into the same Operation/Verification/Terminal transaction history. Fixture-backed terminal authority remains distinct from physical backend evidence.
+- Repository baseline: `e34941330480f38ea27af67bdbead0ded7177e2c` plus the Migration 057 change set under qualification
 
 The operator explicitly authorized g02 only for isolated, non-disruptive, fully removable artifacts. The run therefore used loop-backed VGs, one deterministic disposable VM, zero Ports, and no PCI. Existing production Domains, `vg0`, addresses, routes, OVS/OVN configuration, and services were outside the allow-list.
 
@@ -43,6 +44,26 @@ The opt-in helper requires `KIM_REAL_KVM_RECOVERY_QUALIFICATION=1`, exact hostna
 
 The backend sequence used materialization generation 1 on g01 and generation 2 on g02. A second VM UUID was never generated.
 
+## Migration 057 source-root follow-up
+
+The follow-up used a fresh deterministic UUID `f1c06a00-0000-4000-8000-202608120057`, isolated loop-backed `kimrr_root057_g01` / `kimrr_root057_g02` VGs, a 1 MiB digest-addressed zero image, one root Volume identity, zero Ports, and no PCI/SR-IOV. Both Hosts were guarded by exact hostname, UUID, Domain name, VG UUID, root path, loop backing path, and explicit opt-in.
+
+| Boundary | Actual result |
+|---|---|
+| source materialization | generation 1, exact root LV UUID `wUTIgd-keRh-7Sry-FEnH-4OD8-dmQp-fivujJ` |
+| source initial power | typed `RUNNING/MATCHED` |
+| failure injection | exact dedicated Domain hard-stop after UUID/name/root-path guards |
+| source power read-back | typed `SHUTOFF/MATCHED`, digest `fa71c5452d7f577a779c5fba404c5ae0a3906975e1e3903af671c9a178d36b93` |
+| source root read-back | `SOURCE_ROOT_SAFETY_READ_BACK/v1`, exact configured `vda`, device/source identity matched, holder closed, digest `e394ee48df76665613b0672cb214d5191acbc31ce2d74a7e9bd19a76a2dab0fb` |
+| destination materialization | generation 2, same VM/Volume identity, LV UUID `YIaM9r-FbZz-AQqq-qG0D-3j89-KgpN-6ES4Fo` |
+| destination power/root | `RUNNING/MATCHED`; exact `vda`, holder open, digest `047364d881ca1666a3bc9a19f84232ad7423945957541e2babd5d7fe9a654705` |
+| split-brain assertion | g01 `SHUTOFF`; g02 `RUNNING`; same UUID |
+| root mutation | source root backend is observation-only; no attach/detach/delete/undefine operation exists in the command type |
+
+The source Domain retained configured `vda` while stopped, and standard LVM read-back reported no holder. This directly qualifies the required `configured != actively held` backend semantic. The physical run used no detached `vdb` as root evidence.
+
+The helper inputs used an ephemeral lab-only placeholder capability rather than a capability issued by a PostgreSQL `AcquireCommandLease` in the same Recovery history. Its output remained capability-free. Consequently these actual observations are physical qualification evidence only; they were not substituted into fixture SQL and do not authorize a real Terminal Decision.
+
 ## Defects exposed by the real run
 
 The run found two authority/backend gaps that a fixture had hidden:
@@ -72,14 +93,15 @@ This closes the previously hidden direct-SQL execution-evidence shortcut. It doe
 
 ## Why the overall gate remains BLOCKED
 
-The real physical evidence above and the PostgreSQL Recovery authority regression remain two distinct qualification lanes. More importantly, the original physical profile did not prove the exact source boot-Volume safety condition consumed by Recovery authority:
+The original physical profile and Migration 057 follow-up now prove the physical backend and exact source boot-root condition. The remaining separation is evidence ingestion identity:
 
 ```text
-Recovery source boot Volume = libvirt vda (still configured on inactive source Domain)
-physical detached safety disk = vdb (separate disposable Volume)
+physical helper Result/Observation
+!= Result accepted against the same PostgreSQL Command Lease/Attempt
+!= one Failure Epoch/Eligibility/Operation/Terminal history
 ```
 
-The current typed backend intentionally permits `vda` only for observation and continues to reject root attach/detach mutation. Treating the detached `vdb` as proof for the boot Volume would violate exact Attachment/Binding identity and falsely authorize Recovery. Standard power `SHUTOFF`, helper success, or a closed holder alone is not a substitute for the required `DETACHED + RELEASED + device absent + holder closed` source Storage Safety Proof.
+Migration 057 intentionally permits `vda` only through a dedicated observation-only backend and continues to reject root mutation. It adds exact root Evaluation/Proof, logical source retirement, composite root/data Storage Safety, and consumer revalidation. PostgreSQL qualification proves that chain with ordinary Lease/Attempt/Result/Verification fixture transport; the physical run proves the actual libvirt/LVM observations. They have not yet been combined in one physical PostgreSQL authority history.
 
 Consequently this run does **not** claim:
 
@@ -119,11 +141,11 @@ Post-cleanup Domain, address, route, and OVS fingerprints exactly matched the pr
 | ordinary Lease/Attempt/Result/Receipt/Verification Recovery terminal PostgreSQL 17 integration | PASS |
 | ordinary UNKNOWN → RESYNC Verification Observation ingestion | PASS |
 | capability-free helper Result binding and libvirt-tag build | PASS |
-| fresh migration 001-056 | PASS |
+| fresh migration 001-057 | PASS |
 | `go test -race ./...` | PASS |
 | `make check` | PASS |
-| documentation lint | PASS: 471 requirements, 715 test contracts, 234 links |
+| documentation lint | PASS: 472 requirements, 717 test contracts, 234 links |
 
 ## Next gate
 
-Define and qualify the minimum explicit source-root safety authority instead of weakening the existing policy. Viable follow-up work is a closed, separately-authorized source Domain/root cleanup operation with exact read-back, or a new typed policy whose positive proof is explicitly `source SHUTOFF + holder closed` and whose safety assumptions are independently qualified. Until one of those authorities exists, do not ingest the secondary `vdb` evidence as the boot Volume proof and do not issue a Terminal Decision. After that gate, rerun the isolated two-Host profile through ordinary Result/Observation ingestion and require one committed Terminal Decision with actual exact-volume observations. Non-empty OVN, PCI/SR-IOV, `EVACUATE`, and repeated Recovery soak remain later gates.
+Run the isolated two-Host helper from Commands and Lease capabilities created by the same PostgreSQL Recovery history, ingest each capability-free remote Result through the ordinary Control Plane acceptance path, and require the exact physical root/power/materialization observations to reach one Recovery Verification and Terminal Decision. Only then may the overall gate become PASS. Non-empty OVN, PCI/SR-IOV, `EVACUATE`, generic source cleanup, and repeated Recovery soak remain later gates.

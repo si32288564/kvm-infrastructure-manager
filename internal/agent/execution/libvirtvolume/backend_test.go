@@ -100,6 +100,31 @@ func TestRootDiskIsObservationOnly(t *testing.T) {
 	}
 }
 
+func TestSourceRootSafetyReadBackIsQuiescenceOnly(t *testing.T) {
+	volumeID := "root-volume"
+	volumes := &fakeVolumes{volume: locallvm.LogicalVolume{VGUUID: "vg-uuid", LVUUID: "lv-uuid", Name: locallvm.ResourceKey(volumeID)}}
+	domains := &fakeDomains{volume: &volumes.volume, disk: DiskObservation{Present: true, SourcePath: "/dev/kimvg/" + locallvm.ResourceKey(volumeID), Target: "vda", Serial: volumeSerial(volumeID)}}
+	attachment := &Backend{Domains: domains, Volumes: volumes}
+	backend := SourceRootSafetyBackend{Attachment: attachment}
+	rootPayload := payload(t, map[string]any{"domain_uuid": "44444444-4444-4444-8444-444444444444", "volume_id": volumeID, "binding_id": "binding-root", "vg_uuid": "vg-uuid", "lv_uuid": "lv-uuid", "backend_resource_key": locallvm.ResourceKey(volumeID)})
+	digest := sha256.Sum256(rootPayload)
+	root := contract.CommandLease{TargetResourceID: "attachment:attachment-root", CommandPayload: rootPayload, CommandPayloadDigest: hex.EncodeToString(digest[:]), AttemptIndex: 1}
+	result, err := backend.Execute(context.Background(), root)
+	if err != nil || result.Outcome != "SUCCEEDED" || result.Observation.State != "MATCHED" || result.Observation.Evidence["target_device"] != "vda" || result.Observation.Evidence["binding_id"] != "binding-root" || domains.attachCount != 0 || domains.detachCount != 0 {
+		t.Fatalf("quiesced root result=%#v err=%v attach=%d detach=%d", result, err, domains.attachCount, domains.detachCount)
+	}
+	volumes.volume.DeviceOpen = true
+	result, err = backend.Execute(context.Background(), root)
+	if err != nil || result.Outcome != "UNKNOWN" || result.Observation.State != "CONFLICTING" || domains.attachCount != 0 || domains.detachCount != 0 {
+		t.Fatalf("open root result=%#v err=%v attach=%d detach=%d", result, err, domains.attachCount, domains.detachCount)
+	}
+	bad := map[string]any{"domain_uuid": "44444444-4444-4444-8444-444444444444", "volume_id": volumeID, "binding_id": "binding-root", "vg_uuid": "vg-uuid", "lv_uuid": "lv-uuid", "backend_resource_key": locallvm.ResourceKey(volumeID), "target_device": "vdb"}
+	root.CommandPayload = payload(t, bad)
+	if _, err := backend.Execute(context.Background(), root); err == nil {
+		t.Fatal("caller supplied source root target was accepted")
+	}
+}
+
 func TestBackendRejectsOpenEndedAttachmentInput(t *testing.T) {
 	backend := Backend{Domains: &fakeDomains{}, Volumes: &fakeVolumes{}}
 	base := map[string]any{"domain_uuid": "33333333-3333-4333-8333-333333333333", "volume_id": "volume-3", "vg_uuid": "vg-uuid", "lv_uuid": "lv-uuid", "backend_resource_key": locallvm.ResourceKey("volume-3"), "disk_slot": 1, "desired_state": "ATTACHED", "access_mode": "SINGLE_WRITER"}

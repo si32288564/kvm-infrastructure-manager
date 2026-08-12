@@ -20,13 +20,15 @@ import (
 )
 
 const (
-	CommandType     = "LOCAL_LVM_VOLUME_ATTACHMENT_ENSURE"
-	SchemaVersion   = "kim.command.local-lvm-volume-attachment/v1"
-	StateAttached   = "ATTACHED"
-	StateDetached   = "DETACHED"
-	SingleWriter    = "SINGLE_WRITER"
-	minimumDiskSlot = 0
-	maximumDiskSlot = 25
+	CommandType                         = "LOCAL_LVM_VOLUME_ATTACHMENT_ENSURE"
+	SchemaVersion                       = "kim.command.local-lvm-volume-attachment/v1"
+	SourceRootSafetyReadBackCommandType = "SOURCE_ROOT_SAFETY_READ_BACK"
+	SourceRootSafetyReadBackSchema      = "kim.command.source-root-safety-read-back/v1"
+	StateAttached                       = "ATTACHED"
+	StateDetached                       = "DETACHED"
+	SingleWriter                        = "SINGLE_WRITER"
+	minimumDiskSlot                     = 0
+	maximumDiskSlot                     = 25
 )
 
 var (
@@ -52,6 +54,23 @@ type VolumeResolver interface {
 type Backend struct {
 	Domains DomainClient
 	Volumes VolumeResolver
+}
+
+// SourceRootSafetyBackend is a closed, observation-only backend for the exact
+// boot disk configured by the immutable source materialization plan. It has no
+// attach, detach, delete, undefine, or arbitrary target operation.
+type SourceRootSafetyBackend struct{ Attachment *Backend }
+
+func (SourceRootSafetyBackend) CommandType() string   { return SourceRootSafetyReadBackCommandType }
+func (SourceRootSafetyBackend) SchemaVersion() string { return SourceRootSafetyReadBackSchema }
+
+type sourceRootRequest struct {
+	DomainUUID         string `json:"domain_uuid"`
+	VolumeID           string `json:"volume_id"`
+	BindingID          string `json:"binding_id"`
+	VGUUID             string `json:"vg_uuid"`
+	LVUUID             string `json:"lv_uuid"`
+	BackendResourceKey string `json:"backend_resource_key"`
 }
 
 func (Backend) CommandType() string   { return CommandType }
@@ -136,6 +155,74 @@ func (backend Backend) Observe(ctx context.Context, verification contract.Verifi
 		return contract.Observation{}, err
 	}
 	return backend.observe(ctx, decoded, verification.AttemptIndex)
+}
+
+func (backend SourceRootSafetyBackend) Execute(ctx context.Context, lease contract.CommandLease) (agentexecution.BackendResult, error) {
+	observation, err := backend.observe(ctx, lease.TargetResourceID, lease.CommandPayload, lease.AttemptIndex)
+	if err != nil {
+		return agentexecution.BackendResult{}, err
+	}
+	outcome := "UNKNOWN"
+	if observation.State == "MATCHED" {
+		outcome = "SUCCEEDED"
+	}
+	return agentexecution.BackendResult{Outcome: outcome, Result: observation.Evidence, Observation: observation}, nil
+}
+
+func (backend SourceRootSafetyBackend) Observe(ctx context.Context, verification contract.VerificationRequest) (contract.Observation, error) {
+	return backend.observe(ctx, verification.TargetResourceID, verification.CommandPayload, verification.AttemptIndex)
+}
+
+func (backend SourceRootSafetyBackend) observe(ctx context.Context, target string, payload []byte, generation int) (contract.Observation, error) {
+	attachmentID, desired, err := backend.decode(target, payload)
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	volume, sourcePath, err := backend.Attachment.Volumes.Resolve(ctx, desired.VGUUID, desired.BackendResourceKey, desired.LVUUID)
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	disk, err := backend.Attachment.Domains.Disk(ctx, desired.DomainUUID, "vda")
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	decoded := decodedRequest{attachmentID: attachmentID, target: "vda", serial: volumeSerial(desired.VolumeID), request: request{DomainUUID: desired.DomainUUID, VolumeID: desired.VolumeID, VGUUID: desired.VGUUID, LVUUID: desired.LVUUID, BackendResourceKey: desired.BackendResourceKey, DiskSlot: 0, DesiredState: StateAttached, AccessMode: SingleWriter}}
+	expected := DiskObservation{Present: true, SourcePath: sourcePath, Target: "vda", Serial: decoded.serial, ReadOnly: false}
+	state := "CONFLICTING"
+	if sameDisk(disk, expected) && !volume.DeviceOpen {
+		state = "MATCHED"
+	}
+	observation := backend.Attachment.observation(decoded, volume, disk, sourcePath, state, generation)
+	observation.Evidence["binding_id"] = desired.BindingID
+	observation.Evidence["source"] = "libvirt_source_root_xml+lvm_lv_device_open"
+	encoded, _ := json.Marshal(observation.Evidence)
+	digest := sha256.Sum256(encoded)
+	observation.Digest = hex.EncodeToString(digest[:])
+	return observation, nil
+}
+
+func (backend SourceRootSafetyBackend) decode(target string, payload []byte) (string, sourceRootRequest, error) {
+	if backend.Attachment == nil || backend.Attachment.Domains == nil || backend.Attachment.Volumes == nil {
+		return "", sourceRootRequest{}, errors.New("complete source root safety backend is required")
+	}
+	match := attachmentTargetPattern.FindStringSubmatch(target)
+	if match == nil {
+		return "", sourceRootRequest{}, errors.New("invalid source root attachment identity")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	var desired sourceRootRequest
+	if err := decoder.Decode(&desired); err != nil {
+		return "", sourceRootRequest{}, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return "", sourceRootRequest{}, errors.New("trailing source root safety payload")
+	}
+	if !domainUUIDPattern.MatchString(desired.DomainUUID) || desired.VolumeID == "" || desired.BindingID == "" || desired.VGUUID == "" || desired.LVUUID == "" || desired.BackendResourceKey != locallvm.ResourceKey(desired.VolumeID) {
+		return "", sourceRootRequest{}, errors.New("invalid typed source root safety request")
+	}
+	return match[1], desired, nil
 }
 
 func (backend Backend) observe(ctx context.Context, decoded decodedRequest, generation int) (contract.Observation, error) {
