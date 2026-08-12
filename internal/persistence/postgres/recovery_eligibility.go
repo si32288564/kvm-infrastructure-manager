@@ -124,6 +124,11 @@ func loadRecoveryDestinationRequestTx(ctx context.Context, tx pgx.Tx, epoch Fail
 	// Volume shape. Carrying the source backend ID into this multi-Host dry
 	// snapshot would make every other Local LVM Host ineligible by definition.
 	request.Storage = nil
+	// Logical Port identity remains owned by the workload, but source binding
+	// quiescence and its exact Handoff authority do not exist until the
+	// materialization phase. Eligibility stays read-only and does not pretend
+	// that an existing active Port can already be claimed on another Host.
+	request.Network = nil
 	request.RequestID = "recovery-eligibility:" + evaluationID
 	request.PlacementScopeID = placementScopeID
 	return request, nil

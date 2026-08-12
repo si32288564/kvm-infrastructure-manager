@@ -99,6 +99,49 @@ func TestEvaluateNetworkIdentityAndBindingFailClosed(t *testing.T) {
 	}
 }
 
+func TestEvaluateNetworkPortHandoffRequiresExactQuiescenceAuthority(t *testing.T) {
+	request := placementRequestFixture()
+	request.Network = []NetworkRequirement{{
+		PortID: "port", NetworkID: "network", NetworkGeneration: 1,
+		SubnetID: "subnet", SubnetGeneration: 1,
+		SegmentClaimID: "segment", SegmentGeneration: 1, HostMappingGeneration: 1,
+		IPAddress: "192.0.2.10", MACAddress: "02:00:00:00:00:10",
+		BindingType: "OVS", RequiredMTU: 1500,
+		HandoffID: "handoff", SourceHostID: "source-host",
+		SourceQuiescenceEvidenceID: "quiescence", SourceQuiescenceEvidenceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		SourcePortGeneration: 1, DestinationPortGeneration: 2,
+		SourceBindingGeneration: 1, DestinationBindingGeneration: 2,
+	}}
+	authority := authorityFixture("destination-host", "READY", 8, 4, 16*1024, 8*1024, 8)
+	authority.Networks = map[string]NetworkAuthority{"port": {
+		PortID: "port", NetworkID: "network", NetworkProjectID: "project",
+		NetworkGeneration: 1, NetworkState: "ACTIVE", NetworkMTU: 1500,
+		SubnetID: "subnet", SubnetGeneration: 1, SubnetState: "ACTIVE",
+		SegmentClaimID: "segment", SegmentGeneration: 1, SegmentState: "ACTIVE",
+		HostMappingGeneration: 1, MappingState: "CURRENT", MappingMaximumMTU: 9000,
+		IPAddressAllowed: true, BindingSupported: true, HandoffReady: true,
+	}}
+	accepted, err := Evaluate(request, authority)
+	if err != nil || !accepted.Eligible {
+		t.Fatalf("exact PortBindingHandoff evaluation/error = %#v/%v", accepted, err)
+	}
+
+	network := authority.Networks["port"]
+	network.HandoffReady = false
+	authority.Networks["port"] = network
+	blocked, err := Evaluate(request, authority)
+	if err != nil || blocked.Eligible || !contains(blocked.ReasonCodes, "network:port:handoff_not_current") {
+		t.Fatalf("stale PortBindingHandoff evaluation/error = %#v/%v", blocked, err)
+	}
+
+	invalid := request
+	invalid.Network = append([]NetworkRequirement(nil), request.Network...)
+	invalid.Network[0].DestinationBindingGeneration = 3
+	if _, err := Evaluate(invalid, authority); err == nil {
+		t.Fatal("non-contiguous PortBindingHandoff generation was accepted")
+	}
+}
+
 func TestEvaluateLocalLVMCapacityAndSingleWriterFailClosed(t *testing.T) {
 	request := placementRequestFixture()
 	request.Storage = []StorageRequirement{{

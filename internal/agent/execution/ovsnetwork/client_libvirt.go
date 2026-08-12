@@ -77,7 +77,9 @@ func (c *client) Dataplane(ctx context.Context, domainUUID, mac, segment string)
 	observedBridge := strings.TrimSpace(string(observed))
 	linkRaw, _ := exec.CommandContext(ctx, "ovs-vsctl", "--if-exists", "get", "Interface", target, "link_state").Output()
 	link := strings.Trim(strings.TrimSpace(string(linkRaw)), "\"")
-	return DataplaneObservation{DomainRunning: true, InterfacePresent: true, BridgeMatches: observedBridge == bridge, TargetDevice: target, Bridge: observedBridge, LinkState: link}, nil
+	ifaceRaw, _ := exec.CommandContext(ctx, "ovs-vsctl", "--if-exists", "get", "Interface", target, "external_ids:iface-id").Output()
+	ifaceID := strings.Trim(strings.TrimSpace(string(ifaceRaw)), "\"")
+	return DataplaneObservation{DomainRunning: true, InterfacePresent: true, BridgeMatches: observedBridge == bridge, TargetDevice: target, Bridge: observedBridge, LinkState: link, InterfaceID: ifaceID}, nil
 }
 func (c *client) Bridge(ctx context.Context, segment string) (string, bool, error) {
 	bridge, ok := c.bridges[segment]
@@ -120,8 +122,8 @@ func (c *client) NIC(ctx context.Context, domainUUID, mac string) (NICObservatio
 	if found == nil {
 		return NICObservation{MAC: mac}, nil
 	}
-	matches := found.Type == "bridge" && found.VirtualPort.Type == "openvswitch" && found.Model.Type == "virtio"
-	return NICObservation{Present: true, IdentityMatches: matches, Bridge: found.Source.Bridge, MAC: found.MAC.Address, Model: found.Model.Type}, nil
+	matches := found.Type == "bridge" && found.VirtualPort.Type == "openvswitch" && found.Model.Type == "virtio" && found.VirtualPort.Parameters.InterfaceID != ""
+	return NICObservation{Present: true, IdentityMatches: matches, Bridge: found.Source.Bridge, MAC: found.MAC.Address, Model: found.Model.Type, PortID: found.VirtualPort.Parameters.InterfaceID}, nil
 }
 func (c *client) AttachNIC(ctx context.Context, domainUUID string, nic NICObservation) error {
 	if err := ctx.Err(); err != nil {
@@ -132,7 +134,7 @@ func (c *client) AttachNIC(ctx context.Context, domainUUID string, nic NICObserv
 		return errors.New("lookup libvirt Domain failed")
 	}
 	defer domain.Free()
-	payload, err := xml.Marshal(domainInterface{Type: "bridge", MAC: macElement{Address: nic.MAC}, Source: sourceElement{Bridge: nic.Bridge}, VirtualPort: virtualPortElement{Type: "openvswitch"}, Model: modelElement{Type: "virtio"}})
+	payload, err := xml.Marshal(domainInterface{Type: "bridge", MAC: macElement{Address: nic.MAC}, Source: sourceElement{Bridge: nic.Bridge}, VirtualPort: virtualPortElement{Type: "openvswitch", Parameters: virtualPortParameters{InterfaceID: nic.PortID}}, Model: modelElement{Type: "virtio"}})
 	if err != nil {
 		return errors.New("encode typed OVS NIC XML failed")
 	}
@@ -166,7 +168,11 @@ type sourceElement struct {
 	Bridge string `xml:"bridge,attr"`
 }
 type virtualPortElement struct {
-	Type string `xml:"type,attr"`
+	Type       string                `xml:"type,attr"`
+	Parameters virtualPortParameters `xml:"parameters"`
+}
+type virtualPortParameters struct {
+	InterfaceID string `xml:"interfaceid,attr"`
 }
 type modelElement struct {
 	Type string `xml:"type,attr"`

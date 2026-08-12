@@ -23,6 +23,7 @@ type DataplaneObservation struct {
 	TargetDevice     string
 	Bridge           string
 	LinkState        string
+	InterfaceID      string
 }
 
 type DataplaneClient interface {
@@ -73,14 +74,17 @@ func (b DataplaneBackend) decode(target string, payload []byte) (request, error)
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return decoded, errors.New("trailing OVS dataplane payload")
 	}
-	if decoded.PortID != match[1] || !uuidPattern.MatchString(decoded.DomainUUID) || decoded.BindingType != "OVS" || decoded.DesiredState != "CONVERGED" || decoded.VMGeneration == 0 || decoded.PortGeneration == 0 || decoded.NetworkGeneration == 0 || decoded.SegmentGeneration == 0 || decoded.HostMappingGeneration == 0 || decoded.BindingGeneration == 0 || !macPattern.MatchString(decoded.MACAddress) {
+	if decoded.PortID != match[1] || !uuidPattern.MatchString(decoded.DomainUUID) || decoded.BindingType != "OVS" || (decoded.DesiredState != "CONVERGED" && decoded.DesiredState != "QUIESCED") || decoded.VMGeneration == 0 || decoded.PortGeneration == 0 || decoded.NetworkGeneration == 0 || decoded.SegmentGeneration == 0 || decoded.HostMappingGeneration == 0 || decoded.BindingGeneration == 0 || !macPattern.MatchString(decoded.MACAddress) {
 		return decoded, errors.New("invalid typed OVS dataplane observation")
 	}
 	return decoded, nil
 }
 
 func dataplaneResult(request request, observed DataplaneObservation, generation int) agentexecution.BackendResult {
-	matched := observed.DomainRunning && observed.InterfacePresent && observed.BridgeMatches && observed.TargetDevice != "" && observed.LinkState == "up"
+	matched := observed.DomainRunning && observed.InterfacePresent && observed.BridgeMatches && observed.TargetDevice != "" && observed.LinkState == "up" && observed.InterfaceID == request.PortID
+	if request.DesiredState == "QUIESCED" {
+		matched = !observed.DomainRunning && !observed.InterfacePresent
+	}
 	state, outcome := "DEGRADED", "UNKNOWN"
 	if matched {
 		state, outcome = "MATCHED", "SUCCEEDED"
@@ -93,7 +97,7 @@ func dataplaneResult(request request, observed DataplaneObservation, generation 
 		"host_mapping_generation": request.HostMappingGeneration, "binding_generation": request.BindingGeneration,
 		"binding_type": "OVS", "mac_address": request.MACAddress,
 		"domain_running": observed.DomainRunning, "interface_present": observed.InterfacePresent,
-		"target_device": observed.TargetDevice, "bridge_observed": observed.Bridge,
+		"target_device": observed.TargetDevice, "bridge_observed": observed.Bridge, "interface_id": observed.InterfaceID,
 		"bridge_matches": observed.BridgeMatches, "link_state": observed.LinkState,
 		"source": "libvirt_active_xml+ovsdb_interface",
 	}

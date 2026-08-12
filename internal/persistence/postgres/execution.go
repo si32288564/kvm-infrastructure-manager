@@ -432,7 +432,7 @@ func AcquireCommandLease(ctx context.Context, db TxBeginner, request CommandLeas
 		case CommandLeaseScopeMutation:
 			authority, err = readHostMutationAuthorityTx(ctx, tx, hostID, request.HostAuthorityGeneration)
 		case CommandLeaseScopeReadOnlyVerification:
-			if commandType != SourceRootSafetyReadBackCommandType || schemaVersion != SourceRootSafetyReadBackSchema {
+			if !isReadOnlyVerificationCommand(commandType, schemaVersion) {
 				return ErrCommandNotDispatchable
 			}
 			authority, err = readHostReadOnlyVerificationAuthorityTx(ctx, tx, hostID, request.HostAuthorityGeneration)
@@ -840,7 +840,7 @@ func validateActiveLeaseTx(ctx context.Context, tx pgx.Tx, commandID string, att
 		authority, err = readHostMutationAuthorityTx(ctx, tx, lease.HostID, lease.HostAuthorityGeneration)
 	case CommandLeaseScopeReadOnlyVerification:
 		var commandType, schemaVersion string
-		if queryErr := tx.QueryRow(ctx, `SELECT command_type,schema_version FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&commandType, &schemaVersion); queryErr != nil || commandType != SourceRootSafetyReadBackCommandType || schemaVersion != SourceRootSafetyReadBackSchema {
+		if queryErr := tx.QueryRow(ctx, `SELECT command_type,schema_version FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&commandType, &schemaVersion); queryErr != nil || !isReadOnlyVerificationCommand(commandType, schemaVersion) {
 			return currentLease{}, ErrStaleCommandLease
 		}
 		authority, err = readHostReadOnlyVerificationAuthorityTx(ctx, tx, lease.HostID, lease.HostAuthorityGeneration)

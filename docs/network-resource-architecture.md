@@ -354,3 +354,9 @@ mutationはidempotency key、ETag/generation、Operationを要求します。Eve
 ## Recovery consumer
 
 Recovery destination networkはexact Final AdmissionのPort/IP/MAC/Binding/PCI Claimsと既存pre-boot realization authorityを使用する。Recovery materializerは再allocationやbridge/OVN identityの自由指定を行わない。Recovery Verificationはcurrent VM/Plan generationに対応するNetwork readiness generation/digestを固定し、state名だけで`REALIZED`を再利用しない。post-boot dataplane/guest reachabilityは別authorityであり、Recovery successに暗黙包含しない。
+
+Migration 059はlogical Port ownershipとHost binding incarnationを分離する。exact source Port/Binding generationのread-only dataplane observationがVM non-running/interface absentを`MATCHED`とした場合だけimmutable source-quiescence evidenceを発行する。Final Admissionはそのevidence、source/destination Host、old/new Port/Binding generationを再検証し、same Port/MAC/IP Claimを保持したままimmutable `PortBindingHandoff`とdestination binding incarnationをatomic commitする。Eligibilityはこのmutationを行わない。
+
+pre-power `READY`はsource quiescence、current Handoff、destination intent/pre-boot realizationの準備を意味し、post-power dataplane convergenceの代替ではない。Recovery Verification/TerminalはPort、IP/MAC Claim、Handoff、NB、SB destination chassis、exact OVS `iface-id`とdataplane observationのcurrent composite digestを再計算する。missing evidenceはzero-Port canonical digestに縮退せずfail closedにする。
+
+Migration 059自体はsource OVN objectをretire/unbindするmutation authorityを発行しない。そのoperationは既存PostgreSQL-backed Network work claim、UNKNOWN/read-back、ownership/absence evidenceを使うgeneric typed operationとして別途qualificationする。Recovery harnessによる直接`ovn-nbctl`/`ovs-vsctl`変更はauthority shortcutとして禁止する。

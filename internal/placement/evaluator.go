@@ -35,12 +35,16 @@ type PCIRequirement struct {
 }
 
 type NetworkRequirement struct {
-	PortID, NetworkID, SubnetID, SegmentClaimID            string
-	IPAddress, MACAddress, BindingType, DeviceAddress      string
-	AllocationSource                                       string
-	NetworkGeneration, SubnetGeneration, SegmentGeneration uint64
-	HostMappingGeneration                                  uint64
-	RequiredMTU                                            uint32
+	PortID, NetworkID, SubnetID, SegmentClaimID             string
+	IPAddress, MACAddress, BindingType, DeviceAddress       string
+	AllocationSource                                        string
+	NetworkGeneration, SubnetGeneration, SegmentGeneration  uint64
+	HostMappingGeneration                                   uint64
+	RequiredMTU                                             uint32
+	HandoffID, SourceHostID, SourceQuiescenceEvidenceID     string
+	SourceQuiescenceEvidenceDigest                          string
+	SourcePortGeneration, SourceBindingGeneration           uint64
+	DestinationPortGeneration, DestinationBindingGeneration uint64
 }
 
 type StorageRequirement struct {
@@ -74,6 +78,7 @@ type NetworkAuthority struct {
 	NetworkMTU, MappingMaximumMTU                          uint32
 	IPAddressAllowed, IdentityConflict, PortConflict       bool
 	BindingSupported                                       bool
+	HandoffReady                                           bool
 }
 
 type StorageAuthority struct {
@@ -156,7 +161,9 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 			allocationSource = "EXPLICIT"
 		}
 		identitiesValid := (allocationSource == "EXPLICIT" && required.IPAddress != "" && required.MACAddress != "") || (allocationSource == "AUTOMATIC" && required.IPAddress == "" && required.MACAddress == "")
-		if required.PortID == "" || required.NetworkID == "" || required.NetworkGeneration == 0 || required.SubnetID == "" || required.SubnetGeneration == 0 || required.SegmentClaimID == "" || required.SegmentGeneration == 0 || required.HostMappingGeneration == 0 || !identitiesValid || required.RequiredMTU < 576 || (required.BindingType != "OVS" && required.BindingType != "SRIOV_DIRECT") || (index > 0 && request.Network[index-1].PortID == required.PortID) {
+		handoff := required.HandoffID != ""
+		handoffValid := !handoff || (required.SourceHostID != "" && required.SourceQuiescenceEvidenceID != "" && len(required.SourceQuiescenceEvidenceDigest) == 64 && required.SourcePortGeneration > 0 && required.SourceBindingGeneration > 0 && required.DestinationPortGeneration == required.SourcePortGeneration+1 && required.DestinationBindingGeneration == required.SourceBindingGeneration+1 && allocationSource == "EXPLICIT")
+		if required.PortID == "" || required.NetworkID == "" || required.NetworkGeneration == 0 || required.SubnetID == "" || required.SubnetGeneration == 0 || required.SegmentClaimID == "" || required.SegmentGeneration == 0 || required.HostMappingGeneration == 0 || !identitiesValid || !handoffValid || required.RequiredMTU < 576 || (required.BindingType != "OVS" && required.BindingType != "SRIOV_DIRECT") || (index > 0 && request.Network[index-1].PortID == required.PortID) {
 			return Evaluation{}, fmt.Errorf("invalid or duplicate Network requirement for Port %q", required.PortID)
 		}
 		if required.BindingType == "OVS" && required.DeviceAddress != "" {
@@ -255,6 +262,7 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		addReason(!network.IPAddressAllowed, prefix+"ip_not_allowed")
 		addReason(network.IdentityConflict, prefix+"identity_claim_conflict")
 		addReason(network.PortConflict, prefix+"port_conflict")
+		addReason(required.HandoffID != "" && !network.HandoffReady, prefix+"handoff_not_current")
 		addReason(!network.BindingSupported, prefix+"binding_not_supported")
 	}
 	for _, required := range request.Storage {

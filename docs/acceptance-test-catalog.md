@@ -485,6 +485,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-PKI-023 | PITR/DR後にrestore/trust generationでold session/Leaseをfenceしrevocation/issuer stateを再取得する |
 | AT-PKI-024 | Trust publish/issuance override/revoke/distrust/rollover/emergency/Secret administrationの権限とapprovalを分離する |
 | AT-PKI-025 | metrics/auditがtrust/credential/session/revocation/rolloverを追跡しsecret/raw identityをredactする |
+| AT-NET-046 | non-empty Network Recovery が同一Port/MAC/IP、source quiescence、PortBindingHandoff、destination NB/SB/OVS evidenceを同一PostgreSQL historyへ固定し、TerminalだけがRecovery成功を確定する |
 
 ## 18. Performance Tests
 

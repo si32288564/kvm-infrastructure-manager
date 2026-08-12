@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
@@ -37,6 +38,7 @@ type HelperRequest struct {
 	VGUUID           string          `json:"vg_uuid"`
 	CacheRoot        string          `json:"cache_root"`
 	StateRoot        string          `json:"state_root"`
+	OVSBridge        string          `json:"ovs_bridge,omitempty"`
 	AttemptIndex     int             `json:"attempt_index"`
 	AuthorityGen     int64           `json:"host_authority_generation"`
 	SessionGen       int64           `json:"session_generation"`
@@ -54,7 +56,7 @@ type HelperResponse struct {
 }
 
 type RemoteConfig struct {
-	Host, HelperPath, VGName, VGUUID, CacheRoot, StateRoot string
+	Host, HelperPath, VGName, VGUUID, CacheRoot, StateRoot, OVSBridge string
 }
 
 type AcceptedExecution struct {
@@ -83,7 +85,7 @@ func Execute(ctx context.Context, db postgres.TxBeginner, config RemoteConfig, c
 	grant, err := postgres.AcquireCommandLease(ctx, db, postgres.CommandLeaseRequest{CommandID: commandID,
 		HostAuthorityGeneration: candidate.HostAuthorityGeneration, Duration: duration,
 		AuthorityScope: func() string {
-			if candidate.CommandType == postgres.SourceRootSafetyReadBackCommandType && candidate.SchemaVersion == postgres.SourceRootSafetyReadBackSchema {
+			if (candidate.CommandType == postgres.SourceRootSafetyReadBackCommandType && candidate.SchemaVersion == postgres.SourceRootSafetyReadBackSchema) || candidate.CommandType == ovsnetwork.DataplaneCommandType {
 				return postgres.CommandLeaseScopeReadOnlyVerification
 			}
 			return postgres.CommandLeaseScopeMutation
@@ -121,10 +123,14 @@ func InvokeRemote(ctx context.Context, config RemoteConfig, grant postgres.Comma
 		!strings.HasPrefix(config.CacheRoot, "/var/tmp/kim-real-recovery-") || !strings.HasPrefix(config.StateRoot, "/var/tmp/kim-real-recovery-") {
 		return HelperResponse{}, errors.New("dedicated real Recovery artifacts are required")
 	}
+	if (candidate.CommandType == ovsnetwork.CommandType || candidate.CommandType == ovsnetwork.DataplaneCommandType) && config.OVSBridge != "br-int" {
+		return HelperResponse{}, errors.New("admin-configured br-int mapping is required for OVS qualification")
+	}
 	request := HelperRequest{ExpectedHostname: config.Host, HostID: grant.HostID, CommandID: grant.CommandID,
 		CommandType: candidate.CommandType, SchemaVersion: candidate.SchemaVersion,
 		TargetResourceID: candidate.TargetResourceID, Payload: candidate.Payload, PayloadDigest: candidate.PayloadDigest,
 		VGName: config.VGName, VGUUID: config.VGUUID, CacheRoot: config.CacheRoot, StateRoot: config.StateRoot,
+		OVSBridge:    config.OVSBridge,
 		AttemptIndex: grant.AttemptIndex, AuthorityGen: grant.HostAuthorityGeneration,
 		SessionGen: grant.SessionGeneration, LeaseGeneration: grant.LeaseGeneration, LeaseToken: grant.Token}
 	encoded, err := json.Marshal(request)

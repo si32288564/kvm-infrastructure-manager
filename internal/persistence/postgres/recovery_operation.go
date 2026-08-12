@@ -102,16 +102,42 @@ func recoveryPlacementRequest(operationID string, source PlacementAdmissionReque
 	request := source
 	request.RequestID = "recovery-placement:" + operationID
 	request.PlacementScopeGeneration, request.PlacementScopeDigest, request.VisibilityProvenanceDigest = 0, "", ""
-	for index := range request.Network {
-		request.Network[index].PortID = fmt.Sprintf("recovery-port:%s:%d", operationID, index+1)
-		request.Network[index].AllocationSource = "AUTOMATIC"
-		request.Network[index].IPAddress, request.Network[index].MACAddress = "", ""
-	}
 	for index := range request.Storage {
 		request.Storage[index].VolumeID = recoveryPlacementResourceID("volume", operationID, index+1)
 		request.Storage[index].AttachmentID = recoveryPlacementResourceID("attachment", operationID, index+1)
 	}
 	return request
+}
+
+func addRecoveryNetworkHandoffRequirementsTx(ctx context.Context, tx pgx.Tx, operationID, sourceAdmissionID string, request *PlacementAdmissionRequest) error {
+	var raw []byte
+	if err := tx.QueryRow(ctx, `SELECT network_requirements FROM kim.placement_admission_decisions WHERE admission_id=$1`, sourceAdmissionID).Scan(&raw); err != nil {
+		return err
+	}
+	var source []placement.NetworkRequirement
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return err
+	}
+	request.Network = source
+	for index := range request.Network {
+		r := &request.Network[index]
+		var sourceHost, evidenceID, evidenceDigest, ip, mac string
+		var portGeneration, bindingGeneration uint64
+		if err := tx.QueryRow(ctx, `SELECT b.host_id,p.port_generation,b.binding_generation,q.evidence_id,q.evidence_digest,ip.ip_address::text,mac.mac_address::text
+			FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id
+			JOIN kim.network_port_source_quiescence_evidence q ON q.port_id=p.port_id AND q.port_generation=p.port_generation AND q.source_host_id=b.host_id AND q.source_binding_generation=b.binding_generation AND q.quiescence_state='QUIESCED'
+			JOIN kim.network_identity_claims ip ON ip.port_id=p.port_id AND ip.claim_type='IP' AND ip.claim_state IN ('RESERVED','ACTIVE')
+			JOIN kim.network_identity_claims mac ON mac.port_id=p.port_id AND mac.claim_type='MAC' AND mac.claim_state IN ('RESERVED','ACTIVE')
+			WHERE p.placement_admission_id=$1 AND p.port_id=$2 ORDER BY q.observation_generation DESC LIMIT 1`, sourceAdmissionID, r.PortID).Scan(&sourceHost, &portGeneration, &bindingGeneration, &evidenceID, &evidenceDigest, &ip, &mac); err != nil {
+			return ErrRecoveryOperationBlocked
+		}
+		r.AllocationSource, r.IPAddress, r.MACAddress = "EXPLICIT", ip, mac
+		r.HandoffID = fmt.Sprintf("recovery-handoff:%s:%d", operationID, index+1)
+		r.SourceHostID, r.SourceQuiescenceEvidenceID, r.SourceQuiescenceEvidenceDigest = sourceHost, evidenceID, evidenceDigest
+		r.SourcePortGeneration, r.SourceBindingGeneration = portGeneration, bindingGeneration
+		r.DestinationPortGeneration, r.DestinationBindingGeneration = portGeneration+1, bindingGeneration+1
+	}
+	return nil
 }
 
 func recoveryPlacementResourceID(kind, operationID string, index int) string {
@@ -217,6 +243,9 @@ func PlanRecoveryOperation(ctx context.Context, db TxBeginner, operationID, plan
 			return err
 		}
 		destinationRequest := recoveryPlacementRequest(operationID, baseRequest)
+		if err := addRecoveryNetworkHandoffRequirementsTx(ctx, tx, operationID, epoch.AdmissionID, &destinationRequest); err != nil {
+			return err
+		}
 		if err := addRecoveryBootStorageRequirementTx(ctx, tx, operationID, epoch.AdmissionID, destinationHostID, &destinationRequest); err != nil {
 			return err
 		}
@@ -476,6 +505,12 @@ func EvaluateRecoveryDangerousStep(ctx context.Context, db TxBeginner, evaluatio
 		if err := tx.QueryRow(ctx, `SELECT admission_id,destination_host_id FROM kim.recovery_destination_admission_evidence WHERE recovery_operation_id=$1`, operationID).Scan(&out.DestinationAdmissionID, &destinationHost); err != nil {
 			out.DestinationAdmissionID = ""
 		}
+		var networkReady bool
+		_ = tx.QueryRow(ctx, `SELECT CASE WHEN jsonb_array_length(a.network_requirements)=0 THEN true ELSE
+			EXISTS(SELECT 1 FROM kim.vm_materialization_readiness_current r JOIN kim.recovery_materialization_evidence m ON m.vm_id=r.vm_id AND m.vm_generation=r.vm_generation AND m.vm_plan_id=r.plan_id
+			 WHERE m.recovery_operation_id=$1 AND r.boot_readiness='READY' AND r.network_state='REALIZED' AND r.network_evidence_set_digest IS NOT NULL)
+			AND NOT EXISTS(SELECT 1 FROM kim.network_ports_current p LEFT JOIN kim.port_bindings_current b ON b.port_id=p.port_id LEFT JOIN kim.port_binding_handoffs_current h ON h.port_id=p.port_id AND h.destination_binding_generation=b.binding_generation AND h.handoff_state IN ('DESTINATION_REALIZED','VERIFIED') WHERE p.placement_admission_id=a.admission_id AND (b.host_id<>$2 OR h.handoff_id IS NULL)) END
+			FROM kim.placement_admission_decisions a WHERE a.admission_id=$3`, operationID, destinationHost, out.DestinationAdmissionID).Scan(&networkReady)
 		switch {
 		case operation.LifecycleState != "RUNNING" && operation.LifecycleState != "VERIFYING":
 			out.ResultState, out.ReasonCode = "BLOCKED_OPERATION", "operation_not_at_dangerous_step"
@@ -487,6 +522,8 @@ func EvaluateRecoveryDangerousStep(ctx context.Context, db TxBeginner, evaluatio
 			out.ResultState, out.ReasonCode = "BLOCKED_BUDGET", "budget_claim_not_current_consumed"
 		case out.DestinationAdmissionID == "" || destinationHost != plan.DestinationHostID:
 			out.ResultState, out.ReasonCode = "BLOCKED_DESTINATION", "destination_admission_not_current_exact"
+		case !networkReady:
+			out.ResultState, out.ReasonCode = "BLOCKED_DESTINATION", "destination_network_handoff_not_current_ready"
 		default:
 			out.ResultState, out.ReasonCode = "AUTHORIZED", "all_current_dangerous_step_inputs_satisfied"
 		}

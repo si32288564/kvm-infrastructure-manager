@@ -26,8 +26,8 @@ var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 var macPattern = regexp.MustCompile(`^[0-9a-f]{2}(:[0-9a-f]{2}){5}$`)
 
 type NICObservation struct {
-	Present, IdentityMatches bool
-	Bridge, MAC, Model       string
+	Present, IdentityMatches   bool
+	Bridge, MAC, Model, PortID string
 }
 
 type Client interface {
@@ -67,7 +67,7 @@ func (backend Backend) Execute(ctx context.Context, lease contract.CommandLease)
 	if err != nil {
 		return agentexecution.BackendResult{}, err
 	}
-	expected := NICObservation{Present: true, IdentityMatches: true, Bridge: bridge, MAC: desired.MACAddress, Model: "virtio"}
+	expected := NICObservation{Present: true, IdentityMatches: true, Bridge: bridge, MAC: desired.MACAddress, Model: "virtio", PortID: desired.PortID}
 	if current.Present && !sameNIC(current, expected) {
 		return makeResult(desired, bridge, current, lease.AttemptIndex), nil
 	}
@@ -105,7 +105,7 @@ func (backend Backend) read(ctx context.Context, desired request) (string, NICOb
 }
 
 func makeResult(desired request, bridge string, current NICObservation, generation int) agentexecution.BackendResult {
-	matched := sameNIC(current, NICObservation{Present: true, IdentityMatches: true, Bridge: bridge, MAC: desired.MACAddress, Model: "virtio"})
+	matched := sameNIC(current, NICObservation{Present: true, IdentityMatches: true, Bridge: bridge, MAC: desired.MACAddress, Model: "virtio", PortID: desired.PortID})
 	state, outcome := "CONFLICTING", "UNKNOWN"
 	if matched {
 		state, outcome = "MATCHED", "SUCCEEDED"
@@ -117,7 +117,7 @@ func makeResult(desired request, bridge string, current NICObservation, generati
 		"segment_claim_id": desired.SegmentClaimID, "segment_generation": desired.SegmentGeneration,
 		"host_mapping_generation": desired.HostMappingGeneration, "binding_generation": desired.BindingGeneration,
 		"binding_type": desired.BindingType, "mac_address": desired.MACAddress, "mtu": desired.MTU,
-		"bridge_observed": bridge != "", "domain_nic_present": current.Present,
+		"bridge_observed": bridge != "", "domain_nic_present": current.Present, "interface_id": current.PortID,
 		"domain_nic_identity_matches": matched, "source": "ovs_bridge+libvirt_inactive_domain_xml",
 	}
 	encoded, _ := json.Marshal(evidence)
@@ -147,5 +147,5 @@ func (backend Backend) decode(target string, payload []byte) (request, error) {
 	return desired, nil
 }
 func sameNIC(a, b NICObservation) bool {
-	return a.Present && a.IdentityMatches && a.Bridge == b.Bridge && a.MAC == b.MAC && a.Model == b.Model
+	return a.Present && a.IdentityMatches && a.Bridge == b.Bridge && a.MAC == b.MAC && a.Model == b.Model && a.PortID == b.PortID
 }

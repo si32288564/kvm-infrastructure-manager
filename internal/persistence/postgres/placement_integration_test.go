@@ -1022,7 +1022,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 		 'network_id',$7::text,'network_generation',1,'segment_claim_id',$8::text,'segment_generation',1,
 		 'host_mapping_generation',1,'binding_generation',1,'binding_type','OVS','mac_address','02:00:00:00:00:22',
 		 'domain_running',true,'interface_present',true,'target_device','vnet42',
-		 'bridge_observed','br-int','bridge_matches',true,'link_state','up'
+		 'bridge_observed','br-int','bridge_matches',true,'link_state','up','interface_id',$6::text
 		))
 	`, dataplaneVerificationID, dataplaneRequest.CommandID, dataplaneObservationDigest, dataplaneVerifierDigest, vmMaterialization.VMID, ovsPortID, networkID, segmentClaimID)
 	dataplaneResults := pool.SendBatch(ctx, dataplaneBatch)

@@ -392,8 +392,15 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 		_ = tx.QueryRow(ctx, `SELECT claim_state,state_generation FROM kim.recovery_budget_claims_current WHERE claim_id=$1`, out.BudgetClaimID).Scan(&claimState, &out.BudgetStateGeneration)
 		var currentAdmission, currentHost, currentPlan string
 		var readyState, networkState string
+		networkEvidenceCurrent := true
 		if materialization.MaterializationID != "" {
 			_ = tx.QueryRow(ctx, `SELECT vm.placement_admission_id,vm.host_id,coalesce(vm.current_plan_id,''),coalesce(r.boot_readiness,'UNKNOWN'),coalesce(r.network_state,'UNKNOWN'),coalesce(r.network_observation_generation,0),coalesce(r.network_evidence_set_digest,'') FROM kim.virtual_machines_current vm LEFT JOIN kim.vm_materialization_readiness_current r ON r.vm_id=vm.vm_id AND r.vm_generation=vm.vm_generation WHERE vm.vm_id=$1 AND vm.vm_generation=$2`, out.VMID, out.VMGeneration).Scan(&currentAdmission, &currentHost, &currentPlan, &readyState, &networkState, &out.NetworkObservationGeneration, &out.NetworkEvidenceSetDigest)
+			var networkCount int
+			_ = tx.QueryRow(ctx, `SELECT jsonb_array_length(network_requirements) FROM kim.placement_admission_decisions WHERE admission_id=$1`, out.DestinationAdmissionID).Scan(&networkCount)
+			if networkCount > 0 {
+				generation, digest, matched, err := currentRecoveryNetworkEvidenceSetTx(ctx, tx, operationID)
+				networkEvidenceCurrent = err == nil && matched && generation == out.NetworkObservationGeneration && digest == out.NetworkEvidenceSetDigest
+			}
 		}
 		_ = tx.QueryRow(ctx, `SELECT p.evidence_id,p.observation_generation,e.observation_digest FROM kim.vm_power_state_current p JOIN kim.vm_power_observation_evidence e ON e.evidence_id=p.evidence_id AND e.observation_generation=p.observation_generation WHERE p.vm_id=$1 AND p.vm_generation=$2 AND p.desired_power_state='RUNNING' AND p.observed_power_state='RUNNING' AND p.convergence_state='MATCHED'`, out.VMID, out.VMGeneration).Scan(&out.PowerEvidenceID, &out.PowerObservationGeneration, &out.PowerObservationDigest)
 		var attachmentState string
@@ -419,6 +426,8 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_storage_attachment_not_matched"
 		case networkState != "REALIZED":
 			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_network_not_realized"
+		case !networkEvidenceCurrent:
+			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_network_evidence_set_not_current"
 		case pciCount != 0:
 			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "pci_recovery_verification_not_qualified"
 		default:
@@ -513,6 +522,14 @@ func CommitRecoveryTerminalDecision(ctx context.Context, db TxBeginner, decision
 		var currentNetworkGeneration uint64
 		if err := tx.QueryRow(ctx, `SELECT r.boot_readiness,r.network_state,coalesce(r.network_observation_generation,0),coalesce(r.network_evidence_set_digest,'') FROM kim.vm_materialization_readiness_current r JOIN kim.recovery_materialization_evidence m ON m.vm_id=r.vm_id AND m.vm_generation=r.vm_generation AND m.vm_plan_id=r.plan_id WHERE m.recovery_operation_id=$1 FOR UPDATE OF r`, op.RecoveryOperationID).Scan(&currentReadiness, &currentNetworkState, &currentNetworkGeneration, &currentNetworkDigest); err != nil || currentReadiness != "READY" || currentNetworkState != "REALIZED" || currentNetworkGeneration != verification.NetworkObservationGeneration || currentNetworkDigest != verification.NetworkEvidenceSetDigest {
 			return ErrRecoveryOperationStale
+		}
+		var networkCount int
+		_ = tx.QueryRow(ctx, `SELECT jsonb_array_length(network_requirements) FROM kim.placement_admission_decisions WHERE admission_id=$1`, verification.DestinationAdmissionID).Scan(&networkCount)
+		if networkCount > 0 {
+			generation, digest, matched, err := currentRecoveryNetworkEvidenceSetTx(ctx, tx, op.RecoveryOperationID)
+			if err != nil || !matched || generation != verification.NetworkObservationGeneration || digest != verification.NetworkEvidenceSetDigest {
+				return ErrRecoveryOperationStale
+			}
 		}
 		var budgetState string
 		var budgetGeneration uint64

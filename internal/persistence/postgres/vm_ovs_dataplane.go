@@ -169,6 +169,7 @@ func AcceptOVSDataplaneObservation(ctx context.Context, db TxBeginner, v OVSData
 			   AND verification.evidence_payload->>'mac_address'=mac.mac_address::text
 			   AND (verification.evidence_payload->>'domain_running')::boolean
 			   AND (verification.evidence_payload->>'interface_present')::boolean
+			   AND verification.evidence_payload->>'interface_id'=port.port_id
 			   AND (verification.evidence_payload->>'bridge_matches')::boolean
 			   AND coalesce(verification.evidence_payload->>'target_device','')<>''
 			   AND verification.evidence_payload->>'link_state'='up')

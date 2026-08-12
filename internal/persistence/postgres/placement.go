@@ -577,7 +577,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		}
 	}
 	for _, required := range request.Network {
-		network, found, err := loadNetworkAuthority(ctx, row, request.ProjectID, hostID, required)
+		network, found, err := loadNetworkAuthority(ctx, row, request.ProjectID, request.WorkloadID, hostID, required)
 		if err != nil {
 			return placement.Evaluation{}, err
 		}
@@ -658,7 +658,7 @@ func loadPCIDeviceAuthority(ctx context.Context, row QueryRower, hostID string, 
 	return device, true, nil
 }
 
-func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID string, required placement.NetworkRequirement) (placement.NetworkAuthority, bool, error) {
+func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, workloadID, hostID string, required placement.NetworkRequirement) (placement.NetworkAuthority, bool, error) {
 	var authority placement.NetworkAuthority
 	allocationSource := required.AllocationSource
 	if allocationSource == "" {
@@ -670,9 +670,9 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID
 		       subnet.subnet_id, subnet.subnet_generation, subnet.lifecycle_state,
 		       segment.segment_claim_id, segment.segment_generation, segment.claim_state,
 		       mapping.mapping_generation, mapping.mapping_state, mapping.maximum_mtu,
-		       CASE WHEN $10='AUTOMATIC' THEN
+		       CASE WHEN $11='AUTOMATIC' THEN
 		           family(subnet.cidr)=4
-		           AND (subnet.allocation_end - subnet.allocation_start) < $11
+		           AND (subnet.allocation_end - subnet.allocation_start) < $12
 		           AND EXISTS (
 		               SELECT 1
 		               FROM generate_series(0::bigint, subnet.allocation_end - subnet.allocation_start) candidate_offset
@@ -686,37 +686,57 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, hostID
 		                 )
 		           )
 		       ELSE
-		           NULLIF($7,'')::inet <<= subnet.cidr
-		           AND NULLIF($7,'')::inet >= subnet.allocation_start
-		           AND NULLIF($7,'')::inet <= subnet.allocation_end
-		           AND NOT (NULLIF($7,'')::inet = ANY(subnet.excluded_addresses))
+		           NULLIF($8,'')::inet <<= subnet.cidr
+		           AND NULLIF($8,'')::inet >= subnet.allocation_start
+		           AND NULLIF($8,'')::inet <= subnet.allocation_end
+		           AND NOT (NULLIF($8,'')::inet = ANY(subnet.excluded_addresses))
 		       END,
-		       CASE WHEN $10='AUTOMATIC' THEN false ELSE EXISTS (
+		       CASE WHEN $11='AUTOMATIC' THEN false ELSE EXISTS (
 		           SELECT 1 FROM kim.network_identity_claims identity
 		           WHERE identity.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
-		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=NULLIF($7,'')::inet)
-		               OR (identity.claim_type='MAC' AND identity.network_id=network.network_id AND identity.mac_address=NULLIF($8,'')::macaddr))
+		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=NULLIF($8,'')::inet)
+		               OR (identity.claim_type='MAC' AND identity.network_id=network.network_id AND identity.mac_address=NULLIF($9,'')::macaddr))
+		             AND ($13='' OR identity.port_id<>$3)
 		       ) END,
-		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3),
-		       ($9 = ANY(mapping.supported_binding_types))
+		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3 AND $13=''),
+		       ($10 = ANY(mapping.supported_binding_types)),
+		       CASE WHEN $13='' THEN true ELSE EXISTS (
+		           SELECT 1 FROM kim.network_ports_current port
+		           JOIN kim.port_bindings_current binding ON binding.port_id=port.port_id
+		           JOIN kim.network_port_source_quiescence_evidence quiescence
+		             ON quiescence.evidence_id=$14 AND quiescence.evidence_digest=$15
+		            AND quiescence.port_id=port.port_id AND quiescence.port_generation=$16
+		            AND quiescence.source_host_id=$17 AND quiescence.source_binding_generation=$18
+		            AND quiescence.quiescence_state='QUIESCED'
+		           WHERE port.port_id=$3 AND port.project_id=$1 AND port.workload_id=$4
+		             AND port.port_generation=$16 AND binding.host_id=$17 AND binding.binding_generation=$18
+		             AND binding.binding_type=$10 AND binding.binding_state IN ('RESERVED','BINDING','VERIFYING','ACTIVE','UNKNOWN')
+		             AND $19=$16+1 AND $20=$18+1 AND $17<>$2
+		             AND NOT EXISTS (SELECT 1 FROM kim.port_binding_handoff_evidence h WHERE h.handoff_id=$13)
+		             AND EXISTS (SELECT 1 FROM kim.network_identity_claims ip WHERE ip.port_id=port.port_id AND ip.claim_type='IP' AND ip.claim_state IN ('RESERVED','ACTIVE') AND ip.ip_address=NULLIF($8,'')::inet)
+		             AND EXISTS (SELECT 1 FROM kim.network_identity_claims mac WHERE mac.port_id=port.port_id AND mac.claim_type='MAC' AND mac.claim_state IN ('RESERVED','ACTIVE') AND mac.mac_address=NULLIF($9,'')::macaddr)
+		       ) END
 		FROM kim.networks_current network
 		JOIN kim.network_subnets_current subnet
-		  ON subnet.network_id=network.network_id AND subnet.subnet_id=$5
+		  ON subnet.network_id=network.network_id AND subnet.subnet_id=$6
 		JOIN kim.network_segment_claims_current segment
-		  ON segment.network_id=network.network_id AND segment.segment_claim_id=$6
+		  ON segment.network_id=network.network_id AND segment.segment_claim_id=$7
 		JOIN kim.host_network_mappings_current mapping
 		  ON mapping.host_id=$2 AND mapping.segment_claim_id=segment.segment_claim_id
-		WHERE network.network_id=$4 AND network.project_id=$1
-	`, projectID, hostID, required.PortID, required.NetworkID, required.SubnetID,
+		WHERE network.network_id=$5 AND network.project_id=$1
+	`, projectID, hostID, required.PortID, workloadID, required.NetworkID, required.SubnetID,
 		required.SegmentClaimID, required.IPAddress, required.MACAddress,
-		required.BindingType, allocationSource, maximumAutomaticIPv4PoolSize).Scan(
+		required.BindingType, allocationSource, maximumAutomaticIPv4PoolSize, required.HandoffID,
+		required.SourceQuiescenceEvidenceID, required.SourceQuiescenceEvidenceDigest,
+		required.SourcePortGeneration, required.SourceHostID, required.SourceBindingGeneration,
+		required.DestinationPortGeneration, required.DestinationBindingGeneration).Scan(
 		&authority.PortID, &authority.NetworkID, &authority.NetworkProjectID,
 		&authority.NetworkGeneration, &authority.NetworkState, &authority.NetworkMTU,
 		&authority.SubnetID, &authority.SubnetGeneration, &authority.SubnetState,
 		&authority.SegmentClaimID, &authority.SegmentGeneration, &authority.SegmentState,
 		&authority.HostMappingGeneration, &authority.MappingState, &authority.MappingMaximumMTU,
 		&authority.IPAddressAllowed, &authority.IdentityConflict, &authority.PortConflict,
-		&authority.BindingSupported,
+		&authority.BindingSupported, &authority.HandoffReady,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return placement.NetworkAuthority{}, false, nil
@@ -774,6 +794,9 @@ func lockNetworkAuthorityRows(ctx context.Context, tx pgx.Tx, hostID string, req
 }
 
 func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.NetworkRequirement) error {
+	if required.HandoffID != "" {
+		return claimNetworkPortHandoffTx(ctx, tx, admissionID, request, current, required)
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO kim.network_ports_current (
 			port_id, placement_admission_id, project_id, workload_id,
@@ -823,6 +846,37 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 	`, required.PortID, admissionID, current.HostID, required.SegmentClaimID,
 		required.BindingType, required.DeviceAddress); err != nil {
 		return fmt.Errorf("reserve Port Binding %s: %w", required.PortID, err)
+	}
+	return nil
+}
+
+// claimNetworkPortHandoffTx preserves logical Port and IP/MAC claim identity
+// while atomically advancing only the Host binding incarnation. Eligibility is
+// still read-only; this Final Admission transaction is the mutation authority.
+func claimNetworkPortHandoffTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.NetworkRequirement) error {
+	var sourceAdmission, sourceHost, workloadID, quiescenceDigest string
+	var sourcePortGeneration, sourceBindingGeneration uint64
+	var quiesced bool
+	err := tx.QueryRow(ctx, `SELECT p.placement_admission_id,b.host_id,p.workload_id,p.port_generation,b.binding_generation,q.evidence_digest,q.quiescence_state='QUIESCED'
+		FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id
+		JOIN kim.network_port_source_quiescence_evidence q ON q.evidence_id=$2 AND q.port_id=p.port_id AND q.port_generation=p.port_generation AND q.source_host_id=b.host_id AND q.source_binding_generation=b.binding_generation
+		WHERE p.port_id=$1 FOR UPDATE OF p,b`, required.PortID, required.SourceQuiescenceEvidenceID).Scan(&sourceAdmission, &sourceHost, &workloadID, &sourcePortGeneration, &sourceBindingGeneration, &quiescenceDigest, &quiesced)
+	if err != nil || !quiesced || workloadID != request.WorkloadID || sourceHost != required.SourceHostID || sourceHost == current.HostID || sourcePortGeneration != required.SourcePortGeneration || sourceBindingGeneration != required.SourceBindingGeneration || quiescenceDigest != required.SourceQuiescenceEvidenceDigest || required.DestinationPortGeneration != sourcePortGeneration+1 || required.DestinationBindingGeneration != sourceBindingGeneration+1 {
+		return ErrPlacementStale
+	}
+	payload, _ := json.Marshal(map[string]any{"handoff_id": required.HandoffID, "port_id": required.PortID, "workload_id": workloadID, "source_admission_id": sourceAdmission, "destination_admission_id": admissionID, "source_host_id": sourceHost, "destination_host_id": current.HostID, "source_port_generation": sourcePortGeneration, "destination_port_generation": required.DestinationPortGeneration, "source_binding_generation": sourceBindingGeneration, "destination_binding_generation": required.DestinationBindingGeneration, "source_quiescence_evidence_id": required.SourceQuiescenceEvidenceID, "source_quiescence_evidence_digest": quiescenceDigest})
+	handoffDigest := digestReleaseBytes(payload)
+	if _, err := tx.Exec(ctx, `INSERT INTO kim.port_binding_handoff_evidence(handoff_id,port_id,workload_id,source_admission_id,destination_admission_id,source_host_id,destination_host_id,source_port_generation,destination_port_generation,source_binding_generation,destination_binding_generation,source_quiescence_evidence_id,source_quiescence_evidence_digest,handoff_state,handoff_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'DESTINATION_RESERVED',$14)`, required.HandoffID, required.PortID, workloadID, sourceAdmission, admissionID, sourceHost, current.HostID, sourcePortGeneration, required.DestinationPortGeneration, sourceBindingGeneration, required.DestinationBindingGeneration, required.SourceQuiescenceEvidenceID, quiescenceDigest, handoffDigest); err != nil {
+		return fmt.Errorf("record PortBindingHandoff %s: %w", required.PortID, err)
+	}
+	if tag, err := tx.Exec(ctx, `UPDATE kim.network_ports_current SET placement_admission_id=$2,port_generation=$3,desired_state='RESERVED' WHERE port_id=$1 AND placement_admission_id=$4 AND port_generation=$5`, required.PortID, admissionID, required.DestinationPortGeneration, sourceAdmission, sourcePortGeneration); err != nil || tag.RowsAffected() != 1 {
+		return ErrPlacementStale
+	}
+	if tag, err := tx.Exec(ctx, `UPDATE kim.port_bindings_current SET placement_admission_id=$2,host_id=$3,binding_generation=$4,binding_state='RESERVED',created_at=statement_timestamp() WHERE port_id=$1 AND placement_admission_id=$5 AND host_id=$6 AND binding_generation=$7`, required.PortID, admissionID, current.HostID, required.DestinationBindingGeneration, sourceAdmission, sourceHost, sourceBindingGeneration); err != nil || tag.RowsAffected() != 1 {
+		return ErrPlacementStale
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO kim.port_binding_handoffs_current(port_id,handoff_id,destination_binding_generation,handoff_state) VALUES($1,$2,$3,'DESTINATION_RESERVED')`, required.PortID, required.HandoffID, required.DestinationBindingGeneration); err != nil {
+		return err
 	}
 	return nil
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/localimage"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/statemarker"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/executionjournal"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
@@ -101,6 +102,29 @@ func main() {
 		log.Fatal(err)
 	}
 	defer closePower()
+	var ovsBackend *ovsnetwork.Backend
+	var ovsDataplane *ovsnetwork.DataplaneBackend
+	var closeOVS, closeOVSDataplane func() error
+	if desired.OVSBridge != "" {
+		var payload map[string]any
+		if err := json.Unmarshal(desired.Payload, &payload); err != nil {
+			log.Fatal(err)
+		}
+		segment, _ := payload["segment_claim_id"].(string)
+		if segment == "" || desired.OVSBridge != "br-int" {
+			log.Fatal("dedicated OVS mapping is required")
+		}
+		ovsBackend, closeOVS, err = ovsnetwork.New("qemu:///system", map[string]string{segment: desired.OVSBridge})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer closeOVS()
+		ovsDataplane, closeOVSDataplane, err = ovsnetwork.NewDataplane("qemu:///system", map[string]string{segment: desired.OVSBridge})
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer closeOVSDataplane()
+	}
 
 	journal, err := executionjournal.Open(filepath.Join(desired.StateRoot, "journal"), desired.HostID)
 	if err != nil {
@@ -115,6 +139,16 @@ func main() {
 	markerBackend := statemarker.Backend{Directory: filepath.Join(desired.StateRoot, "markers")}
 	for _, backend := range []agentexecution.Backend{volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, markerBackend} {
 		if err := module.RegisterBackend(backend); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if ovsBackend != nil {
+		if err := module.RegisterBackend(*ovsBackend); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if ovsDataplane != nil {
+		if err := module.RegisterBackend(*ovsDataplane); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -144,7 +178,7 @@ func main() {
 		SessionGeneration: desired.SessionGen, CommandType: desired.CommandType,
 		CommandSchemaVersion: desired.SchemaVersion, TargetResourceID: desired.TargetResourceID,
 		CommandPayload: canonicalPayload, CommandPayloadDigest: payloadDigest}
-	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, markerBackend, verification)
+	observation, err := observe(ctx, desired.CommandType, volumeBackend, imageBackend, *vmBackend, *attachmentBackend, rootSafetyBackend, *powerBackend, markerBackend, ovsBackend, ovsDataplane, verification)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -178,6 +212,9 @@ func validate(desired recoveryauthority.HelperRequest, hostname string) error {
 	if desired.StateRoot == "" || filepath.Clean(desired.StateRoot) != desired.StateRoot || !strings.HasPrefix(desired.StateRoot, "/var/tmp/kim-real-recovery-") {
 		return errors.New("dedicated qualification state root is required")
 	}
+	if (desired.CommandType == ovsnetwork.CommandType || desired.CommandType == ovsnetwork.DataplaneCommandType) && desired.OVSBridge != "br-int" {
+		return errors.New("admin-configured br-int mapping is required")
+	}
 	if desired.AttemptIndex < 1 || desired.AttemptIndex > 32 || desired.AuthorityGen < 1 || desired.SessionGen < 1 || desired.LeaseGeneration < 1 || desired.LeaseToken == "" {
 		return errors.New("current qualification authority generations are required")
 	}
@@ -189,6 +226,8 @@ func validate(desired recoveryauthority.HelperRequest, hostname string) error {
 		libvirtvolume.SourceRootSafetyReadBackCommandType: libvirtvolume.SourceRootSafetyReadBackSchema,
 		libvirtdomain.CommandType:                         libvirtdomain.SchemaVersion,
 		statemarker.CommandType:                           statemarker.SchemaVersion,
+		ovsnetwork.CommandType:                            ovsnetwork.SchemaVersion,
+		ovsnetwork.DataplaneCommandType:                   ovsnetwork.DataplaneSchemaVersion,
 	}[desired.CommandType]
 	if wantSchema == "" || desired.SchemaVersion != wantSchema {
 		return fmt.Errorf("unsupported typed command %q/%q", desired.CommandType, desired.SchemaVersion)
@@ -210,7 +249,7 @@ func canonicalPayload(payload []byte) ([]byte, string, error) {
 	return encoded, digestBytes(encoded), nil
 }
 
-func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, root libvirtvolume.SourceRootSafetyBackend, power libvirtdomain.Backend, marker statemarker.Backend, request contract.VerificationRequest) (contract.Observation, error) {
+func observe(ctx context.Context, commandType string, volume locallvm.Backend, image localimage.Backend, vm libvirtvm.Backend, attachment libvirtvolume.Backend, root libvirtvolume.SourceRootSafetyBackend, power libvirtdomain.Backend, marker statemarker.Backend, ovs *ovsnetwork.Backend, dataplane *ovsnetwork.DataplaneBackend, request contract.VerificationRequest) (contract.Observation, error) {
 	switch commandType {
 	case locallvm.CommandType:
 		return volume.Observe(ctx, request)
@@ -226,6 +265,16 @@ func observe(ctx context.Context, commandType string, volume locallvm.Backend, i
 		return power.Observe(ctx, request)
 	case statemarker.CommandType:
 		return marker.Observe(ctx, request)
+	case ovsnetwork.CommandType:
+		if ovs == nil {
+			return contract.Observation{}, errors.New("OVS backend not configured")
+		}
+		return ovs.Observe(ctx, request)
+	case ovsnetwork.DataplaneCommandType:
+		if dataplane == nil {
+			return contract.Observation{}, errors.New("OVS dataplane backend not configured")
+		}
+		return dataplane.Observe(ctx, request)
 	default:
 		return contract.Observation{}, errors.New("unsupported typed command")
 	}

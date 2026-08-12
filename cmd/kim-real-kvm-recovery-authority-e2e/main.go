@@ -27,6 +27,7 @@ type request struct {
 	VGUUID         string `json:"vg_uuid"`
 	CacheRoot      string `json:"cache_root"`
 	StateRoot      string `json:"state_root"`
+	OVSBridge      string `json:"ovs_bridge,omitempty"`
 }
 
 func main() {
@@ -54,6 +55,7 @@ func main() {
 	accepted, err := recoveryauthority.Execute(ctx, pool, recoveryauthority.RemoteConfig{
 		Host: desired.Host, HelperPath: desired.HelperPath, VGName: desired.VGName,
 		VGUUID: desired.VGUUID, CacheRoot: desired.CacheRoot, StateRoot: desired.StateRoot,
+		OVSBridge: desired.OVSBridge,
 	}, desired.CommandID, desired.MessageID, desired.VerificationID, 2*time.Minute)
 	if err != nil {
 		log.Fatal(err)
