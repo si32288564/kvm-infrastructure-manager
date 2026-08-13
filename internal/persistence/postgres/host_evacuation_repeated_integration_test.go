@@ -27,6 +27,36 @@ type repeatedEvacuationMove struct {
 	Source, Destination                                              repeatedEvacuationIncarnation
 }
 
+func qualifyDelayedRepeatedLocalLVMCleanup(t *testing.T, ctx context.Context, db recoveryQualificationDB, terminalID, suffix string) LocalLVMSourceCleanupAuthority {
+	t.Helper()
+	operationID := "repeated-local-lvm-cleanup-" + suffix
+	authority, err := CommitHostEvacuationSourceLocalLVMCleanup(ctx, db, operationID, 1, terminalID)
+	if err != nil {
+		t.Fatalf("delayed cleanup producer %s: %v", suffix, err)
+	}
+	claim, err := ClaimBackendCleanup(ctx, db, operationID, 1, "repeated-cleanup-worker-"+suffix, time.Minute)
+	if err != nil || claim.Mode != "APPLY_ALLOWED" {
+		t.Fatalf("delayed cleanup claim=%+v err=%v", claim, err)
+	}
+	commandID := "repeated-local-lvm-delete-command-" + suffix
+	if _, err := AuthorizeLocalLVMCleanupCommand(ctx, db, claim, "repeated-local-lvm-delete-job-"+suffix, commandID); err != nil {
+		t.Fatal(err)
+	}
+	evidence := map[string]any{"backend_id": authority.SourceBackendID, "backend_generation": float64(authority.SourceBackendGeneration), "vg_uuid": authority.SourceVGUUID, "expected_lv_uuid": authority.SourceLVUUID, "backend_resource_key": authority.SourceBackendResourceKey, "binding_id": authority.SourceBindingID, "binding_generation": float64(authority.SourceBindingGeneration), "cleanup_operation_id": operationID, "cleanup_generation": float64(1), "desired_state": "ABSENT", "exact_source_lv_present": false, "foreign_replacement_present": false, "observed_lv_uuid": ""}
+	verificationID := "repeated-local-lvm-delete-verification-" + suffix
+	attempt := recordCleanupLeaseLossVerification(t, ctx, db, authority.SourceHostID, commandID, verificationID, "MATCHED", 1, evidence)
+	present, running := false, false
+	observationID := "repeated-local-lvm-delete-absence-" + suffix
+	observation := LocalLVMCleanupObservation{BackendCleanupObservation: BackendCleanupObservation{EvidenceID: observationID, OperationID: operationID, ResourceType: "LOCAL_LVM_VOLUME", ResourceID: authority.SourceVolumeID, SourceHostID: authority.SourceHostID, VMID: authority.VMID, BackendIdentityDigest: authority.BackendIdentityDigest, ApplyResponseState: "LOST", CommandID: commandID, VerificationID: verificationID, VerifierDigest: digestBytes([]byte(commandID + "/verifier")), ObservationDigest: digestBytes([]byte(commandID + "/observation")), ResultState: "ABSENT", ArtifactDigest: digestBytes([]byte("local-lvm-delete-adapter/v1")), EvidenceDigest: digestBytes([]byte(observationID + "/evidence")), OperationGeneration: 1, ClaimGeneration: claim.ClaimGeneration, ResourceGeneration: authority.SourceBindingGeneration, VMGeneration: authority.VMGeneration, MaterializationGeneration: authority.MaterializationGeneration, ObservationGeneration: 1, AttemptIndex: attempt, BackendPresent: &present, BackendRunning: &running, IdentityMatches: true}}
+	if err := CompleteLocalLVMCleanup(ctx, db, claim, observation); err != nil {
+		t.Fatalf("delayed exact absence %s: %v", suffix, err)
+	}
+	if _, err := ReclaimLocalLVMSourceCapacity(ctx, db, operationID, 1, "repeated-local-lvm-reclamation-"+suffix); err != nil {
+		t.Fatalf("delayed reclamation %s: %v", suffix, err)
+	}
+	return authority
+}
+
 func assertRepeatedEvacuationCurrent(t *testing.T, ctx context.Context, db recoveryQualificationDB, vmID, portID, networkID, subnetID, mac, ip, host string, materialization, portGeneration, bindingGeneration uint64) {
 	t.Helper()
 	var currentHost, currentPort, currentNetwork, currentSubnet, currentMAC, currentIP, dataplaneHost string
@@ -406,6 +436,11 @@ func TestHostEvacuationRepeatedIncarnationPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("final=%s mat=%d Port=%d/%d identity=%s/%s drains=%s/%s latest=%s active=%d err=%v", finalHost, finalMaterialization, finalPort, finalBinding, finalMAC, finalIP, drainA, drainB, latestHandoff, activeDataplanes, err)
 	}
 	assertRepeatedEvacuationCurrent(t, ctx, pool, vmID, portID, networkID, subnetID, mac, ip, hostC, 3, 3, 3)
+	cleanupA := qualifyDelayedRepeatedLocalLVMCleanup(t, ctx, pool, e1.ChildTerminal, "a-after-c-"+suffix)
+	cleanupB := qualifyDelayedRepeatedLocalLVMCleanup(t, ctx, pool, e2.ChildTerminal, "b-after-c-"+suffix)
+	if cleanupA.SourceHostID != hostA || cleanupA.SourceVolumeID != initial.Volume || cleanupB.SourceHostID != hostB || cleanupB.SourceVolumeID != e1.Destination.Volume || cleanupA.SourceLVUUID == cleanupB.SourceLVUUID {
+		t.Fatalf("delayed incarnation cleanup identities A=%+v B=%+v", cleanupA, cleanupB)
+	}
 	var historicalHandoffs, historicalRetirements, historicalNetworkBindings, historicalRealizations, historicalDataplanes, parentTerminals, childTerminals int
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.port_binding_handoff_evidence WHERE handoff_id=ANY($1)),(SELECT count(*) FROM kim.network_port_binding_retirement_evidence WHERE evidence_id=ANY($2)),(SELECT count(*) FROM kim.host_evacuation_child_network_evidence_binding WHERE verification_id=ANY($3)),(SELECT count(*) FROM kim.host_evacuation_terminal_evidence WHERE terminal_evidence_id=ANY($4)),(SELECT count(*) FROM kim.host_evacuation_child_terminal_evidence WHERE terminal_evidence_id=ANY($5)),(SELECT count(*) FROM kim.vm_network_port_realization_evidence WHERE evidence_id=ANY($6)),(SELECT count(*) FROM kim.vm_port_dataplane_observation_evidence WHERE evidence_id=ANY($7))`, []string{e1.Handoff, e2.Handoff}, []string{e1.RetirementEvidence, e2.RetirementEvidence}, []string{e1.ChildVerification, e2.ChildVerification}, []string{e1.ParentTerminal, e2.ParentTerminal}, []string{e1.ChildTerminal, e2.ChildTerminal}, []string{e1.DestinationRealization, e2.DestinationRealization}, []string{e1.DestinationDataplane, e2.DestinationDataplane}).Scan(&historicalHandoffs, &historicalRetirements, &historicalNetworkBindings, &parentTerminals, &childTerminals, &historicalRealizations, &historicalDataplanes); err != nil || historicalHandoffs != 2 || historicalRetirements != 2 || historicalNetworkBindings != 2 || historicalRealizations != 2 || historicalDataplanes != 2 || parentTerminals != 2 || childTerminals != 2 {
 		t.Fatalf("history handoffs=%d retirements=%d networkBindings=%d realizations=%d dataplanes=%d parents=%d children=%d err=%v", historicalHandoffs, historicalRetirements, historicalNetworkBindings, historicalRealizations, historicalDataplanes, parentTerminals, childTerminals, err)

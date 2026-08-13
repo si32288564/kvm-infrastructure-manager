@@ -380,6 +380,10 @@ func TestMixedRecoveryThenHostEvacuationPostgreSQLIntegration(t *testing.T) {
 		t.Fatal("Recovery verification reused by EVACUATE child terminal")
 	}
 	assertRepeatedEvacuationCurrent(t, ctx, pool, vmID, portID, networkID, subnetID, mac, ip, hostC, 3, 3, 3)
+	mixedCleanup := qualifyDelayedRepeatedLocalLVMCleanup(t, ctx, pool, evacuation.ChildTerminal, "mixed-b-after-c-"+suffix)
+	if mixedCleanup.SourceHostID != hostB || mixedCleanup.SourceVolumeID != recovery.Destination.Volume || mixedCleanup.ChildTerminalID != evacuation.ChildTerminal {
+		t.Fatalf("mixed-origin planned cleanup consumed wrong origin: %+v", mixedCleanup)
+	}
 	var history, retirements int
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.port_binding_handoff_evidence WHERE handoff_id=ANY($1)),(SELECT count(*) FROM kim.network_port_binding_retirement_evidence WHERE evidence_id=ANY($2))`, []string{recovery.Handoff, evacuation.Handoff}, []string{recovery.Retirement, evacuation.RetirementEvidence}).Scan(&history, &retirements); err != nil || history != 2 || retirements != 2 {
 		t.Fatalf("mixed history=%d retirements=%d err=%v", history, retirements, err)

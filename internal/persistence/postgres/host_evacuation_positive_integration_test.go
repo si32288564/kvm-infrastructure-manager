@@ -79,6 +79,36 @@ func acceptEvacuationLostReadBack(t *testing.T, ctx context.Context, db recovery
 	return grant.AttemptIndex
 }
 
+func recordCleanupLeaseLossVerification(t *testing.T, ctx context.Context, db recoveryQualificationDB, hostID, commandID, verificationID, state string, observationGeneration uint64, evidence map[string]any) int {
+	t.Helper()
+	var authorityGeneration int64
+	if err := db.QueryRow(ctx, `SELECT authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, hostID).Scan(&authorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	request := CommandLeaseRequest{CommandID: commandID, HostAuthorityGeneration: authorityGeneration, Duration: time.Minute}
+	var commandType, schemaVersion string
+	if err := db.QueryRow(ctx, `SELECT command_type,schema_version FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&commandType, &schemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	if isReadOnlyVerificationCommand(commandType, schemaVersion) {
+		request.AuthorityScope = CommandLeaseScopeReadOnlyVerification
+	}
+	grant, err := AcquireCommandLease(ctx, db, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE kim.command_leases_current SET expires_at=statement_timestamp()-interval '1 microsecond' WHERE command_id=$1 AND lease_generation=$2`, commandID, grant.LeaseGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := ExpireCommandLease(ctx, db, commandID); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordCommandVerification(ctx, db, CommandVerification{VerificationID: verificationID, CommandID: commandID, AttemptIndex: grant.AttemptIndex, ObservationGeneration: int64(observationGeneration), ObservationDigest: digestBytes([]byte(commandID + "/observation")), State: state, VerifierArtifactDigest: digestBytes([]byte(commandID + "/verifier")), Evidence: evidence}); err != nil {
+		t.Fatal(err)
+	}
+	return grant.AttemptIndex
+}
+
 func prepareEvacuationHost(t *testing.T, ctx context.Context, db recoveryQualificationDB, hostID string) {
 	t.Helper()
 	fingerprint := digestBytes([]byte("evacuation-positive/" + hostID))
@@ -593,6 +623,128 @@ func TestHostEvacuationNonEmptyZeroPortPositivePostgreSQLIntegration(t *testing.
 	var sourceBindingState, sourceCapacityState string
 	if err := pool.QueryRow(ctx, `SELECT binding.binding_state,capacity.claim_state FROM kim.volume_backend_bindings_current binding JOIN kim.storage_capacity_claims capacity ON capacity.volume_id=binding.volume_id AND capacity.placement_admission_id=$2 WHERE binding.binding_id=$1`, f.SourceBinding, f.SourceAdmission).Scan(&sourceBindingState, &sourceCapacityState); err != nil || sourceBindingState != "BOUND" || sourceCapacityState == "RELEASED" {
 		t.Fatalf("source LV/capacity was reclaimed by relocation: binding=%s capacity=%s err=%v", sourceBindingState, sourceCapacityState, err)
+	}
+	cleanupMetricsBefore, err := LoadLocalLVMCleanupMetrics(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Cleanup is a separate, post-terminal authority. A holder, stale terminal,
+	// or missing content-preservation terminal cannot nominate the source LV.
+	cleanupID := "local-lvm-source-cleanup-" + f.Suffix
+	rollbackCleanupHolder := errors.New("rollback cleanup holder")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.volume_attachment_observations_current SET holder_open=true WHERE attachment_id=$1`, f.SourceAttachment); err != nil {
+			return err
+		}
+		if _, err := CommitHostEvacuationSourceLocalLVMCleanup(ctx, scopeTxBeginner{tx}, cleanupID+"-held", 1, terminalID); !errors.Is(err, ErrBackendCleanupStale) {
+			t.Fatalf("held source LV nominated for cleanup: %v", err)
+		}
+		return rollbackCleanupHolder
+	})
+	if !errors.Is(err, rollbackCleanupHolder) {
+		t.Fatal(err)
+	}
+	if _, err := CommitHostEvacuationSourceLocalLVMCleanup(ctx, pool, cleanupID+"-wrong-terminal", 1, "unknown-child-terminal"); !errors.Is(err, ErrBackendCleanupStale) {
+		t.Fatalf("unknown terminal nominated source cleanup: %v", err)
+	}
+	authority, err := CommitHostEvacuationSourceLocalLVMCleanup(ctx, pool, cleanupID, 1, terminalID)
+	if err != nil {
+		t.Fatalf("commit source Local LVM cleanup authority: %v", err)
+	}
+	if authority.SourceVolumeID != f.SourceVolume || authority.SourceBindingID != f.SourceBinding || authority.SourceLVUUID != f.SourceLV || authority.ChildTerminalID != terminalID || authority.CopyTerminalID != copyVerification.TerminalEvidenceID {
+		t.Fatalf("cleanup authority lost exact source/copy provenance: %+v", authority)
+	}
+	if _, err := ReclaimLocalLVMSourceCapacity(ctx, pool, cleanupID, 1, "premature-reclamation-"+f.Suffix); !errors.Is(err, ErrBackendCleanupStale) {
+		t.Fatalf("capacity reclaimed before physical absence: %v", err)
+	}
+
+	cleanupEvidence := func(id, commandID, verificationID, resultState, response string, claimGeneration, generation uint64, attempt int, exactPresent, foreign bool, observedLV string) LocalLVMCleanupObservation {
+		present, running := exactPresent, false
+		return LocalLVMCleanupObservation{BackendCleanupObservation: BackendCleanupObservation{EvidenceID: id, OperationID: cleanupID, ResourceType: "LOCAL_LVM_VOLUME", ResourceID: authority.SourceVolumeID, SourceHostID: authority.SourceHostID, VMID: authority.VMID, BackendIdentityDigest: authority.BackendIdentityDigest, ApplyResponseState: response, CommandID: commandID, VerificationID: verificationID, VerifierDigest: digestBytes([]byte(commandID + "/verifier")), ObservationDigest: digestBytes([]byte(commandID + "/observation")), ResultState: resultState, ArtifactDigest: digestBytes([]byte("local-lvm-delete-adapter/v1")), EvidenceDigest: digestBytes([]byte(id + "/evidence")), OperationGeneration: 1, ClaimGeneration: claimGeneration, ResourceGeneration: authority.SourceBindingGeneration, VMGeneration: authority.VMGeneration, MaterializationGeneration: authority.MaterializationGeneration, ObservationGeneration: generation, AttemptIndex: attempt, BackendPresent: &present, BackendRunning: &running, IdentityMatches: true}, ObservedLVUUID: observedLV, ExactSourceLVPresent: exactPresent, ForeignReplacementPresent: foreign}
+	}
+	commandEvidence := func(exactPresent, foreign bool, observed string) map[string]any {
+		return map[string]any{"backend_id": authority.SourceBackendID, "backend_generation": float64(authority.SourceBackendGeneration), "vg_uuid": authority.SourceVGUUID, "expected_lv_uuid": authority.SourceLVUUID, "backend_resource_key": authority.SourceBackendResourceKey, "binding_id": authority.SourceBindingID, "binding_generation": float64(authority.SourceBindingGeneration), "cleanup_operation_id": cleanupID, "cleanup_generation": float64(1), "desired_state": "ABSENT", "exact_source_lv_present": exactPresent, "foreign_replacement_present": foreign, "observed_lv_uuid": observed}
+	}
+
+	claim1, err := ClaimBackendCleanup(ctx, pool, cleanupID, 1, "cleanup-worker-1", time.Minute)
+	if err != nil || claim1.Mode != "APPLY_ALLOWED" {
+		t.Fatalf("cleanup claim1=%+v err=%v", claim1, err)
+	}
+	apply1 := "local-lvm-delete-command-1-" + f.Suffix
+	if _, err := AuthorizeLocalLVMCleanupCommand(ctx, pool, claim1, "local-lvm-delete-job-1-"+f.Suffix, apply1); err != nil {
+		t.Fatal(err)
+	}
+	attempt1 := recordCleanupLeaseLossVerification(t, ctx, pool, f.SourceHost, apply1, "local-lvm-delete-verification-1-"+f.Suffix, "UNKNOWN", 1, commandEvidence(true, false, f.SourceLV))
+	if err := CompleteLocalLVMCleanup(ctx, pool, claim1, cleanupEvidence("local-lvm-delete-unknown-"+f.Suffix, apply1, "local-lvm-delete-verification-1-"+f.Suffix, "UNKNOWN", "LOST", claim1.ClaimGeneration, 1, attempt1, true, false, f.SourceLV)); err != nil {
+		t.Fatal(err)
+	}
+
+	claim2, err := ClaimBackendCleanup(ctx, pool, cleanupID, 1, "cleanup-worker-2", time.Minute)
+	if err != nil || claim2.Mode != "READ_BACK_FIRST" {
+		t.Fatalf("cleanup successor=%+v err=%v", claim2, err)
+	}
+	if _, err := AuthorizeLocalLVMCleanupCommand(ctx, pool, claim2, "blind-delete-job-"+f.Suffix, "blind-delete-command-"+f.Suffix); !errors.Is(err, ErrBackendCleanupStale) {
+		t.Fatalf("READ_BACK_FIRST successor authorized blind delete: %v", err)
+	}
+	readPresent := "local-lvm-delete-readback-present-" + f.Suffix
+	if _, err := AuthorizeLocalLVMCleanupReadBackCommand(ctx, pool, claim2, "local-lvm-delete-readback-job-present-"+f.Suffix, readPresent); err != nil {
+		t.Fatal(err)
+	}
+	presentAttempt := recordCleanupLeaseLossVerification(t, ctx, pool, f.SourceHost, readPresent, "local-lvm-delete-readback-verification-present-"+f.Suffix, "NOT_APPLIED", 2, commandEvidence(true, false, f.SourceLV))
+	if err := CompleteLocalLVMCleanup(ctx, pool, claim2, cleanupEvidence("local-lvm-delete-present-"+f.Suffix, readPresent, "local-lvm-delete-readback-verification-present-"+f.Suffix, "PRESENT", "NOT_APPLICABLE", claim2.ClaimGeneration, 2, presentAttempt, true, false, f.SourceLV)); err != nil {
+		t.Fatal(err)
+	}
+	apply2 := "local-lvm-delete-command-2-" + f.Suffix
+	if _, err := AuthorizeLocalLVMCleanupCommand(ctx, pool, claim2, "local-lvm-delete-job-2-"+f.Suffix, apply2); err != nil {
+		t.Fatal(err)
+	}
+	attempt2 := recordCleanupLeaseLossVerification(t, ctx, pool, f.SourceHost, apply2, "local-lvm-delete-verification-2-"+f.Suffix, "UNKNOWN", 3, commandEvidence(false, false, ""))
+	if err := CompleteLocalLVMCleanup(ctx, pool, claim2, cleanupEvidence("local-lvm-delete-lost-after-side-effect-"+f.Suffix, apply2, "local-lvm-delete-verification-2-"+f.Suffix, "UNKNOWN", "LOST", claim2.ClaimGeneration, 3, attempt2, false, false, "")); err != nil {
+		t.Fatal(err)
+	}
+
+	claim3, err := ClaimBackendCleanup(ctx, pool, cleanupID, 1, "cleanup-worker-3", time.Minute)
+	if err != nil || claim3.Mode != "READ_BACK_FIRST" {
+		t.Fatalf("cleanup read-back successor=%+v err=%v", claim3, err)
+	}
+	readAbsent := "local-lvm-delete-readback-absent-" + f.Suffix
+	if _, err := AuthorizeLocalLVMCleanupReadBackCommand(ctx, pool, claim3, "local-lvm-delete-readback-job-absent-"+f.Suffix, readAbsent); err != nil {
+		t.Fatal(err)
+	}
+	absentAttempt := recordCleanupLeaseLossVerification(t, ctx, pool, f.SourceHost, readAbsent, "local-lvm-delete-readback-verification-absent-"+f.Suffix, "MATCHED", 4, commandEvidence(false, false, ""))
+	absenceID := "local-lvm-delete-absence-" + f.Suffix
+	if err := CompleteLocalLVMCleanup(ctx, pool, claim3, cleanupEvidence(absenceID, readAbsent, "local-lvm-delete-readback-verification-absent-"+f.Suffix, "ABSENT", "NOT_APPLICABLE", claim3.ClaimGeneration, 4, absentAttempt, false, false, "")); err != nil {
+		t.Fatal(err)
+	}
+	reclamationID := "local-lvm-capacity-reclamation-" + f.Suffix
+	reclamation, err := ReclaimLocalLVMSourceCapacity(ctx, pool, cleanupID, 1, reclamationID)
+	if err != nil || reclamation.ReleasedBytes != authority.ReservedBytes {
+		t.Fatalf("capacity reclamation=%+v err=%v", reclamation, err)
+	}
+	if replay, err := ReclaimLocalLVMSourceCapacity(ctx, pool, cleanupID, 1, reclamationID); err != nil || replay.Digest != reclamation.Digest {
+		t.Fatalf("reclamation replay=%+v err=%v", replay, err)
+	}
+	cleanupMetricsAfter, err := LoadLocalLVMCleanupMetrics(ctx, pool)
+	if err != nil || cleanupMetricsAfter.Active != cleanupMetricsBefore.Active || cleanupMetricsAfter.Attempts-cleanupMetricsBefore.Attempts != 3 || cleanupMetricsAfter.Unknown-cleanupMetricsBefore.Unknown != 2 || cleanupMetricsAfter.Present-cleanupMetricsBefore.Present != 1 || cleanupMetricsAfter.Absent-cleanupMetricsBefore.Absent != 1 || cleanupMetricsAfter.CapacityReleasePending != cleanupMetricsBefore.CapacityReleasePending || cleanupMetricsAfter.ReleasedBytes-cleanupMetricsBefore.ReleasedBytes != int64(authority.ReservedBytes) || cleanupMetricsAfter.DurationNanoseconds <= cleanupMetricsBefore.DurationNanoseconds {
+		t.Fatalf("cleanup metrics before=%+v after=%+v err=%v", cleanupMetricsBefore, cleanupMetricsAfter, err)
+	}
+	var cleanupState, capacityState, bindingState, intentState, volumeState, destinationHostAfter, destinationPowerAfter, parentAfter string
+	if err := pool.QueryRow(ctx, `SELECT cleanup.operation_state,capacity.claim_state,binding.binding_state,intent.binding_state,volume.lifecycle_state,vm.host_id,power.observed_power_state,parent.lifecycle_state FROM kim.backend_cleanup_operations_current cleanup JOIN kim.local_lvm_source_cleanup_authority_evidence detail USING(cleanup_operation_id,cleanup_generation) JOIN kim.storage_capacity_claims capacity ON capacity.capacity_claim_id=detail.source_capacity_claim_id JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=detail.source_binding_id JOIN kim.volume_backend_binding_intents intent ON intent.binding_id=detail.source_binding_id JOIN kim.volumes_current volume ON volume.volume_id=detail.source_volume_id JOIN kim.virtual_machines_current vm ON vm.vm_id=(SELECT vm_id FROM kim.backend_cleanup_operation_evidence WHERE cleanup_operation_id=$1) JOIN kim.vm_power_state_current power ON power.vm_id=vm.vm_id JOIN kim.host_evacuation_operations_current parent ON parent.evacuation_operation_id=$2 WHERE cleanup.cleanup_operation_id=$1`, cleanupID, operationID).Scan(&cleanupState, &capacityState, &bindingState, &intentState, &volumeState, &destinationHostAfter, &destinationPowerAfter, &parentAfter); err != nil {
+		t.Fatal(err)
+	}
+	if cleanupState != "VERIFIED" || capacityState != "RELEASED" || bindingState != "REVOKED" || intentState != "RELEASED" || volumeState != "DELETED" || destinationHostAfter != f.DestinationHost || destinationPowerAfter != "RUNNING" || parentAfter != "VERIFIED" {
+		t.Fatalf("cleanup/capacity=%s/%s binding=%s/%s volume=%s destination=%s/%s parent=%s", cleanupState, capacityState, bindingState, intentState, volumeState, destinationHostAfter, destinationPowerAfter, parentAfter)
+	}
+	for label, statement := range map[string]string{
+		"cleanup authority": `UPDATE kim.local_lvm_source_cleanup_authority_evidence SET authority_digest=$2 WHERE cleanup_operation_id=$1`,
+		"cleanup identity":  `UPDATE kim.local_lvm_source_cleanup_observation_identity_evidence SET identity_digest=$2 WHERE cleanup_evidence_id=$1`,
+		"reclamation":       `UPDATE kim.local_lvm_capacity_reclamation_evidence SET reclamation_digest=$2 WHERE reclamation_evidence_id=$1`,
+	} {
+		id := map[string]string{"cleanup authority": cleanupID, "cleanup identity": absenceID, "reclamation": reclamationID}[label]
+		if _, err := pool.Exec(ctx, statement, id, digestBytes([]byte("forged-"+label))); err == nil {
+			t.Fatalf("immutable %s accepted UPDATE", label)
+		}
 	}
 	for label, statement := range map[string]string{
 		"quiescence execution": `UPDATE kim.planned_source_quiescence_execution_evidence SET evidence_digest=$2 WHERE quiescence_evidence_id=$1`,

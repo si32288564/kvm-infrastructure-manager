@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
 )
 
@@ -94,7 +95,8 @@ func AcceptNetworkPortSourceQuiescence(ctx context.Context, db TxBeginner, o Net
 
 func isReadOnlyVerificationCommand(commandType, schemaVersion string) bool {
 	return (commandType == SourceRootSafetyReadBackCommandType && schemaVersion == SourceRootSafetyReadBackSchema) ||
-		(commandType == ovsnetwork.DataplaneCommandType && schemaVersion == ovsnetwork.DataplaneSchemaVersion)
+		(commandType == ovsnetwork.DataplaneCommandType && schemaVersion == ovsnetwork.DataplaneSchemaVersion) ||
+		(commandType == locallvm.DeleteReadBackType && schemaVersion == locallvm.DeleteReadBackSchema)
 }
 
 func currentRecoveryNetworkEvidenceSetTx(ctx context.Context, tx pgx.Tx, operationID string) (uint64, string, bool, error) {

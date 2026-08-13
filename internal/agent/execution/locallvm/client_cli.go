@@ -16,6 +16,7 @@ type CLIClient struct {
 	VGSPath      string
 	LVSPath      string
 	LVCreatePath string
+	LVRemovePath string
 }
 
 func NewCLIClient() (*CLIClient, error) {
@@ -31,7 +32,22 @@ func NewCLIClient() (*CLIClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &CLIClient{VGSPath: vgs, LVSPath: lvs, LVCreatePath: lvcreate}, nil
+	lvremove, err := exec.LookPath("lvremove")
+	if err != nil {
+		return nil, err
+	}
+	return &CLIClient{VGSPath: vgs, LVSPath: lvs, LVCreatePath: lvcreate, LVRemovePath: lvremove}, nil
+}
+
+func (client *CLIClient) RemoveLogicalVolume(ctx context.Context, vgName, lvName string) error {
+	if client == nil || !validLVMName(vgName) || !validLVMName(lvName) {
+		return errors.New("invalid Local LVM delete request")
+	}
+	output, err := exec.CommandContext(ctx, client.LVRemovePath, "--yes", vgName+"/"+lvName).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("delete Local LVM LV: %w: %s", err, boundedOutput(output))
+	}
+	return nil
 }
 
 func (client *CLIClient) VerifyVolumeGroup(ctx context.Context, vgName, expectedUUID string) error {
