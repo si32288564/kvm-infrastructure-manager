@@ -9,6 +9,8 @@ Host discovery、identity bootstrap、enrollment、baseline assignment、preflig
 
 ZTPは単発のOS構築機能ではなく、Zero Touch Enrollment + Continuous Complianceです。KIMはHostが要求状態を満たすかを継続評価し、policyで許可されたclosed typed remediationだけを実行します。汎用Configuration Managementは提供しません。
 
+PXE/Ansible が所有する Day 0 bootstrap から KIM runtime authority への明示的な ownership handoff、Terraform と guest convergence を含む end-to-end workflow は [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md) に定義します。Agent 接続成功や外部 playbook success だけでは handoff/compliance authority は成立しません。
+
 ## 2. 基本原則
 
 1. credentialはHost identityを証明するがmutation authorityではない。

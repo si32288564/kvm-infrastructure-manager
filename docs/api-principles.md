@@ -124,3 +124,9 @@ timestampはUTC/offsetと意味（source/received/verified/expiry）を区別し
 - authorization は action、resource、scope、ownership、attribute で評価する。
 - 認可失敗は actor、policy、resource ID、request ID とともに監査する。
 - Console URL、image upload URL などは短寿命かつ一回用途を基本とする。
+
+## 11. IaC、Provider、UI の共通契約
+
+Terraform Provider、管理 UI、CLI、外部 automation は独自の resource lifecycle semantics を持ちません。OpenAPI に identity、revision、mutability、replacement、computed field、Operation、import、drift、delete protection 等の machine-readable metadata を組み合わせた KIM Resource Contract を共通入力とします。
+
+Terraform state を KIM authority とせず、Placement、Materialization、Recovery、EVACUATE が変更する Host-local physical incarnation は desired configuration から分離します。詳細と current/proposed gap は [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md) を参照します。

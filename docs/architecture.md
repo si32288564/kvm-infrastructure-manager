@@ -102,6 +102,8 @@ flowchart TB
 
 標準 OVN/kernel OVS、高性能 OVS-DPDK/vhost-user、Direct-I/O、Host FRR/Kubernetes routing domain の将来統合は [Network and Dataplane Target Architecture](network-dataplane-target-architecture.md) を参照します。この文書は current implementation と proposed target を分離し、未実装 capability を current として扱いません。
 
+Terraform、Ansible、管理 UI、Northbound API を通じた IaC-first lifecycle と、logical desired state を physical incarnation から分離する将来設計は [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md) を参照します。Terraform state は KIM authority ではなく、Recovery/EVACUATE による physical realization の変更を desired drift として扱いません。
+
 ### Agent Gateway / Command Service
 
 - 内部Message BusをHost側Trust Boundaryへ公開しない。
@@ -382,6 +384,7 @@ Root/Intermediate、bootstrap、renewal/rekey/overlap、revocation/distrust、Ho
 - [Host Grouping Architecture](host-grouping-architecture.md)
 - [Availability Responsibility and Managed Recovery Architecture](availability-responsibility-architecture.md)
 - [Workload Resilience Intent Architecture](workload-resilience-intent-architecture.md)
+- [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md)
 
 - [libvirt API concepts](https://libvirt.org/api.html)
 - [libvirt Remote support](https://www.libvirt.org/remote)

@@ -61,6 +61,8 @@ KIM の typed remediation は schema、precondition、対象 resource、rollback
 
 外部Configuration Managementとの連携では、KIMはControl requirement、対象Host、Baseline/Assignment generation、maintenance/fencing条件、必要evidenceを持つscoped requestを所有します。外部systemは実際の汎用Host変更を所有します。外部systemの完了通知はclaimであり、KIMがfresh observationを取得してCompliance Evaluatorで再判定するまでKIMのCompliance/READY/authorityを変更しません。
 
+将来の標準 workflow では Ansible/PXE が Day 0 の OS/Host baseline を所有し、Enrollment、capability qualification、明示 handoff 後は KIM が libvirt、OVN/OVS、storage attachment、PCI、FRR realization 等の runtime resource authority を所有します。Ansible は Terraform 実行と guest OS/application convergence を orchestrate できますが、KIM resource を backend から直接修復しません。Terraform、UI、KIM の境界は [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md) に従います。
+
 CMDB/asset systemはHostGroup selector/assertionのsourceになれますが、KIM membership authorityを直接所有しません。KIMがsource identity、generation、freshnessを検証しPostgreSQLへmaterializeして初めてmembershipになります。
 
 Placement Scopeは公開candidate populationのauthorityであり、HostGroup membership、Group Policy Binding、Hierarchyから暗黙生成しません。Scope-aware Placement Requestだけがclosed consumer Scopeを参照し、Scope membershipから導出されたvisibilityはEligibilityやFinal resource claimを意味しません。Projectは現在compatibility identifierだけを検証し、first-class Project generation authorityを実装済みとはみなしません。
