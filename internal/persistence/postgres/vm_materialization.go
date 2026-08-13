@@ -141,7 +141,14 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 				return fmt.Errorf("relocation identity missing: %w", ErrVMMaterializationConflict)
 			}
 			var authorized bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_materialization_relocation_authority_evidence r JOIN kim.host_evacuation_workloads_current c ON c.child_operation_id=r.child_operation_id AND c.child_generation=r.child_generation AND c.phase='SOURCE_QUIESCED' WHERE r.relocation_authority_id=$1 AND r.vm_id=$2 AND r.vm_generation=$3 AND r.source_admission_id=$4 AND r.source_host_id=$5 AND r.destination_admission_id=$6 AND r.destination_host_id=$7 AND r.destination_materialization_generation=$8)`, request.RelocationAuthorityID, request.VMID, vmGeneration, existingAdmission, existingHost, request.AdmissionID, hostID, request.MaterializationGeneration).Scan(&authorized); err != nil || !authorized {
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1
+				FROM kim.vm_materialization_relocation_authority_evidence r
+				JOIN kim.host_evacuation_workloads_current c ON c.child_operation_id=r.child_operation_id AND c.child_generation=r.child_generation AND c.phase='SOURCE_QUIESCED'
+				JOIN kim.local_lvm_relocation_copy_terminal_evidence terminal ON terminal.terminal_evidence_id=r.local_lvm_copy_terminal_evidence_id AND terminal.terminal_digest=r.local_lvm_copy_terminal_digest AND terminal.terminal_state='VERIFIED'
+				JOIN kim.local_lvm_relocation_copy_operations_current copy_current ON copy_current.copy_operation_id=terminal.copy_operation_id AND copy_current.copy_generation=terminal.copy_generation AND copy_current.terminal_evidence_id=terminal.terminal_evidence_id AND copy_current.operation_state='VERIFIED'
+				JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=terminal.destination_binding_id AND binding.binding_generation=terminal.destination_binding_generation AND binding.lv_uuid=terminal.destination_lv_uuid AND binding.host_id=r.destination_host_id AND binding.binding_state='BOUND'
+				JOIN kim.volumes_current volume ON volume.volume_id=binding.volume_id AND volume.placement_admission_id=r.destination_admission_id AND volume.bootable
+				WHERE r.relocation_authority_id=$1 AND r.vm_id=$2 AND r.vm_generation=$3 AND r.source_admission_id=$4 AND r.source_host_id=$5 AND r.destination_admission_id=$6 AND r.destination_host_id=$7 AND r.destination_materialization_generation=$8)`, request.RelocationAuthorityID, request.VMID, vmGeneration, existingAdmission, existingHost, request.AdmissionID, hostID, request.MaterializationGeneration).Scan(&authorized); err != nil || !authorized {
 				return fmt.Errorf("relocation authority mismatch: %w", ErrVMMaterializationConflict)
 			}
 			relocation = true

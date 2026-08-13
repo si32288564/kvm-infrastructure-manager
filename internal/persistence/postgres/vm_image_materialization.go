@@ -111,6 +111,13 @@ func PrepareVMImageMaterialization(ctx context.Context, db TxBeginner, request V
 			&bindingGeneration, &vgUUID, &lvUUID, &resourceKey, &planDigest); err != nil {
 			return ErrVMMaterializationConflict
 		}
+		// A verified relocation copy already contains mutable guest state. A
+		// normal base-Image realization would overwrite it; the preserved-root
+		// readiness consumer must be used instead.
+		var preservedRoot bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_materialization_relocation_authority_evidence r JOIN kim.local_lvm_relocation_copy_terminal_evidence t ON t.terminal_evidence_id=r.local_lvm_copy_terminal_evidence_id AND t.terminal_digest=r.local_lvm_copy_terminal_digest AND t.terminal_state='VERIFIED' WHERE r.vm_id=$1::uuid AND r.destination_admission_id=(SELECT placement_admission_id FROM kim.virtual_machines_current WHERE vm_id=$1::uuid) AND r.destination_host_id=$2)`, request.VMID, hostID).Scan(&preservedRoot); err != nil || preservedRoot {
+			return ErrVMMaterializationConflict
+		}
 		if err := lockHostAuthorityTx(ctx, tx, hostID); err != nil {
 			return err
 		}

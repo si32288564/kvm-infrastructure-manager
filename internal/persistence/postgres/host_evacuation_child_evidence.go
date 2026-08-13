@@ -67,12 +67,28 @@ func EvaluateHostEvacuationChildEvidence(ctx context.Context, db TxBeginner, cla
 			return ErrHostEvacuationBlocked
 		}
 		sourceStorageState, destinationStorageState := "NOT_REQUIRED", "NOT_REQUIRED"
+		var sourceStorageDigest, destinationStorageDigest *string
+		var sourceStorageDigestValue, destinationStorageDigestValue string
 		if storageCount == 1 {
-			var closed bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_evacuation_source_storage_safety_evidence s JOIN kim.vm_materialization_relocation_authority_evidence r ON r.source_storage_safety_evidence_id=s.safety_evidence_id AND r.destination_admission_id=$2 WHERE s.child_operation_id=$1 AND s.safety_state='SAFE')`, claim.ChildOperationID, destinationAdmissionID).Scan(&closed); err != nil || !closed {
+			var safetyDigest, sourceContentDigest, terminalDigest, destinationContentDigest string
+			if err := tx.QueryRow(ctx, `SELECT s.safety_digest,source.content_evidence_digest,terminal.terminal_digest,destination.content_evidence_digest
+				FROM kim.host_evacuation_source_storage_safety_evidence s
+				JOIN kim.vm_materialization_relocation_authority_evidence r ON r.source_storage_safety_evidence_id=s.safety_evidence_id AND r.destination_admission_id=$2
+				JOIN kim.local_lvm_relocation_copy_terminal_evidence terminal ON terminal.terminal_evidence_id=r.local_lvm_copy_terminal_evidence_id AND terminal.terminal_digest=r.local_lvm_copy_terminal_digest AND terminal.terminal_state='VERIFIED'
+				JOIN kim.local_lvm_relocation_copy_verification_evidence verified ON verified.verification_id=terminal.verification_id AND verified.copy_operation_id=terminal.copy_operation_id AND verified.copy_generation=terminal.copy_generation AND verified.content_identity_state='VERIFIED'
+				JOIN kim.local_lvm_relocation_content_observation_evidence source ON source.content_evidence_id=verified.source_content_evidence_id AND source.content_role='SOURCE_POINT'
+				JOIN kim.local_lvm_relocation_content_observation_evidence destination ON destination.content_evidence_id=verified.destination_content_evidence_id AND destination.content_role='DESTINATION'
+				JOIN kim.vm_materialization_plan_evidence plan ON plan.plan_id=$3 AND plan.root_binding_id=terminal.destination_binding_id AND plan.root_binding_generation=terminal.destination_binding_generation
+				JOIN kim.vm_materialization_readiness_current readiness ON readiness.plan_id=plan.plan_id AND readiness.image_evidence_id=$5 AND readiness.image_state='REALIZED'
+				JOIN kim.vm_image_realization_evidence preserved ON preserved.evidence_id=readiness.image_evidence_id AND preserved.content_origin='PRESERVED_ROOT' AND preserved.observed_content_digest=destination.content_digest AND preserved.volume_id=plan.root_volume_id AND preserved.binding_id=terminal.destination_binding_id AND preserved.binding_generation=terminal.destination_binding_generation AND preserved.observed_lv_uuid=terminal.destination_lv_uuid
+				JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=terminal.destination_binding_id AND binding.binding_generation=terminal.destination_binding_generation AND binding.lv_uuid=terminal.destination_lv_uuid AND binding.volume_id=plan.root_volume_id AND binding.host_id=$4 AND binding.binding_state='BOUND'
+				WHERE s.child_operation_id=$1 AND s.safety_state='SAFE'`, claim.ChildOperationID, destinationAdmissionID, planID, destinationHost, imageID).Scan(&safetyDigest, &sourceContentDigest, &terminalDigest, &destinationContentDigest); err != nil {
 				return ErrHostEvacuationBlocked
 			}
+			sourceStorageDigestValue = digestReleaseBytes([]byte(safetyDigest + "/" + sourceContentDigest))
+			destinationStorageDigestValue = digestReleaseBytes([]byte(terminalDigest + "/" + destinationContentDigest))
 			sourceStorageState, destinationStorageState = "SAFE", "CURRENT"
+			sourceStorageDigest, destinationStorageDigest = &sourceStorageDigestValue, &destinationStorageDigestValue
 		}
 		networkBindingCount := 0
 		sourceNetworkState, destinationNetworkState := "NOT_REQUIRED", "NOT_REQUIRED"
@@ -92,8 +108,8 @@ func EvaluateHostEvacuationChildEvidence(ctx context.Context, db TxBeginner, cla
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.host_evacuation_destination_evidence_binding(destination_binding_id,child_operation_id,child_generation,child_plan_generation,vm_id,vm_generation,destination_host_id,destination_admission_id,destination_plan_id,destination_plan_digest,definition_evidence_id,image_evidence_id,power_evidence_id,materialization_observation_generation,power_observation_generation,binding_digest) VALUES($1,$2,1,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, destinationBindingID, claim.ChildOperationID, childPlanGeneration, vmID, vmGeneration, destinationHost, destinationAdmissionID, planID, planDigest, definitionID, imageID, powerID, readyGeneration, powerGeneration, bindingDigest); err != nil {
 			return err
 		}
-		verificationDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%s/%s/%d/%d/%d/%s/%s", claim.ChildOperationID, quiescenceID, destinationBindingID, bindingDigest, readyGeneration, powerGeneration, networkBindingCount, sourceNetworkDigestValue, destinationNetworkDigestValue)))
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.host_evacuation_child_verification_evidence(verification_id,child_operation_id,child_generation,child_plan_generation,vm_id,vm_generation,source_host_id,destination_host_id,destination_admission_id,quiescence_evidence_id,destination_binding_id,source_storage_state,source_network_state,source_pci_state,destination_power_state,destination_storage_state,destination_network_state,destination_pci_state,source_ownership_state,source_host_authority_generation,destination_materialization_generation,destination_power_observation_generation,verification_state,verification_digest,network_binding_count,source_network_evidence_set_digest,destination_network_evidence_set_digest) VALUES($1,$2,1,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,'NOT_REQUIRED','RUNNING',$13,$14,'NOT_REQUIRED','RETIRED',$15,$16,$17,'VERIFIED',$18,$19,$20,$21)`, verificationID, claim.ChildOperationID, childPlanGeneration, vmID, vmGeneration, sourceHost, destinationHost, destinationAdmissionID, quiescenceID, destinationBindingID, sourceStorageState, sourceNetworkState, destinationStorageState, destinationNetworkState, sourceAuthority, readyGeneration, powerGeneration, verificationDigest, networkBindingCount, sourceNetworkDigest, destinationNetworkDigest); err != nil {
+		verificationDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%s/%s/%d/%d/%d/%s/%s/%s/%s", claim.ChildOperationID, quiescenceID, destinationBindingID, bindingDigest, readyGeneration, powerGeneration, networkBindingCount, sourceNetworkDigestValue, destinationNetworkDigestValue, sourceStorageDigestValue, destinationStorageDigestValue)))
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.host_evacuation_child_verification_evidence(verification_id,child_operation_id,child_generation,child_plan_generation,vm_id,vm_generation,source_host_id,destination_host_id,destination_admission_id,quiescence_evidence_id,destination_binding_id,source_storage_state,source_network_state,source_pci_state,destination_power_state,destination_storage_state,destination_network_state,destination_pci_state,source_ownership_state,source_host_authority_generation,destination_materialization_generation,destination_power_observation_generation,verification_state,verification_digest,network_binding_count,source_network_evidence_set_digest,destination_network_evidence_set_digest,source_storage_evidence_set_digest,destination_storage_evidence_set_digest) VALUES($1,$2,1,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,'NOT_REQUIRED','RUNNING',$13,$14,'NOT_REQUIRED','RETIRED',$15,$16,$17,'VERIFIED',$18,$19,$20,$21,$22,$23)`, verificationID, claim.ChildOperationID, childPlanGeneration, vmID, vmGeneration, sourceHost, destinationHost, destinationAdmissionID, quiescenceID, destinationBindingID, sourceStorageState, sourceNetworkState, destinationStorageState, destinationNetworkState, sourceAuthority, readyGeneration, powerGeneration, verificationDigest, networkBindingCount, sourceNetworkDigest, destinationNetworkDigest, sourceStorageDigest, destinationStorageDigest); err != nil {
 			return err
 		}
 		out = HostEvacuationChildVerification{VerificationID: verificationID, ChildOperationID: claim.ChildOperationID, DestinationAdmissionID: destinationAdmissionID, DestinationHostID: destinationHost, DestinationBindingID: destinationBindingID, VerificationDigest: verificationDigest, ChildPlanGeneration: childPlanGeneration}
@@ -214,6 +230,18 @@ func CompleteHostEvacuationChild(ctx context.Context, db TxBeginner, claim HostE
 		if networkBindingCount > 0 {
 			current, err := hostEvacuationTerminalNetworkCurrentTx(ctx, tx, verificationID, vmID, vmGeneration, admissionID, destinationHost)
 			if err != nil || current != networkBindingCount {
+				return ErrHostEvacuationStale
+			}
+		}
+		if sourceStorage == "SAFE" {
+			var storageCurrent bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_evacuation_child_verification_evidence v
+				JOIN kim.vm_materialization_relocation_authority_evidence r ON r.child_operation_id=v.child_operation_id AND r.destination_admission_id=v.destination_admission_id
+				JOIN kim.local_lvm_relocation_copy_terminal_evidence t ON t.terminal_evidence_id=r.local_lvm_copy_terminal_evidence_id AND t.terminal_digest=r.local_lvm_copy_terminal_digest AND t.terminal_state='VERIFIED'
+				JOIN kim.local_lvm_relocation_copy_operations_current c ON c.copy_operation_id=t.copy_operation_id AND c.copy_generation=t.copy_generation AND c.terminal_evidence_id=t.terminal_evidence_id AND c.operation_state='VERIFIED'
+				JOIN kim.vm_materialization_plan_evidence p ON p.plan_id=(SELECT current_plan_id FROM kim.virtual_machines_current WHERE vm_id=v.vm_id) AND p.root_binding_id=t.destination_binding_id AND p.root_binding_generation=t.destination_binding_generation
+				JOIN kim.volume_backend_bindings_current b ON b.binding_id=t.destination_binding_id AND b.binding_generation=t.destination_binding_generation AND b.lv_uuid=t.destination_lv_uuid AND b.volume_id=p.root_volume_id AND b.host_id=v.destination_host_id AND b.binding_state='BOUND'
+				WHERE v.verification_id=$1)`, verificationID).Scan(&storageCurrent); err != nil || !storageCurrent {
 				return ErrHostEvacuationStale
 			}
 		}

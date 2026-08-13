@@ -41,3 +41,4 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0022: 分散clockを区別し時間切れを未実行証明にしない](0022-explicit-distributed-time-semantics.md)
 - [ADR-0023: Trust Domainを分離しcredentialをgenerationでfenceする](0023-separated-trust-domains-and-generation-fenced-credentials.md)
 - [ADR-0024: Developer Preview の Agent transport に gRPC bidirectional stream を採用する](0024-initial-agent-transport-grpc.md)
+- [ADR-0025: Planned Local LVM relocation は content identity を boot prerequisite にする](0025-planned-local-lvm-relocation-content-authority.md)

@@ -192,6 +192,7 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		}
 	}
 	destinationBinding, destinationLV := realizeEvacuationBinding(t, ctx, db, destinationHost, destinationAdmission.AdmissionID, destinationRequest.Storage[0].VolumeID, destinationBackend, destinationVG, destinationRequest.RequestID)
+	qualifyEvacuationLocalLVMCopy(t, ctx, db, claim, "repeated-"+label+"-"+suffix, destinationAdmission.AdmissionID, move.StorageSafety, digestBytes([]byte("repeated-guest-state/"+label+"/"+suffix)), false)
 	move.Relocation = "evacuation-repeated-relocation-" + label + "-" + suffix
 	if old != nil {
 		if err := AuthorizeHostEvacuationRelocation(ctx, db, claim, "old-storage-relocation-"+label+"-"+suffix, destinationAdmission.AdmissionID, old.StorageSafety, releaseID); !errors.Is(err, ErrHostEvacuationBlocked) {

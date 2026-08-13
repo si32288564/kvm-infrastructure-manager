@@ -115,6 +115,38 @@ func realizeEvacuationBinding(t *testing.T, ctx context.Context, db recoveryQual
 	return bindingID, lvUUID
 }
 
+func qualifyEvacuationLocalLVMCopy(t *testing.T, ctx context.Context, db recoveryQualificationDB, claim HostEvacuationClaim, suffix, destinationAdmission, safetyID, contentDigest string, responseLost bool) LocalLVMRelocationCopyVerification {
+	t.Helper()
+	copyID, commandID := "local-lvm-copy-"+suffix, "local-lvm-copy-command-"+suffix
+	authority, err := PrepareLocalLVMRelocationCopy(ctx, db, claim, LocalLVMRelocationCopyRequest{CopyOperationID: copyID, DestinationAdmissionID: destinationAdmission, SourceSafetyEvidenceID: safetyID, JobID: "local-lvm-copy-job-" + suffix, CommandID: commandID})
+	if err != nil {
+		t.Fatalf("prepare Local LVM copy: %v", err)
+	}
+	evidence := map[string]any{"copy_operation_id": copyID, "source_host_id": authority.SourceHostID, "source_volume_id": authority.SourceVolumeID, "source_binding_id": authority.SourceBindingID, "source_binding_generation": float64(1), "source_lv_uuid": authority.SourceLVUUID, "destination_host_id": authority.DestinationHostID, "destination_volume_id": authority.DestinationVolumeID, "destination_binding_id": authority.DestinationBindingID, "destination_binding_generation": float64(1), "destination_lv_uuid": authority.DestinationLVUUID, "source_size_bytes": float64(authority.ExpectedSizeBytes), "destination_size_bytes": float64(authority.ExpectedSizeBytes), "digest_algorithm": "SHA-256", "source_content_digest": contentDigest, "destination_content_digest": contentDigest, "copy_state": "COMPLETE"}
+	commandVerificationID := "local-lvm-copy-command-verification-" + suffix
+	if responseLost {
+		acceptEvacuationLostReadBack(t, ctx, db, authority.DestinationHostID, commandID, commandVerificationID, 1, evidence)
+	} else {
+		acceptEvacuationCommand(t, ctx, db, authority.DestinationHostID, commandID, commandVerificationID, 1, evidence, "SUCCEEDED")
+	}
+	verified, err := VerifyLocalLVMRelocationCopy(ctx, db, claim, copyID, commandVerificationID, "local-lvm-source-content-"+suffix, "local-lvm-destination-content-"+suffix, "local-lvm-copy-verification-"+suffix, "local-lvm-copy-terminal-"+suffix)
+	if err != nil {
+		t.Fatalf("verify Local LVM copy: %v", err)
+	}
+	wantResponse := "RECEIVED"
+	if responseLost {
+		wantResponse = "LOST"
+	}
+	if verified.ContentDigest != contentDigest || verified.ResponseState != wantResponse {
+		t.Fatalf("copy verification=%+v", verified)
+	}
+	replayed, err := VerifyLocalLVMRelocationCopy(ctx, db, claim, copyID, commandVerificationID, "local-lvm-source-content-"+suffix, "local-lvm-destination-content-"+suffix, "local-lvm-copy-verification-"+suffix, "local-lvm-copy-terminal-"+suffix)
+	if err != nil || replayed.TerminalDigest != verified.TerminalDigest {
+		t.Fatalf("copy replay=%+v err=%v", replayed, err)
+	}
+	return verified
+}
+
 func materializeEvacuationVM(t *testing.T, ctx context.Context, db recoveryQualificationDB, hostID, vmID, admissionID, planID, imageID, checksum, volumeID, bindingID, vgUUID, lvUUID, suffix, relocationID string, generation uint64) VMMaterializationDecision {
 	t.Helper()
 	request := VMMaterializationRequest{VMID: vmID, AdmissionID: admissionID, PlanID: planID, JobID: "define-job-" + suffix, CommandID: "define-command-" + suffix, RelocationAuthorityID: relocationID, MaterializationGeneration: generation}
@@ -130,6 +162,15 @@ func materializeEvacuationVM(t *testing.T, ctx context.Context, db recoveryQuali
 	defineAttempt := acceptEvacuationCommand(t, ctx, db, hostID, request.CommandID, defineVerification, generation, defineEvidence, "SUCCEEDED")
 	if err := AcceptVMDefinitionObservation(ctx, db, VMDefinitionObservation{EvidenceID: "define-evidence-" + suffix, VMID: vmID, VMGeneration: 1, PlanID: planID, PlanDigest: decision.PlanDigest, HostID: hostID, CommandID: request.CommandID, AttemptIndex: uint32(defineAttempt), VerificationID: defineVerification, ObservationGeneration: generation, ObservationDigest: digestBytes([]byte(request.CommandID + "/observation")), VerifierDigest: digestBytes([]byte(request.CommandID + "/verifier")), EvidenceState: "MATCHED", DomainPresent: true, DomainIdentityMatches: true, PlanIdentityMatches: true, ComputeShapeMatches: true, RootVolumeIdentityMatches: true}); err != nil {
 		t.Fatalf("accept definition: %v", err)
+	}
+	if relocationID != "" {
+		if _, err := PrepareVMImageMaterialization(ctx, db, VMImageMaterializationRequest{VMID: vmID, PlanID: planID, JobID: "forbidden-image-job-" + suffix, CommandID: "forbidden-image-command-" + suffix}); !errors.Is(err, ErrVMMaterializationConflict) {
+			t.Fatalf("base Image overwrite was not denied for preserved root: %v", err)
+		}
+		if err := AcceptVMPreservedRootReadiness(ctx, db, vmID, planID, "preserved-root-evidence-"+suffix); err != nil {
+			t.Fatalf("accept preserved root: %v", err)
+		}
+		return decision
 	}
 	imageRequest := VMImageMaterializationRequest{VMID: vmID, PlanID: planID, JobID: "image-job-" + suffix, CommandID: "image-command-" + suffix}
 	if _, err := PrepareVMImageMaterialization(ctx, db, imageRequest); err != nil {
@@ -282,9 +323,63 @@ func TestHostEvacuationNonEmptyZeroPortPositivePostgreSQLIntegration(t *testing.
 		t.Fatalf("destination Admission requirements are not exact: %v/%v", exactRequirements, err)
 	}
 	f.DestinationBinding, f.DestinationLV = realizeEvacuationBinding(t, ctx, pool, f.DestinationHost, f.DestinationAdmission, f.DestinationVolume, destinationRequest.Storage[0].BackendID, destinationRequest.Storage[0].VGUUID, destinationRequest.RequestID)
+	guestContentDigest := digestBytes([]byte("base-image/unique-guest-mutation-marker/second-marker-near-end/" + f.Suffix))
+	if err := AuthorizeHostEvacuationRelocation(ctx, pool, claim, "shape-only-relocation-"+f.Suffix, f.DestinationAdmission, safetyID, releaseID); !errors.Is(err, ErrHostEvacuationBlocked) {
+		t.Fatalf("shape-only Local LVM relocation authorized: %v", err)
+	}
+	if _, err := PrepareLocalLVMRelocationCopy(ctx, pool, claim, LocalLVMRelocationCopyRequest{CopyOperationID: "wrong-safety-copy-" + f.Suffix, DestinationAdmissionID: f.DestinationAdmission, SourceSafetyEvidenceID: "wrong-safety", JobID: "wrong-safety-copy-job-" + f.Suffix, CommandID: "wrong-safety-copy-command-" + f.Suffix}); !errors.Is(err, ErrHostEvacuationBlocked) {
+		t.Fatalf("wrong source safety/binding provenance accepted: %v", err)
+	}
+	rollbackRunning := errors.New("rollback running source")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.vm_power_state_current SET observed_power_state='RUNNING' WHERE vm_id=$1`, f.VMID); err != nil {
+			return err
+		}
+		if _, err := PrepareLocalLVMRelocationCopy(ctx, scopeTxBeginner{tx}, claim, LocalLVMRelocationCopyRequest{CopyOperationID: "running-source-copy-" + f.Suffix, DestinationAdmissionID: f.DestinationAdmission, SourceSafetyEvidenceID: safetyID, JobID: "running-source-copy-job-" + f.Suffix, CommandID: "running-source-copy-command-" + f.Suffix}); !errors.Is(err, ErrHostEvacuationBlocked) {
+			t.Fatalf("RUNNING source authorized copy: %v", err)
+		}
+		return rollbackRunning
+	})
+	if !errors.Is(err, rollbackRunning) {
+		t.Fatal(err)
+	}
+	rollbackHolder := errors.New("rollback source holder")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.volume_attachment_observations_current SET holder_open=true WHERE attachment_id=$1`, f.SourceAttachment); err != nil {
+			return err
+		}
+		if _, err := PrepareLocalLVMRelocationCopy(ctx, scopeTxBeginner{tx}, claim, LocalLVMRelocationCopyRequest{CopyOperationID: "held-source-copy-" + f.Suffix, DestinationAdmissionID: f.DestinationAdmission, SourceSafetyEvidenceID: safetyID, JobID: "held-source-copy-job-" + f.Suffix, CommandID: "held-source-copy-command-" + f.Suffix}); !errors.Is(err, ErrHostEvacuationBlocked) {
+			t.Fatalf("held source authorized copy: %v", err)
+		}
+		return rollbackHolder
+	})
+	if !errors.Is(err, rollbackHolder) {
+		t.Fatal(err)
+	}
+	rollbackCorruption := errors.New("rollback destination corruption")
+	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		operationID, commandID := "corrupt-copy-"+f.Suffix, "corrupt-copy-command-"+f.Suffix
+		authority, err := PrepareLocalLVMRelocationCopy(ctx, scopeTxBeginner{tx}, claim, LocalLVMRelocationCopyRequest{CopyOperationID: operationID, DestinationAdmissionID: f.DestinationAdmission, SourceSafetyEvidenceID: safetyID, JobID: "corrupt-copy-job-" + f.Suffix, CommandID: commandID})
+		if err != nil {
+			return err
+		}
+		evidence := map[string]any{"copy_operation_id": operationID, "source_host_id": authority.SourceHostID, "source_volume_id": authority.SourceVolumeID, "source_binding_id": authority.SourceBindingID, "source_binding_generation": float64(1), "source_lv_uuid": authority.SourceLVUUID, "destination_host_id": authority.DestinationHostID, "destination_volume_id": authority.DestinationVolumeID, "destination_binding_id": authority.DestinationBindingID, "destination_binding_generation": float64(1), "destination_lv_uuid": authority.DestinationLVUUID, "source_size_bytes": float64(authority.ExpectedSizeBytes), "destination_size_bytes": float64(authority.ExpectedSizeBytes), "digest_algorithm": "SHA-256", "source_content_digest": guestContentDigest, "destination_content_digest": digestBytes([]byte("one-block-corruption")), "copy_state": "COMPLETE"}
+		acceptEvacuationCommand(t, ctx, scopeTxBeginner{tx}, authority.DestinationHostID, commandID, "corrupt-copy-command-verification-"+f.Suffix, 1, evidence, "SUCCEEDED")
+		if _, err := VerifyLocalLVMRelocationCopy(ctx, scopeTxBeginner{tx}, claim, operationID, "corrupt-copy-command-verification-"+f.Suffix, "corrupt-source-content-"+f.Suffix, "corrupt-destination-content-"+f.Suffix, "corrupt-copy-verification-"+f.Suffix, "corrupt-copy-terminal-"+f.Suffix); !errors.Is(err, ErrHostEvacuationBlocked) {
+			t.Fatalf("destination digest corruption verified: %v", err)
+		}
+		return rollbackCorruption
+	})
+	if !errors.Is(err, rollbackCorruption) {
+		t.Fatal(err)
+	}
+	copyVerification := qualifyEvacuationLocalLVMCopy(t, ctx, pool, claim, "positive-"+f.Suffix, f.DestinationAdmission, safetyID, guestContentDigest, true)
 	relocationID := "evacuation-relocation-authority-" + f.Suffix
 	if err := AuthorizeHostEvacuationRelocation(ctx, pool, claim, relocationID, f.DestinationAdmission, safetyID, releaseID); err != nil {
 		t.Fatal(err)
+	}
+	if copyVerification.ResponseState != "LOST" {
+		t.Fatal("Local LVM response-loss read-back was not qualified")
 	}
 	var relocationCurrent bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_materialization_relocation_authority_evidence r JOIN kim.virtual_machines_current vm ON vm.vm_id=r.vm_id AND vm.vm_generation=r.vm_generation WHERE r.relocation_authority_id=$1 AND r.source_admission_id=vm.placement_admission_id AND r.source_host_id=vm.host_id AND r.destination_admission_id=$2 AND r.destination_host_id=$3 AND r.destination_materialization_generation=2)`, relocationID, f.DestinationAdmission, f.DestinationHost).Scan(&relocationCurrent); err != nil || !relocationCurrent {
@@ -341,6 +436,8 @@ func TestHostEvacuationNonEmptyZeroPortPositivePostgreSQLIntegration(t *testing.
 	assertTerminalStale("power-generation", `UPDATE kim.vm_power_state_current SET observation_generation=observation_generation+1 WHERE vm_id=$1`, f.VMID)
 	assertTerminalStale("source-authority", `UPDATE kim.host_operation_authorities_current SET authority_generation=authority_generation+1 WHERE host_id=$1`, f.SourceHost)
 	assertTerminalStale("drain-removed", `DELETE FROM kim.host_placement_drains_current WHERE source_host_id=$1`, f.SourceHost)
+	assertTerminalStale("destination-storage-binding", `UPDATE kim.volume_backend_bindings_current SET lv_uuid=$2 WHERE binding_id=$1`, f.DestinationBinding, "forged-lv-"+f.Suffix)
+	assertTerminalStale("copy-current", `UPDATE kim.local_lvm_relocation_copy_operations_current SET operation_state='UNKNOWN' WHERE terminal_evidence_id=$1`, copyVerification.TerminalEvidenceID)
 	terminalID := "evacuation-child-terminal-" + f.Suffix
 	if err := CompleteHostEvacuationChild(ctx, pool, claim, verificationID, terminalID); err != nil {
 		t.Fatal(err)
@@ -374,6 +471,10 @@ func TestHostEvacuationNonEmptyZeroPortPositivePostgreSQLIntegration(t *testing.
 	if drain != "DRAINED" || childPhase != "VERIFIED" || childResult != "VERIFIED" || vmHost != f.DestinationHost || vmAdmission != f.DestinationAdmission || power != "RUNNING" || verifiedCount != 1 || activeSource != 0 || postDrain != 0 || cleanupCount != 0 || beforeEpochs != afterEpochs || beforeFencing != afterFencing {
 		t.Fatalf("terminal drain=%s child=%s/%s vm=%s/%s power=%s counts=%d/%d/%d cleanup=%d failure=%d/%d->%d/%d", drain, childPhase, childResult, vmHost, vmAdmission, power, verifiedCount, activeSource, postDrain, cleanupCount, beforeEpochs, beforeFencing, afterEpochs, afterFencing)
 	}
+	var sourceBindingState, sourceCapacityState string
+	if err := pool.QueryRow(ctx, `SELECT binding.binding_state,capacity.claim_state FROM kim.volume_backend_bindings_current binding JOIN kim.storage_capacity_claims capacity ON capacity.volume_id=binding.volume_id AND capacity.placement_admission_id=$2 WHERE binding.binding_id=$1`, f.SourceBinding, f.SourceAdmission).Scan(&sourceBindingState, &sourceCapacityState); err != nil || sourceBindingState != "BOUND" || sourceCapacityState == "RELEASED" {
+		t.Fatalf("source LV/capacity was reclaimed by relocation: binding=%s capacity=%s err=%v", sourceBindingState, sourceCapacityState, err)
+	}
 	for label, statement := range map[string]string{
 		"quiescence execution": `UPDATE kim.planned_source_quiescence_execution_evidence SET evidence_digest=$2 WHERE quiescence_evidence_id=$1`,
 		"destination binding":  `UPDATE kim.host_evacuation_destination_evidence_binding SET binding_digest=$2 WHERE destination_binding_id=$1`,
@@ -383,6 +484,18 @@ func TestHostEvacuationNonEmptyZeroPortPositivePostgreSQLIntegration(t *testing.
 	} {
 		id := map[string]string{"quiescence execution": quiescenceID, "destination binding": bindingID, "child verification": verificationID, "child terminal": terminalID, "parent terminal": parentTerminalID}[label]
 		if _, err := pool.Exec(ctx, statement, id, digestBytes([]byte("forged-"+label))); err == nil {
+			t.Fatalf("immutable %s accepted UPDATE", label)
+		}
+	}
+	for label, target := range map[string]struct{ table, column, id string }{
+		"copy operation":    {"local_lvm_relocation_copy_operation_evidence", "copy_operation_id", "local-lvm-copy-positive-" + f.Suffix},
+		"copy attempt":      {"local_lvm_relocation_copy_attempt_evidence", "copy_operation_id", "local-lvm-copy-positive-" + f.Suffix},
+		"source content":    {"local_lvm_relocation_content_observation_evidence", "content_evidence_id", copyVerification.SourceContentEvidenceID},
+		"copy verification": {"local_lvm_relocation_copy_verification_evidence", "verification_id", copyVerification.VerificationID},
+		"copy terminal":     {"local_lvm_relocation_copy_terminal_evidence", "terminal_evidence_id", copyVerification.TerminalEvidenceID},
+	} {
+		statement := fmt.Sprintf("UPDATE kim.%s SET recorded_at=recorded_at WHERE %s=$1", target.table, target.column)
+		if _, err := pool.Exec(ctx, statement, target.id); err == nil {
 			t.Fatalf("immutable %s accepted UPDATE", label)
 		}
 	}

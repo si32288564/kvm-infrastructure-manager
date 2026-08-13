@@ -182,11 +182,23 @@ func AuthorizeHostEvacuationRelocation(ctx context.Context, db TxBeginner, claim
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.volumes_current s JOIN kim.volumes_current d ON d.placement_admission_id=$2 AND d.bootable WHERE s.placement_admission_id=$1 AND s.bootable AND s.storage_class_id=d.storage_class_id AND s.storage_class_revision=d.storage_class_revision AND s.size_bytes=d.size_bytes AND s.access_mode=d.access_mode)`, sourceAdmission, destinationAdmissionID).Scan(&shapeMatches); err != nil || !shapeMatches {
 			return ErrHostEvacuationBlocked
 		}
+		// Local LVM shape equality is not data preservation. The relocation
+		// authority may consume only the exact immutable copy terminal whose
+		// destination Binding/LV is still current for this Admission.
+		var copyTerminalID, copyTerminalDigest string
+		if err := tx.QueryRow(ctx, `SELECT terminal.terminal_evidence_id,terminal.terminal_digest
+			FROM kim.local_lvm_relocation_copy_operation_evidence copy
+			JOIN kim.local_lvm_relocation_copy_operations_current current ON current.copy_operation_id=copy.copy_operation_id AND current.copy_generation=copy.copy_generation AND current.operation_state='VERIFIED'
+			JOIN kim.local_lvm_relocation_copy_terminal_evidence terminal ON terminal.terminal_evidence_id=current.terminal_evidence_id AND terminal.copy_operation_id=copy.copy_operation_id AND terminal.copy_generation=copy.copy_generation AND terminal.terminal_state='VERIFIED'
+			JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=copy.destination_binding_id AND binding.binding_generation=copy.destination_binding_generation AND binding.volume_id=copy.destination_volume_id AND binding.host_id=copy.destination_host_id AND binding.lv_uuid=copy.destination_lv_uuid AND binding.binding_state='BOUND'
+			WHERE copy.child_operation_id=$1 AND copy.child_generation=$2 AND copy.source_storage_safety_evidence_id=$3 AND copy.destination_admission_id=$4`, claim.ChildOperationID, childGeneration, safetyID, destinationAdmissionID).Scan(&copyTerminalID, &copyTerminalDigest); err != nil {
+			return ErrHostEvacuationBlocked
+		}
 		destinationMaterialization := sourceMaterialization + 1
 		sourceRequirements := digestReleaseBytes([]byte(sourceStorageDigest + "/" + sourceNetworkDigest + "/" + sourcePCIDigest))
 		destinationRequirements := digestReleaseBytes([]byte(destinationStorageDigest + "/" + destinationNetworkDigest + "/" + destinationPCIDigest))
 		digest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%d", claim.ChildOperationID, sourcePlan, destinationAdmissionID, safetyID, releaseID, destinationMaterialization)))
-		_, err := tx.Exec(ctx, `INSERT INTO kim.vm_materialization_relocation_authority_evidence(relocation_authority_id,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_admission_id,source_plan_id,source_materialization_generation,source_quiescence_evidence_id,source_storage_safety_evidence_id,source_placement_release_evidence_id,destination_host_id,destination_admission_id,destination_materialization_generation,source_requirements_digest,destination_requirements_digest,authority_digest) VALUES($1,$2,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, authorityID, claim.ChildOperationID, childGeneration, vmID, vmGeneration, sourceHost, sourceAdmission, sourcePlan, sourceMaterialization, quiescenceID, safetyID, releaseID, destinationHost, destinationAdmissionID, destinationMaterialization, sourceRequirements, destinationRequirements, digest)
+		_, err := tx.Exec(ctx, `INSERT INTO kim.vm_materialization_relocation_authority_evidence(relocation_authority_id,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_admission_id,source_plan_id,source_materialization_generation,source_quiescence_evidence_id,source_storage_safety_evidence_id,source_placement_release_evidence_id,destination_host_id,destination_admission_id,destination_materialization_generation,source_requirements_digest,destination_requirements_digest,authority_digest,local_lvm_copy_terminal_evidence_id,local_lvm_copy_terminal_digest) VALUES($1,$2,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`, authorityID, claim.ChildOperationID, childGeneration, vmID, vmGeneration, sourceHost, sourceAdmission, sourcePlan, sourceMaterialization, quiescenceID, safetyID, releaseID, destinationHost, destinationAdmissionID, destinationMaterialization, sourceRequirements, destinationRequirements, digest, copyTerminalID, copyTerminalDigest)
 		_ = workloadID
 		return err
 	})

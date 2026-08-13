@@ -247,6 +247,7 @@ func TestHostEvacuationNonEmptyOneOVNPortPositivePostgreSQLIntegration(t *testin
 		t.Fatalf("handoff identity=%s/%s/%s host=%s generations=%d/%d err=%v", finalPortID, finalMAC, finalIP, portHost, portGeneration, bindingGeneration, err)
 	}
 	destinationBinding, destinationLV := realizeEvacuationBinding(t, ctx, pool, destinationHost, destinationAdmission.AdmissionID, destinationRequest.Storage[0].VolumeID, destinationRequest.Storage[0].BackendID, destinationRequest.Storage[0].VGUUID, destinationRequest.RequestID)
+	qualifyEvacuationLocalLVMCopy(t, ctx, pool, claim, "ovn-"+suffix, destinationAdmission.AdmissionID, safetyID, digestBytes([]byte("ovn-guest-state/"+suffix)), false)
 	relocationID := "evacuation-ovn-relocation-authority-" + suffix
 	if err := AuthorizeHostEvacuationRelocation(ctx, pool, claim, relocationID, destinationAdmission.AdmissionID, safetyID, releaseID); err != nil {
 		t.Fatal(err)
