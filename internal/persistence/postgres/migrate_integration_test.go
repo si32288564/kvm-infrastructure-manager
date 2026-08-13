@@ -128,6 +128,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"host_evacuation_slot_claims_current",
 		"host_evacuation_slot_transition_evidence",
 		"planned_source_quiescence_evidence",
+		"host_evacuation_source_network_retirement_authority_evidence",
+		"host_evacuation_child_network_evidence_binding",
 		"host_evacuation_child_terminal_evidence",
 		"host_evacuation_terminal_evidence",
 		"ovn_runtime_work_current",
