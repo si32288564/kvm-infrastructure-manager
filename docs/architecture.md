@@ -100,6 +100,8 @@ flowchart TB
 
 詳細は [Placement Architecture](placement-architecture.md) を参照します。
 
+標準 OVN/kernel OVS、高性能 OVS-DPDK/vhost-user、Direct-I/O、Host FRR/Kubernetes routing domain の将来統合は [Network and Dataplane Target Architecture](network-dataplane-target-architecture.md) を参照します。この文書は current implementation と proposed target を分離し、未実装 capability を current として扱いません。
+
 ### Agent Gateway / Command Service
 
 - 内部Message BusをHost側Trust Boundaryへ公開しない。

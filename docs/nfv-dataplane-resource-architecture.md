@@ -3,6 +3,8 @@
 - 状態: Baseline
 - 更新日: 2026-08-09
 
+本 resource modelを `STANDARD`、`HIGH_PERFORMANCE`、`DIRECT_IO` profile、OVN、Host FRR、Recovery/EVACUATEへ統合する proposed targetは [Network and Dataplane Target Architecture](network-dataplane-target-architecture.md) を参照します。active implementationに OVS-DPDK capabilityが存在するという主張ではありません。
+
 ## 1. 目的
 
 既存のCPU/NUMA/HugePages/PCI/SR-IOVモデルを、OVS-DPDKを含むNFV dataplane resource modelへ拡張します。PMD CPU、DPDK memory、Port/Rx Queue、VM dataplane bindingを第一級resourceとして、Capability、Eligibility、Transactional Admission、Execution、Observationへ統合します。

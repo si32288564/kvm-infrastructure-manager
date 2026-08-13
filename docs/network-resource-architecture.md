@@ -3,6 +3,8 @@
 - 状態: Baseline
 - 更新日: 2026-08-09
 
+標準 OVN/kernel OVS、高性能 OVS-DPDK/vhost-user、Direct-I/O、Host FRR/Kubernetes routing integration の統合 target と current/proposed 差分は [Network and Dataplane Target Architecture](network-dataplane-target-architecture.md) を参照します。本書の current Network authority と layered realization を置き換えません。
+
 ## 1. 目的と責任境界
 
 本書はKIMが提供するVirtual Network、Subnet/IPAM、Port/Binding、VLAN/VNI、OVN intent、DHCP、Router/Gateway、Floating IP/NAT、Security Policyのauthorityとfailure semanticsを定義します。
