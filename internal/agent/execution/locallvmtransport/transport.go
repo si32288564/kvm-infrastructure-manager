@@ -15,6 +15,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ import (
 
 const (
 	ProtocolVersion       = "kim.local-lvm-cross-host/v1"
+	StreamPath            = "/v1/local-lvm/transport"
 	HeaderSessionID       = "Kim-Transport-Session-Id"
 	HeaderGeneration      = "Kim-Transport-Generation"
 	HeaderCopyOperation   = "Kim-Copy-Operation-Id"
@@ -44,8 +46,12 @@ const (
 var ErrAuthorityConflict = errors.New("Local LVM transport authority conflict")
 
 type VolumeIdentity struct {
-	HostID, VolumeID, BindingID, VGUUID, LVUUID string
-	BindingGeneration                           uint64
+	HostID            string `json:"host_id"`
+	VolumeID          string `json:"volume_id"`
+	BindingID         string `json:"binding_id"`
+	VGUUID            string `json:"vg_uuid"`
+	LVUUID            string `json:"lv_uuid"`
+	BindingGeneration uint64 `json:"binding_generation"`
 }
 type VolumeState struct {
 	SizeBytes  uint64
@@ -53,25 +59,33 @@ type VolumeState struct {
 }
 
 type Authority struct {
-	TransportSessionID                                                    string
-	TransportGeneration, CopyGeneration                                   uint64
-	CopyOperationID                                                       string
-	Source, Destination                                                   VolumeIdentity
-	SourceHostAuthorityGeneration, DestinationHostAuthorityGeneration     uint64
-	SourceCredentialBindingRevision, DestinationCredentialBindingRevision uint64
-	SourceSessionGeneration, DestinationSessionGeneration                 uint64
-	ExactByteCount                                                        uint64
-	ChunkSize                                                             int
-	DigestAlgorithm                                                       string
-	TransportPolicyRevision                                               uint64
-	ExpiresAt                                                             time.Time
-	SourceCertificateFingerprint, DestinationCertificateFingerprint       string
+	TransportSessionID                   string         `json:"transport_session_id"`
+	TransportGeneration                  uint64         `json:"transport_generation"`
+	CopyGeneration                       uint64         `json:"copy_generation"`
+	CopyOperationID                      string         `json:"copy_operation_id"`
+	Source                               VolumeIdentity `json:"source"`
+	Destination                          VolumeIdentity `json:"destination"`
+	SourceHostAuthorityGeneration        uint64         `json:"source_host_authority_generation"`
+	DestinationHostAuthorityGeneration   uint64         `json:"destination_host_authority_generation"`
+	SourceCredentialBindingRevision      uint64         `json:"source_credential_binding_revision"`
+	DestinationCredentialBindingRevision uint64         `json:"destination_credential_binding_revision"`
+	SourceSessionGeneration              uint64         `json:"source_session_generation"`
+	DestinationSessionGeneration         uint64         `json:"destination_session_generation"`
+	ExactByteCount                       uint64         `json:"exact_byte_count"`
+	ChunkSize                            int            `json:"chunk_size"`
+	DigestAlgorithm                      string         `json:"digest_algorithm"`
+	TransportPolicyRevision              uint64         `json:"transport_policy_revision"`
+	MaximumConcurrentPerHost             int            `json:"maximum_concurrent_per_host"`
+	BandwidthLimitBytesPerSecond         uint64         `json:"bandwidth_limit_bytes_per_second"`
+	ExpiresAt                            time.Time      `json:"expires_at"`
+	SourceCertificateFingerprint         string         `json:"source_certificate_fingerprint"`
+	DestinationCertificateFingerprint    string         `json:"destination_certificate_fingerprint"`
 }
 
 func (a Authority) Validate(now time.Time) error {
 	_, sourceFingerprintErr := hex.DecodeString(a.SourceCertificateFingerprint)
 	_, destinationFingerprintErr := hex.DecodeString(a.DestinationCertificateFingerprint)
-	if a.TransportSessionID == "" || a.TransportGeneration == 0 || a.CopyOperationID == "" || a.CopyGeneration == 0 || a.Source.HostID == "" || a.Destination.HostID == "" || a.Source.HostID == a.Destination.HostID || a.Source.VolumeID == "" || a.Source.BindingID == "" || a.Source.BindingGeneration == 0 || a.Source.VGUUID == "" || a.Source.LVUUID == "" || a.Destination.VolumeID == "" || a.Destination.BindingID == "" || a.Destination.BindingGeneration == 0 || a.Destination.VGUUID == "" || a.Destination.LVUUID == "" || a.Source.LVUUID == a.Destination.LVUUID || a.SourceHostAuthorityGeneration == 0 || a.DestinationHostAuthorityGeneration == 0 || a.SourceCredentialBindingRevision == 0 || a.DestinationCredentialBindingRevision == 0 || a.SourceSessionGeneration == 0 || a.DestinationSessionGeneration == 0 || a.ExactByteCount == 0 || a.ChunkSize < 4096 || a.ChunkSize > 4<<20 || a.DigestAlgorithm != "SHA-256" || a.TransportPolicyRevision == 0 || !a.ExpiresAt.After(now) || len(a.SourceCertificateFingerprint) != 64 || len(a.DestinationCertificateFingerprint) != 64 || sourceFingerprintErr != nil || destinationFingerprintErr != nil {
+	if a.TransportSessionID == "" || a.TransportGeneration == 0 || a.CopyOperationID == "" || a.CopyGeneration == 0 || a.Source.HostID == "" || a.Destination.HostID == "" || a.Source.HostID == a.Destination.HostID || a.Source.VolumeID == "" || a.Source.BindingID == "" || a.Source.BindingGeneration == 0 || a.Source.VGUUID == "" || a.Source.LVUUID == "" || a.Destination.VolumeID == "" || a.Destination.BindingID == "" || a.Destination.BindingGeneration == 0 || a.Destination.VGUUID == "" || a.Destination.LVUUID == "" || a.Source.LVUUID == a.Destination.LVUUID || a.SourceHostAuthorityGeneration == 0 || a.DestinationHostAuthorityGeneration == 0 || a.SourceCredentialBindingRevision == 0 || a.DestinationCredentialBindingRevision == 0 || a.SourceSessionGeneration == 0 || a.DestinationSessionGeneration == 0 || a.ExactByteCount == 0 || a.ChunkSize < 4096 || a.ChunkSize > 4<<20 || a.DigestAlgorithm != "SHA-256" || a.TransportPolicyRevision == 0 || a.MaximumConcurrentPerHost < 1 || a.MaximumConcurrentPerHost > 64 || !a.ExpiresAt.After(now) || len(a.SourceCertificateFingerprint) != 64 || len(a.DestinationCertificateFingerprint) != 64 || sourceFingerprintErr != nil || destinationFingerprintErr != nil {
 		return ErrAuthorityConflict
 	}
 	return nil
@@ -86,6 +100,7 @@ func (a Authority) Digest() string {
 		a.Destination.HostID, uintString(a.DestinationHostAuthorityGeneration), uintString(a.DestinationCredentialBindingRevision), uintString(a.DestinationSessionGeneration), a.DestinationCertificateFingerprint,
 		a.Destination.VolumeID, a.Destination.BindingID, uintString(a.Destination.BindingGeneration), a.Destination.VGUUID, a.Destination.LVUUID,
 		uintString(a.ExactByteCount), strconv.Itoa(a.ChunkSize), a.DigestAlgorithm, uintString(a.TransportPolicyRevision), strconv.FormatInt(a.ExpiresAt.UnixNano(), 10),
+		strconv.Itoa(a.MaximumConcurrentPerHost), uintString(a.BandwidthLimitBytesPerSecond),
 	}, "\n")
 	digest := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(digest[:])
@@ -125,7 +140,7 @@ func (h SourceHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.Sessions.Add(1)
 		defer func() { h.Metrics.Active.Add(^uint64(0)); h.Metrics.DurationNanoseconds.Add(uint64(time.Since(start))) }()
 	}
-	if r.Method != "POST" || r.ProtoMajor != 2 || r.TLS == nil || len(r.TLS.PeerCertificates) == 0 || h.Reader == nil || h.Authority.Validate(time.Now()) != nil {
+	if r.Method != "POST" || r.URL.Path != StreamPath || r.URL.RawQuery != "" || r.ProtoMajor != 2 || r.TLS == nil || r.TLS.Version != tls.VersionTLS13 || len(r.TLS.PeerCertificates) == 0 || h.Reader == nil || h.Authority.Validate(time.Now()) != nil {
 		http.Error(w, "closed transport authority required", http.StatusUnauthorized)
 		return
 	}
@@ -212,7 +227,11 @@ func (c DestinationClient) Transfer(ctx context.Context, attempt int) (Result, e
 	if err != nil || state.HolderOpen || state.SizeBytes != c.Authority.ExactByteCount {
 		return out, ErrAuthorityConflict
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, nil)
+	endpoint, err := closedStreamEndpoint(c.Endpoint)
+	if err != nil {
+		return out, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return out, err
 	}
@@ -231,7 +250,7 @@ func (c DestinationClient) Transfer(ctx context.Context, attempt int) (Result, e
 		return out, err
 	}
 	defer response.Body.Close()
-	if response.ProtoMajor != 2 || response.TLS == nil || len(response.TLS.PeerCertificates) == 0 {
+	if response.ProtoMajor != 2 || response.TLS == nil || response.TLS.Version != tls.VersionTLS13 || len(response.TLS.PeerCertificates) == 0 {
 		return out, ErrAuthorityConflict
 	}
 	peer := sha256.Sum256(response.TLS.PeerCertificates[0].Raw)
@@ -288,8 +307,21 @@ func (c DestinationClient) Transfer(ctx context.Context, attempt int) (Result, e
 	return out, nil
 }
 
+func closedStreamEndpoint(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" && parsed.Path != "/" && parsed.Path != StreamPath {
+		return "", ErrAuthorityConflict
+	}
+	parsed.Path = StreamPath
+	return parsed.String(), nil
+}
+
 func NewMutualTLSClient(config *tls.Config) *http.Client {
-	transport := &http.Transport{TLSClientConfig: config.Clone(), ForceAttemptHTTP2: true}
+	strict := config.Clone()
+	strict.MinVersion = tls.VersionTLS13
+	strict.MaxVersion = tls.VersionTLS13
+	strict.NextProtos = []string{"h2"}
+	transport := &http.Transport{TLSClientConfig: strict, ForceAttemptHTTP2: true}
 	return &http.Client{Transport: transport}
 }
 

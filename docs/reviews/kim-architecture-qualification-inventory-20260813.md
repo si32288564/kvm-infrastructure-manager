@@ -29,7 +29,7 @@ What remains:
 - Ceph RBD and OVS-DPDK implementation promised by accepted architecture documents;
 - operator workflows for stuck `UNKNOWN`/`BLOCKED`/`CONFLICTING`, evidence retention/partition/archive implementation, wider metrics export, and sustained mixed-workload soak.
 
-Top production blockers are the absence of a deployed disposable real EVACUATE profile, inactive `kim-agent` on g01/g02, no safe real VF inventory, Local LVM transport not being wired into the normal Agent runtime, and incomplete operator/retention operations. No P0 authority bypass, data-corruption shortcut, or split-brain path was found in this review. Two related P1 transport findings are recorded: normal runtime wiring is absent, and TLS 1.3 is provided by external TLS configuration/fixture rather than checked inside the transport handler/client.
+Top production blockers are the absence of a deployed disposable real EVACUATE profile, inactive `kim-agent` on g01/g02, no safe real VF inventory, and incomplete operator/retention operations. No P0 authority bypass, data-corruption shortcut, or split-brain path was found in this review. Post-review hardening wired Local LVM transport into the normal Host Agent runtime and added direct TLS 1.3 enforcement; see ADR-0028 and the runtime wiring validation.
 
 Recommended next phase: **release hardening and real qualification**, not another large authority expansion. Wire the existing Local LVM transport through the normal Agent, provision an isolated disposable two-Host profile, execute real EVACUATE/cleanup, then qualify real SR-IOV. In parallel, close operator recovery, metrics, retention, and mixed-load endurance gaps.
 
@@ -361,7 +361,7 @@ Status is the highest level actually demonstrated for the named capability. A `S
 | 17 | repeated EVACUATE A→B→C | yes | yes | not run | `SYNTHETIC_PASS` | incarnation/ABA mature | repeated validation |
 | 18 | mixed Recovery→EVACUATE | yes | yes | not run | `SYNTHETIC_PASS` | origins separate, lineage shared | mixed-origin validation |
 | 19 | Local LVM content preservation | yes | whole-device mutated-marker profile | blocked | `SYNTHETIC_PASS` | whole-volume cost; no real device transfer | migration 070 validation |
-| 20 | cross-Host Local LVM transport | library + DB authority | two-Agent HTTP/2/mTLS | blocked | `SYNTHETIC_PASS` | production Agent wiring/TLS-local enforcement | migration 071 validation |
+| 20 | cross-Host Local LVM transport | product Agent runtime + DB authority | two-Agent HTTP/2/mTLS normal typed execution | blocked | `SYNTHETIC_PASS` | real disposable deployment remains | migration 071 and runtime wiring validation |
 | 21 | Local LVM exact source cleanup | yes | yes | blocked | `SYNTHETIC_PASS` | `kim-agent` inactive/no disposable LV | migration 072 validation |
 | 22 | Local LVM capacity reclamation | yes | yes | blocked | `SYNTHETIC_PASS` | requires real absence campaign | migration 072 validation |
 | 23 | generic backend cleanup | yes | yes | origins include real Recovery, cleanup mutation synthetic | `SYNTHETIC_PASS` | DELETE producer and PCI consumer absent | migrations 064/065/072 |
@@ -477,9 +477,9 @@ Retention, legal hold, archive, partition, decoder lifetime, PITR, and GC safety
 
 The denominator is the 35 in-scope rows in the capability matrix; row 36 is intentional `OUT_OF_SCOPE` and is excluded.
 
-### Architecture completion: 88.6%
+### Architecture completion: 90.0% (post-runtime-wiring update)
 
-Scoring: 27 rows have a complete authority model (`27 × 1`); 8 have a bounded partial model (`CPU realization`, `transport runtime binding`, `EVACUATE PCI`, `operator recovery`, `observability`, `retention`, `Ceph`, and `DPDK`; `8 × 0.5`). The exact arithmetic is `31 / 35 = 88.6%`. A partial score means the boundary is designed but at least one required authority edge is absent.
+Scoring after ADR-0028: the Local LVM transport runtime binding moved from partial to complete, adding 0.5 without changing the denominator. The exact arithmetic is `31.5 / 35 = 90.0%`. A partial score means the boundary is designed but at least one required authority edge is absent.
 
 ### Functional completion: 85.7%
 
@@ -499,13 +499,11 @@ None found. This is not a proof of absence; it records that no current path was 
 
 ### P1 production blockers
 
-1. Cross-Host Local LVM transport is not wired into the normal Host Agent/runtime; it is a tested library and PostgreSQL authority only.
-2. Local LVM transport does not locally assert TLS 1.3 at both endpoints; it relies on caller TLS configuration. A misconfigured future caller could preserve mTLS/fingerprint checks while negotiating an older version.
-3. Real Host EVACUATE, Local LVM transport, source cleanup, and capacity reclaim lack a safe disposable two-Host profile and deployed active Agent.
-4. Real PCI/SR-IOV Recovery and EVACUATE lack enabled, qualified, disposable VFs; EVACUATE also lacks its PCI consumer.
-5. Operator resolution for stuck UNKNOWN/BLOCKED/CONFLICTING and release-pending capacity is not a complete product workflow.
-6. Evidence retention/partition/archive/GC is specified but not implemented/qualified.
-7. Ceph RBD and OVS-DPDK are accepted product architecture but not delivered implementations; any release claiming those capabilities is blocked.
+1. Real Host EVACUATE, Local LVM transport, source cleanup, and capacity reclaim lack a safe disposable two-Host profile and deployed active Agent.
+2. Real PCI/SR-IOV Recovery and EVACUATE lack enabled, qualified, disposable VFs; EVACUATE also lacks its PCI consumer.
+3. Operator resolution for stuck UNKNOWN/BLOCKED/CONFLICTING and release-pending capacity is not a complete product workflow.
+4. Evidence retention/partition/archive/GC is specified but not implemented/qualified.
+5. Ceph RBD and OVS-DPDK are accepted product architecture but not delivered implementations; any release claiming those capabilities is blocked.
 
 ### P2 architecture debt
 
@@ -543,10 +541,10 @@ None found. This is not a proof of absence; it records that no current path was 
 
 ## Top ten residual risks
 
-1. Untested production wiring of the Local LVM data plane.
-2. No real disposable Host EVACUATE/cleanup campaign.
+1. No real disposable Host EVACUATE/cleanup campaign.
+2. Local LVM bandwidth policy is recorded but not runtime-enforced.
 3. No real VF and incomplete planned PCI evacuation.
-4. TLS-version enforcement can be weakened by a future Local LVM transport caller.
+4. Real deployment certificate SAN/firewall/listener behavior remains unqualified despite strict product TLS enforcement.
 5. Retention/index/archive growth can impair PostgreSQL before operational controls exist.
 6. Stuck uncertainty can retain slots/capacity without a coherent operator workflow.
 7. Implicit lock ordering may deadlock under broader mixed-resource concurrency.
@@ -558,8 +556,8 @@ None found. This is not a proof of absence; it records that no current path was 
 
 Repository/current-environment candidates:
 
-1. wire Local LVM transport into the normal typed Agent and add an end-to-end process-kill fixture;
-2. enforce/assert TLS 1.3 in transport endpoints and test downgrade rejection;
+1. run the product-wired Local LVM transport on disposable real two-Host LVs with process loss;
+2. qualify real TLS certificate SAN, firewall, listener, and rotation behavior;
 3. add a unified stuck-operation inspection/read-back/retry contract test;
 4. run whole-system multi-VM/multi-worker mixed Recovery/EVACUATE/cleanup soak;
 5. add a deterministic advisory-lock ordering/deadlock stress suite;

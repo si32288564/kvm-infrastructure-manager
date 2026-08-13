@@ -32,6 +32,8 @@ type LocalLVMTransportSession struct {
 	DestinationBindingGeneration                                                    uint64
 	ExactByteCount                                                                  uint64
 	ChunkSizeBytes                                                                  int
+	MaximumConcurrentPerHost                                                        int
+	BandwidthLimitBytesPerSecond                                                    uint64
 	ExpiresAt                                                                       time.Time
 	AuthorityDigest                                                                 string
 }
@@ -51,6 +53,45 @@ type LocalLVMTransportCompletion struct {
 	BytesTransferred                        uint64
 	ResponseState                           string
 	SourceEvidenceID, DestinationEvidenceID string
+}
+
+type LocalLVMTransportRuntimeCommandRequest struct {
+	SourceJobID, SourceCommandID           string
+	DestinationJobID, DestinationCommandID string
+}
+
+// PrepareLocalLVMTransportRuntimeCommands dispatches the immutable Migration
+// 071 authority to the two asymmetric product backends. Endpoint discovery is
+// deliberately absent from both Commands and remains administrator-owned on
+// the destination Agent.
+func PrepareLocalLVMTransportRuntimeCommands(ctx context.Context, db TxBeginner, sessionID string, request LocalLVMTransportRuntimeCommandRequest) error {
+	if sessionID == "" || request.SourceJobID == "" || request.SourceCommandID == "" || request.DestinationJobID == "" || request.DestinationCommandID == "" || request.SourceCommandID == request.DestinationCommandID {
+		return ErrHostEvacuationConflict
+	}
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var session LocalLVMTransportSession
+		var bandwidth *uint64
+		if err := tx.QueryRow(ctx, `SELECT evidence.transport_session_id,evidence.transport_generation,evidence.copy_operation_id,evidence.copy_generation,evidence.source_host_id,evidence.source_host_authority_generation,evidence.source_credential_binding_revision,evidence.source_session_generation,source_credential.certificate_fingerprint_sha256,evidence.source_volume_id,evidence.source_binding_id,evidence.source_binding_generation,evidence.source_vg_uuid,evidence.source_lv_uuid,evidence.destination_host_id,evidence.destination_host_authority_generation,evidence.destination_credential_binding_revision,evidence.destination_session_generation,destination_credential.certificate_fingerprint_sha256,evidence.destination_volume_id,evidence.destination_binding_id,evidence.destination_binding_generation,evidence.destination_vg_uuid,evidence.destination_lv_uuid,evidence.exact_byte_count,evidence.chunk_size_bytes,evidence.maximum_concurrent_per_host,evidence.bandwidth_limit_bytes_per_second,evidence.expires_at,evidence.authority_digest
+			FROM kim.local_lvm_relocation_transport_session_evidence evidence
+			JOIN kim.local_lvm_relocation_transport_sessions_current current USING(transport_session_id,transport_generation)
+			JOIN kim.agent_credential_binding_evidence source_credential ON source_credential.host_id=evidence.source_host_id AND source_credential.binding_revision=evidence.source_credential_binding_revision
+			JOIN kim.agent_credential_binding_evidence destination_credential ON destination_credential.host_id=evidence.destination_host_id AND destination_credential.binding_revision=evidence.destination_credential_binding_revision
+			WHERE evidence.transport_session_id=$1 AND evidence.expires_at>statement_timestamp() AND current.session_state='AUTHORIZED' FOR UPDATE OF current`, sessionID).Scan(&session.TransportSessionID, &session.TransportGeneration, &session.CopyOperationID, &session.CopyGeneration, &session.SourceHostID, &session.SourceHostAuthorityGeneration, &session.SourceCredentialBindingRevision, &session.SourceSessionGeneration, &session.SourceCertificateFingerprint, &session.SourceVolumeID, &session.SourceBindingID, &session.SourceBindingGeneration, &session.SourceVGUUID, &session.SourceLVUUID, &session.DestinationHostID, &session.DestinationHostAuthorityGeneration, &session.DestinationCredentialBindingRevision, &session.DestinationSessionGeneration, &session.DestinationCertificateFingerprint, &session.DestinationVolumeID, &session.DestinationBindingID, &session.DestinationBindingGeneration, &session.DestinationVGUUID, &session.DestinationLVUUID, &session.ExactByteCount, &session.ChunkSizeBytes, &session.MaximumConcurrentPerHost, &bandwidth, &session.ExpiresAt, &session.AuthorityDigest); err != nil {
+			return ErrHostEvacuationStale
+		}
+		if bandwidth != nil {
+			session.BandwidthLimitBytesPerSecond = *bandwidth
+		}
+		authority := session.AgentAuthority()
+		if authority.Digest() != session.AuthorityDigest {
+			return ErrHostEvacuationConflict
+		}
+		payload := map[string]any{"authority": authority}
+		if err := CreateExecutionCommand(ctx, scopeTxBeginner{tx}, ExecutionCommandRequest{JobID: request.SourceJobID, CommandID: request.SourceCommandID, HostID: session.SourceHostID, ResourceType: "LOCAL_LVM_TRANSPORT_SOURCE", ResourceID: sessionID, DesiredRevision: int64(session.TransportGeneration), CommandType: transportauthority.SourceAuthorizeCommandType, SchemaVersion: transportauthority.SourceAuthorizeSchema, TargetResourceID: "local-lvm-transport:" + sessionID, Payload: payload}); err != nil {
+			return err
+		}
+		return CreateExecutionCommand(ctx, scopeTxBeginner{tx}, ExecutionCommandRequest{JobID: request.DestinationJobID, CommandID: request.DestinationCommandID, HostID: session.DestinationHostID, ResourceType: "LOCAL_LVM_TRANSPORT_DESTINATION", ResourceID: sessionID, DesiredRevision: int64(session.TransportGeneration), CommandType: transportauthority.DestinationCommandType, SchemaVersion: transportauthority.DestinationSchema, TargetResourceID: "local-lvm-transport:" + sessionID, Payload: payload})
+	})
 }
 
 // PrepareLocalLVMTransportSession derives one shared cross-Host session from
@@ -85,13 +126,15 @@ func PrepareLocalLVMTransportSession(ctx context.Context, db TxBeginner, request
 			JOIN kim.volume_attachment_observations_current source_holder ON source_holder.attachment_id=safety.root_attachment_id AND source_holder.attachment_generation=safety.root_attachment_generation AND source_holder.binding_id=copy.source_binding_id AND source_holder.binding_generation=copy.source_binding_generation AND source_holder.host_id=copy.source_host_id AND source_holder.observed_lv_uuid=copy.source_lv_uuid AND NOT source_holder.holder_open
 			JOIN kim.host_operation_authorities_current source_auth ON source_auth.host_id=copy.source_host_id AND source_auth.authority_state='ARMED'
 			JOIN kim.agent_transport_sessions_current source_session ON source_session.host_id=copy.source_host_id AND source_session.session_generation=source_auth.session_generation AND source_session.credential_binding_revision=source_auth.credential_binding_revision AND source_session.state='CURRENT'
+			JOIN kim.agent_transport_session_attempts source_attempt ON source_attempt.host_id=source_session.host_id AND source_attempt.session_attempt_id=source_session.current_session_attempt_id AND source_attempt.handshake_evidence->'capabilities' ? $2
 			JOIN kim.agent_credential_binding_evidence source_credential ON source_credential.host_id=copy.source_host_id AND source_credential.binding_revision=source_auth.credential_binding_revision AND source_credential.binding_state='ACTIVE' AND statement_timestamp() BETWEEN source_credential.valid_not_before AND source_credential.valid_not_after
 			JOIN kim.host_operation_authorities_current destination_auth ON destination_auth.host_id=copy.destination_host_id AND destination_auth.authority_state='ARMED'
 			JOIN kim.agent_transport_sessions_current destination_session ON destination_session.host_id=copy.destination_host_id AND destination_session.session_generation=destination_auth.session_generation AND destination_session.credential_binding_revision=destination_auth.credential_binding_revision AND destination_session.state='CURRENT'
+			JOIN kim.agent_transport_session_attempts destination_attempt ON destination_attempt.host_id=destination_session.host_id AND destination_attempt.session_attempt_id=destination_session.current_session_attempt_id AND destination_attempt.handshake_evidence->'capabilities' ? $2
 			JOIN kim.agent_credential_binding_evidence destination_credential ON destination_credential.host_id=copy.destination_host_id AND destination_credential.binding_revision=destination_auth.credential_binding_revision AND destination_credential.binding_state='ACTIVE' AND statement_timestamp() BETWEEN destination_credential.valid_not_before AND destination_credential.valid_not_after
 			JOIN kim.volume_backend_bindings_current source_binding ON source_binding.binding_id=copy.source_binding_id AND source_binding.binding_generation=copy.source_binding_generation AND source_binding.volume_id=copy.source_volume_id AND source_binding.host_id=copy.source_host_id AND source_binding.lv_uuid=copy.source_lv_uuid AND source_binding.binding_state='BOUND'
 			JOIN kim.volume_backend_bindings_current destination_binding ON destination_binding.binding_id=copy.destination_binding_id AND destination_binding.binding_generation=copy.destination_binding_generation AND destination_binding.volume_id=copy.destination_volume_id AND destination_binding.host_id=copy.destination_host_id AND destination_binding.lv_uuid=copy.destination_lv_uuid AND destination_binding.binding_state='BOUND'
-			WHERE copy.copy_operation_id=$1 FOR UPDATE OF copy_current,source_auth,destination_auth,source_binding,destination_binding`, request.CopyOperationID).Scan(&out.CopyGeneration, &out.SourceHostID, &out.SourceVolumeID, &out.SourceBindingID, &out.SourceBindingGeneration, &out.SourceVGUUID, &out.SourceLVUUID, &out.DestinationHostID, &out.DestinationVolumeID, &out.DestinationBindingID, &out.DestinationBindingGeneration, &out.DestinationVGUUID, &out.DestinationLVUUID, &out.ExactByteCount, &sourceAuthority, &sourceCredential, &sourceSession, &sourceFingerprint, &destinationAuthority, &destinationCredential, &destinationSession, &destinationFingerprint); err != nil {
+			WHERE copy.copy_operation_id=$1 FOR UPDATE OF copy_current,source_auth,destination_auth,source_binding,destination_binding`, request.CopyOperationID, transportauthority.Capability).Scan(&out.CopyGeneration, &out.SourceHostID, &out.SourceVolumeID, &out.SourceBindingID, &out.SourceBindingGeneration, &out.SourceVGUUID, &out.SourceLVUUID, &out.DestinationHostID, &out.DestinationVolumeID, &out.DestinationBindingID, &out.DestinationBindingGeneration, &out.DestinationVGUUID, &out.DestinationLVUUID, &out.ExactByteCount, &sourceAuthority, &sourceCredential, &sourceSession, &sourceFingerprint, &destinationAuthority, &destinationCredential, &destinationSession, &destinationFingerprint); err != nil {
 			return ErrHostEvacuationBlocked
 		}
 		hosts := []string{out.SourceHostID, out.DestinationHostID}
@@ -119,6 +162,8 @@ func PrepareLocalLVMTransportSession(ctx context.Context, db TxBeginner, request
 		out.SourceCertificateFingerprint = sourceFingerprint
 		out.DestinationCertificateFingerprint = destinationFingerprint
 		out.ChunkSizeBytes = request.ChunkSizeBytes
+		out.MaximumConcurrentPerHost = request.MaximumConcurrentPerHost
+		out.BandwidthLimitBytesPerSecond = request.BandwidthLimitBytesPerSecond
 		if err := tx.QueryRow(ctx, `SELECT statement_timestamp()+$1::interval`, request.Duration.String()).Scan(&out.ExpiresAt); err != nil {
 			return err
 		}
@@ -147,7 +192,7 @@ func (s LocalLVMTransportSession) AgentAuthority() transportauthority.Authority 
 		SourceHostAuthorityGeneration: s.SourceHostAuthorityGeneration, DestinationHostAuthorityGeneration: s.DestinationHostAuthorityGeneration,
 		SourceCredentialBindingRevision: s.SourceCredentialBindingRevision, DestinationCredentialBindingRevision: s.DestinationCredentialBindingRevision,
 		SourceSessionGeneration: s.SourceSessionGeneration, DestinationSessionGeneration: s.DestinationSessionGeneration,
-		ExactByteCount: s.ExactByteCount, ChunkSize: s.ChunkSizeBytes, DigestAlgorithm: "SHA-256", TransportPolicyRevision: 1, ExpiresAt: s.ExpiresAt,
+		ExactByteCount: s.ExactByteCount, ChunkSize: s.ChunkSizeBytes, DigestAlgorithm: "SHA-256", TransportPolicyRevision: 1, MaximumConcurrentPerHost: s.MaximumConcurrentPerHost, BandwidthLimitBytesPerSecond: s.BandwidthLimitBytesPerSecond, ExpiresAt: s.ExpiresAt,
 		SourceCertificateFingerprint: s.SourceCertificateFingerprint, DestinationCertificateFingerprint: s.DestinationCertificateFingerprint,
 	}
 }

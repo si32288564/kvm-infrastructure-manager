@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,6 +31,10 @@ type Backend interface {
 type Observer interface {
 	Observe(context.Context, contract.VerificationRequest) (contract.Observation, error)
 }
+
+// CapabilityProvider lets a closed typed backend add a bounded capability to
+// the normal Agent handshake. It does not create another transport session.
+type CapabilityProvider interface{ Capabilities() []string }
 
 type Publisher interface {
 	Publish(session.Envelope) error
@@ -72,7 +77,24 @@ func (module *Module) RegisterBackend(backend Backend) error {
 }
 
 func (module *Module) Descriptor() session.ModuleDescriptor {
-	return session.ModuleDescriptor{Name: "execution", Capabilities: []string{"kim.agent.execution/v1"}, MinSchemaVersion: contract.CommandLeaseSchema, MaxSchemaVersion: contract.VerificationRequestSchema, MessageSchemas: []string{contract.CommandLeaseSchema, contract.VerificationRequestSchema}}
+	capabilities := []string{"kim.agent.execution/v1"}
+	seen := map[string]bool{"kim.agent.execution/v1": true}
+	module.mu.RLock()
+	defer module.mu.RUnlock()
+	for _, backend := range module.backends {
+		provider, ok := backend.(CapabilityProvider)
+		if !ok {
+			continue
+		}
+		for _, capability := range provider.Capabilities() {
+			if capability != "" && !seen[capability] {
+				capabilities = append(capabilities, capability)
+				seen[capability] = true
+			}
+		}
+	}
+	sort.Strings(capabilities[1:])
+	return session.ModuleDescriptor{Name: "execution", Capabilities: capabilities, MinSchemaVersion: contract.CommandLeaseSchema, MaxSchemaVersion: contract.VerificationRequestSchema, MessageSchemas: []string{contract.CommandLeaseSchema, contract.VerificationRequestSchema}}
 }
 
 func (module *Module) Handle(ctx context.Context, envelope session.Envelope) error {

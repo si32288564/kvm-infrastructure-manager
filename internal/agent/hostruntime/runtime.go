@@ -36,6 +36,17 @@ type Config struct {
 	FlushInterval             time.Duration
 	ReconnectBackoff          reconnect.Backoff
 	ExecutionBackends         []agentexecution.Backend
+	RuntimeComponents         []RuntimeComponent
+}
+
+// RuntimeComponent is a fail-closed product service that must be ready before
+// the normal Agent session is opened. Session changes revoke component-local
+// routes; they never infer that an in-flight side effect did not occur.
+type RuntimeComponent interface {
+	Start(context.Context) error
+	Activate(uint64, int64) error
+	Deactivate(uint64)
+	Close(context.Context) error
 }
 
 type durablePublisher struct {
@@ -69,6 +80,20 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("open Agent execution journal: %w", err)
 	}
 	defer executionJournal.Close()
+	startedComponents := 0
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		for index := startedComponents - 1; index >= 0; index-- {
+			_ = config.RuntimeComponents[index].Close(shutdown)
+		}
+	}()
+	for _, component := range config.RuntimeComponents {
+		if err := component.Start(ctx); err != nil {
+			return fmt.Errorf("start Host Agent runtime component: %w", err)
+		}
+		startedComponents++
+	}
 
 	attempt := 1
 	for {
@@ -122,6 +147,17 @@ func Run(ctx context.Context, config Config) error {
 			attempt++
 			continue
 		}
+		activatedComponents := 0
+		for _, component := range config.RuntimeComponents {
+			if err := component.Activate(generation, config.CredentialBindingRevision); err != nil {
+				for index := activatedComponents - 1; index >= 0; index-- {
+					config.RuntimeComponents[index].Deactivate(generation)
+				}
+				_ = manager.Close()
+				return fmt.Errorf("activate Host Agent runtime component: %w", err)
+			}
+			activatedComponents++
+		}
 		if err := generationLedger.CommitAccepted(generation); err != nil {
 			_ = manager.Close()
 			return err
@@ -136,6 +172,9 @@ func Run(ctx context.Context, config Config) error {
 		}
 		if err == nil {
 			err = (session.Runner{Manager: manager, ReceiptHandler: durableSpool, FlushInterval: config.FlushInterval}).Run(ctx)
+		}
+		for _, component := range config.RuntimeComponents {
+			component.Deactivate(generation)
 		}
 		_ = manager.Close()
 		if context.Cause(ctx) != nil {
@@ -158,6 +197,11 @@ func validate(config Config) error {
 	for _, backend := range config.ExecutionBackends {
 		if backend == nil {
 			return errors.New("nil typed execution backend is not allowed")
+		}
+	}
+	for _, component := range config.RuntimeComponents {
+		if component == nil {
+			return errors.New("nil Host Agent runtime component is not allowed")
 		}
 	}
 	return nil

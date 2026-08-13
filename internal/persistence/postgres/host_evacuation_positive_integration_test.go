@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvmtransport"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/session"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/execution/contract"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/placement"
@@ -113,7 +115,7 @@ func prepareEvacuationHost(t *testing.T, ctx context.Context, db recoveryQualifi
 	t.Helper()
 	fingerprint := digestBytes([]byte("evacuation-positive/" + hostID))
 	prepareSessionIdentityFixture(t, ctx, db, hostID, 1, fingerprint)
-	if _, err := AdmitAgentSession(ctx, db, AgentSessionAdmission{SessionAttemptID: hostID + "/session", HostID: hostID, ConnectionInstanceID: "evacuation-positive", TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("evacuation-agent")), CredentialBindingRevision: 1, PeerCertificateFingerprint: fingerprint, ExpectedSessionGeneration: 1}); err != nil {
+	if _, err := AdmitAgentSession(ctx, db, AgentSessionAdmission{SessionAttemptID: hostID + "/session", HostID: hostID, ConnectionInstanceID: "evacuation-positive", TransportProfile: "integration", ProtocolVersion: "v1", AgentArtifactDigest: digestBytes([]byte("evacuation-agent")), CredentialBindingRevision: 1, PeerCertificateFingerprint: fingerprint, HandshakeEvidence: map[string]any{"capabilities": []string{locallvmtransport.Capability}}, ExpectedSessionGeneration: 1}); err != nil {
 		t.Fatal(err)
 	}
 	acceptPlacementInventory(t, ctx, db, hostID)
@@ -158,6 +160,19 @@ func qualifyEvacuationLocalLVMCopy(t *testing.T, ctx context.Context, db recover
 	}
 	if transportSession.AuthorityDigest != transportSession.AgentAuthority().Digest() || transportSession.SourceHostID != authority.SourceHostID || transportSession.DestinationHostID != authority.DestinationHostID {
 		t.Fatalf("transport authority did not preserve exact copy identity: %+v", transportSession)
+	}
+	runtimeCommands := LocalLVMTransportRuntimeCommandRequest{SourceJobID: "local-lvm-transport-source-job-" + suffix, SourceCommandID: "local-lvm-transport-source-command-" + suffix, DestinationJobID: "local-lvm-transport-destination-job-" + suffix, DestinationCommandID: "local-lvm-transport-destination-command-" + suffix}
+	if err := PrepareLocalLVMTransportRuntimeCommands(ctx, db, transportSession.TransportSessionID, runtimeCommands); err != nil {
+		t.Fatalf("prepare normal Host Agent transport Commands: %v", err)
+	}
+	for commandID, expected := range map[string]struct{ host, commandType string }{
+		runtimeCommands.SourceCommandID:      {transportSession.SourceHostID, locallvmtransport.SourceAuthorizeCommandType},
+		runtimeCommands.DestinationCommandID: {transportSession.DestinationHostID, locallvmtransport.DestinationCommandType},
+	} {
+		var host, commandType, payload string
+		if err := db.QueryRow(ctx, `SELECT host_id,command_type,payload::text FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&host, &commandType, &payload); err != nil || host != expected.host || commandType != expected.commandType || strings.Contains(payload, "/dev/") || strings.Contains(payload, "https://") {
+			t.Fatalf("runtime Command %s host=%q type=%q payload=%q err=%v", commandID, host, commandType, payload, err)
+		}
 	}
 	if _, err := PrepareLocalLVMTransportSession(ctx, db, LocalLVMTransportSessionRequest{TransportSessionID: "local-lvm-transport-conflict-" + suffix, CopyOperationID: copyID, Duration: time.Minute, ChunkSizeBytes: 1 << 20, MaximumConcurrentPerHost: 1}); err == nil {
 		t.Fatal("concurrent session for the same destination LV was accepted")

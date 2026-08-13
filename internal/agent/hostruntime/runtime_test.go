@@ -78,6 +78,41 @@ func (acceptedAdapter) Open(context.Context, session.Handshake) (session.Transpo
 	return blockingConnection{}, nil
 }
 
+type lifecycleComponent struct {
+	mu                                      sync.Mutex
+	started, activated, deactivated, closed bool
+	generation                              uint64
+}
+
+func (component *lifecycleComponent) Start(context.Context) error {
+	component.mu.Lock()
+	defer component.mu.Unlock()
+	component.started = true
+	return nil
+}
+func (component *lifecycleComponent) Activate(generation uint64, credential int64) error {
+	component.mu.Lock()
+	defer component.mu.Unlock()
+	if !component.started || generation == 0 || credential != 1 {
+		return errors.New("runtime activated before readiness or with wrong identity")
+	}
+	component.activated, component.generation = true, generation
+	return nil
+}
+func (component *lifecycleComponent) Deactivate(generation uint64) {
+	component.mu.Lock()
+	defer component.mu.Unlock()
+	if generation == component.generation {
+		component.deactivated = true
+	}
+}
+func (component *lifecycleComponent) Close(context.Context) error {
+	component.mu.Lock()
+	defer component.mu.Unlock()
+	component.closed = true
+	return nil
+}
+
 func TestRuntimeOwnsSessionUntilGracefulCancellation(t *testing.T) {
 	root := t.TempDir()
 	limits := session.QueueLimits{MaxMessageBytes: 64 << 10, MaxTotalMessages: 32, MaxTotalBytes: 1 << 20, ReservedPriorityMsgs: 4, ReservedPriorityBytes: 64 << 10, MaxConsecutivePriority: 8, PerStreamMessages: map[session.Stream]int{session.StreamControl: 8, session.StreamCommand: 8, session.StreamResult: 8, session.StreamHeartbeat: 8, session.StreamCredential: 8, session.StreamInventory: 8, session.StreamResync: 8}}
@@ -95,6 +130,36 @@ func TestRuntimeOwnsSessionUntilGracefulCancellation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Host Agent runtime did not stop")
+	}
+}
+
+func TestRuntimeComponentIsReadyBeforeSessionAndRevokedOnShutdown(t *testing.T) {
+	root := t.TempDir()
+	component := &lifecycleComponent{}
+	limits := session.QueueLimits{MaxMessageBytes: 64 << 10, MaxTotalMessages: 32, MaxTotalBytes: 1 << 20, ReservedPriorityMsgs: 4, ReservedPriorityBytes: 64 << 10, MaxConsecutivePriority: 8, PerStreamMessages: map[session.Stream]int{session.StreamControl: 8, session.StreamCommand: 8, session.StreamResult: 8, session.StreamHeartbeat: 8, session.StreamCredential: 8, session.StreamInventory: 8, session.StreamResync: 8}}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Config{HostID: "host-runtime-component", ProtocolVersion: "v1", AgentArtifactDigest: strings.Repeat("a", 64), CredentialBindingRevision: 1, VerifierDigest: strings.Repeat("b", 64), StateDirectory: filepath.Join(root, "state"), SpoolDirectory: filepath.Join(root, "spool"), JournalDirectory: filepath.Join(root, "journal"), GenerationDirectory: filepath.Join(root, "generation"), Adapter: acceptedAdapter{}, QueueLimits: limits, SpoolMaxEntries: 32, SpoolMaxBytes: 1 << 20, FlushInterval: time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: time.Millisecond, Max: 10 * time.Millisecond}, RuntimeComponents: []RuntimeComponent{component}})
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		component.mu.Lock()
+		active := component.activated
+		component.mu.Unlock()
+		if active || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	component.mu.Lock()
+	defer component.mu.Unlock()
+	if !component.started || !component.activated || !component.deactivated || !component.closed || component.generation != 1 {
+		t.Fatalf("component lifecycle=%+v", component)
 	}
 }
 

@@ -111,7 +111,7 @@ func transportFixture(t *testing.T, size int) (Authority, *sourceMemory, *destin
 	content := make([]byte, size)
 	copy(content, []byte("base-image/unique-real-transport-guest-marker"))
 	copy(content[size-64:], []byte("marker-near-end-of-real-transport-volume"))
-	authority := Authority{TransportSessionID: "transport-1", TransportGeneration: 1, CopyOperationID: "copy-1", CopyGeneration: 1, Source: sourceID, Destination: destinationID, SourceHostAuthorityGeneration: 11, DestinationHostAuthorityGeneration: 13, SourceCredentialBindingRevision: 5, DestinationCredentialBindingRevision: 7, SourceSessionGeneration: 17, DestinationSessionGeneration: 19, ExactByteCount: uint64(size), ChunkSize: 4096, DigestAlgorithm: "SHA-256", TransportPolicyRevision: 1, ExpiresAt: time.Now().Add(time.Minute), SourceCertificateFingerprint: certDigest(serverTLS.Certificates[0]), DestinationCertificateFingerprint: certDigest(clientTLS.Certificates[0])}
+	authority := Authority{TransportSessionID: "transport-1", TransportGeneration: 1, CopyOperationID: "copy-1", CopyGeneration: 1, Source: sourceID, Destination: destinationID, SourceHostAuthorityGeneration: 11, DestinationHostAuthorityGeneration: 13, SourceCredentialBindingRevision: 5, DestinationCredentialBindingRevision: 7, SourceSessionGeneration: 17, DestinationSessionGeneration: 19, ExactByteCount: uint64(size), ChunkSize: 4096, DigestAlgorithm: "SHA-256", TransportPolicyRevision: 1, MaximumConcurrentPerHost: 1, ExpiresAt: time.Now().Add(time.Minute), SourceCertificateFingerprint: certDigest(serverTLS.Certificates[0]), DestinationCertificateFingerprint: certDigest(clientTLS.Certificates[0])}
 	source := &sourceMemory{identity: sourceID, content: content}
 	destination := &destinationMemory{identity: destinationID, content: make([]byte, size)}
 	server := httptest.NewUnstartedServer(SourceHandler{Authority: authority, Reader: source})
@@ -125,7 +125,7 @@ func TestMutualTLSCrossHostTransferUsesSeparatedResolversAndFlushes(t *testing.T
 	authority, source, destination, server, client := transportFixture(t, 16384)
 	defer server.Close()
 	metrics := &Metrics{}
-	result, err := (DestinationClient{Authority: authority, Writer: destination, Client: client, Endpoint: server.URL, Metrics: metrics}).Transfer(t.Context(), 1)
+	result, err := (DestinationClient{Authority: authority, Writer: destination, Client: client, Endpoint: server.URL + StreamPath, Metrics: metrics}).Transfer(t.Context(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestTransportRejectsWrongLVBindingPartialCorruptionAndSourceDrift(t *testin
 			t.Fatal(err)
 		}
 		destinationID := VolumeIdentity{"host-b", "volume-b", "binding-b", "vg-b", "lv-b", 7}
-		authority := Authority{TransportSessionID: "transport-partial", TransportGeneration: 1, CopyOperationID: "copy-partial", CopyGeneration: 1, Source: VolumeIdentity{"host-a", "volume-a", "binding-a", "vg-a", "lv-a", 3}, Destination: destinationID, SourceHostAuthorityGeneration: 11, DestinationHostAuthorityGeneration: 13, SourceCredentialBindingRevision: 5, DestinationCredentialBindingRevision: 7, SourceSessionGeneration: 17, DestinationSessionGeneration: 19, ExactByteCount: 8192, ChunkSize: 4096, DigestAlgorithm: "SHA-256", TransportPolicyRevision: 1, ExpiresAt: time.Now().Add(time.Minute), SourceCertificateFingerprint: certDigest(serverTLS.Certificates[0]), DestinationCertificateFingerprint: certDigest(clientTLS.Certificates[0])}
+		authority := Authority{TransportSessionID: "transport-partial", TransportGeneration: 1, CopyOperationID: "copy-partial", CopyGeneration: 1, Source: VolumeIdentity{"host-a", "volume-a", "binding-a", "vg-a", "lv-a", 3}, Destination: destinationID, SourceHostAuthorityGeneration: 11, DestinationHostAuthorityGeneration: 13, SourceCredentialBindingRevision: 5, DestinationCredentialBindingRevision: 7, SourceSessionGeneration: 17, DestinationSessionGeneration: 19, ExactByteCount: 8192, ChunkSize: 4096, DigestAlgorithm: "SHA-256", TransportPolicyRevision: 1, MaximumConcurrentPerHost: 1, ExpiresAt: time.Now().Add(time.Minute), SourceCertificateFingerprint: certDigest(serverTLS.Certificates[0]), DestinationCertificateFingerprint: certDigest(clientTLS.Certificates[0])}
 		destination := &destinationMemory{identity: destinationID, content: make([]byte, 8192)}
 		server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Trailer", TrailerSourceDigest)

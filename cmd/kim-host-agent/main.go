@@ -20,6 +20,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/localimage"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvmtransport"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/ovsnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/sriovnetwork"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/hostruntime"
@@ -48,6 +49,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	libvirtURI := set.String("libvirt-uri", os.Getenv("KIM_AGENT_LIBVIRT_URI"), "standard libvirt connection URI; empty disables VM power operations")
 	localLVMVGUUID := set.String("local-lvm-vg-uuid", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_UUID"), "allowed Local LVM VG UUID; empty disables Local LVM realization")
 	localLVMVGName := set.String("local-lvm-vg-name", os.Getenv("KIM_AGENT_LOCAL_LVM_VG_NAME"), "admin-configured Local LVM VG name paired with the allowed UUID")
+	localLVMTransportListen := set.String("local-lvm-transport-listen", os.Getenv("KIM_AGENT_LOCAL_LVM_TRANSPORT_LISTEN"), "admin-configured dedicated TLS 1.3 Local LVM transport listen address; empty disables the capability")
+	localLVMTransportEndpoints := set.String("local-lvm-transport-endpoints", os.Getenv("KIM_AGENT_LOCAL_LVM_TRANSPORT_ENDPOINTS"), "comma-separated source Host ID=https://host:port origins")
 	imageCacheRoot := set.String("image-cache-root", os.Getenv("KIM_AGENT_IMAGE_CACHE_ROOT"), "admin-configured digest-addressed verified Image cache root")
 	ovsMappings := set.String("ovs-segment-mappings", os.Getenv("KIM_AGENT_OVS_SEGMENT_MAPPINGS"), "comma-separated Segment Claim ID=OVS bridge mappings")
 	if err := set.Parse(args); err != nil {
@@ -66,6 +69,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var executionBackends []agentexecution.Backend
+	var runtimeComponents []hostruntime.RuntimeComponent
 	if *libvirtURI != "" {
 		backend, closeBackend, backendErr := libvirtdomain.New(*libvirtURI)
 		if backendErr != nil {
@@ -94,6 +98,42 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		volumeGroups := map[string]string{*localLVMVGUUID: *localLVMVGName}
 		executionBackends = append(executionBackends, locallvm.Backend{Client: client, VolumeGroups: volumeGroups})
+		if *localLVMTransportListen != "" || *localLVMTransportEndpoints != "" {
+			if *localLVMTransportListen == "" || *localLVMTransportEndpoints == "" {
+				fmt.Fprintln(stderr, "kim-host-agent Local LVM transport error: listen address and endpoint registry are required together")
+				return 2
+			}
+			endpoints, endpointErr := parseEndpointMappings(*localLVMTransportEndpoints)
+			if endpointErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent Local LVM transport endpoint error: %v\n", endpointErr)
+				return 2
+			}
+			endpointRegistry, endpointErr := locallvmtransport.NewEndpointRegistry(endpoints)
+			if endpointErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent Local LVM transport endpoint error: %v\n", endpointErr)
+				return 2
+			}
+			resolver, resolverErr := locallvmtransport.NewLVMDeviceResolver(*hostID, volumeGroups)
+			if resolverErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent Local LVM transport resolver error: %v\n", resolverErr)
+				return 2
+			}
+			transportTLS := tlsConfig.Clone()
+			// The Gateway name is not the east-west Agent endpoint name. Let the
+			// HTTP transport derive ServerName from the administrator-owned URL.
+			transportTLS.ServerName = ""
+			transportTLS.MinVersion, transportTLS.MaxVersion = tls.VersionTLS13, tls.VersionTLS13
+			transportTLS.ClientAuth = tls.RequireAndVerifyClientCert
+			transportTLS.ClientCAs = transportTLS.RootCAs
+			transportTLS.NextProtos = []string{"h2"}
+			runtime, runtimeErr := locallvmtransport.NewRuntime(locallvmtransport.RuntimeConfig{HostID: *hostID, ListenAddress: *localLVMTransportListen, CredentialRevision: uint64(*credentialRevision), TLSConfig: transportTLS, Reader: resolver, Writer: resolver, Endpoints: endpointRegistry, Metrics: &locallvmtransport.Metrics{}})
+			if runtimeErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent Local LVM transport runtime error: %v\n", runtimeErr)
+				return 2
+			}
+			executionBackends = append(executionBackends, runtime.Backends()...)
+			runtimeComponents = append(runtimeComponents, runtime)
+		}
 		if *imageCacheRoot != "" {
 			executionBackends = append(executionBackends, localimage.Backend{CacheRoot: *imageCacheRoot, Volumes: libvirtvolume.LocalLVMResolver{Client: client, VolumeGroups: volumeGroups}})
 		}
@@ -132,6 +172,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "kim-host-agent Image cache error: Local LVM identity mapping is required")
 		return 2
 	}
+	if (*localLVMTransportListen != "" || *localLVMTransportEndpoints != "") && *localLVMVGUUID == "" {
+		fmt.Fprintln(stderr, "kim-host-agent Local LVM transport error: Local LVM identity mapping is required")
+		return 2
+	}
 	if *ovsMappings != "" {
 		if *libvirtURI == "" {
 			fmt.Fprintln(stderr, "kim-host-agent OVS Network error: libvirt URI is required")
@@ -157,7 +201,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		defer closeDataplaneBackend()
 		executionBackends = append(executionBackends, dataplaneBackend)
 	}
-	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends})
+	err = hostruntime.Run(ctx, hostruntime.Config{HostID: *hostID, ProtocolVersion: "v1", AgentArtifactDigest: *artifactDigest, CredentialBindingRevision: *credentialRevision, VerifierDigest: *verifierDigest, StateDirectory: filepath.Join(*stateRoot, "qualification-state"), SpoolDirectory: filepath.Join(*stateRoot, "spool"), JournalDirectory: filepath.Join(*stateRoot, "execution-journal"), GenerationDirectory: filepath.Join(*stateRoot, "session-generation"), Adapter: &grpcstream.Adapter{Target: *gateway, TLSConfig: tlsConfig, MaxMessageBytes: limits.MaxMessageBytes}, QueueLimits: limits, SpoolMaxEntries: 4096, SpoolMaxBytes: 256 << 20, FlushInterval: 10 * time.Millisecond, ReconnectBackoff: reconnect.Backoff{Base: 250 * time.Millisecond, Max: 30 * time.Second}, ExecutionBackends: executionBackends, RuntimeComponents: runtimeComponents})
 	if err != nil {
 		fmt.Fprintf(stderr, "kim-host-agent stopped: %v\n", err)
 		return 1
@@ -180,6 +224,21 @@ func parseMappings(value string) (map[string]string, error) {
 	return result, nil
 }
 
+func parseEndpointMappings(value string) (map[string]string, error) {
+	result := map[string]string{}
+	for _, entry := range strings.Split(value, ",") {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.ContainsAny(parts[0], "/ 	\n") || strings.ContainsAny(parts[1], " 	\n") {
+			return nil, fmt.Errorf("invalid Local LVM transport endpoint mapping")
+		}
+		if _, exists := result[parts[0]]; exists {
+			return nil, fmt.Errorf("duplicate Local LVM transport Host mapping")
+		}
+		result[parts[0]] = parts[1]
+	}
+	return result, nil
+}
+
 func loadTLS(caPath, certPath, keyPath, serverName string) (*tls.Config, error) {
 	if caPath == "" || certPath == "" || keyPath == "" || serverName == "" {
 		return nil, fmt.Errorf("Gateway, Host identity, TLS CA/certificate/key/server-name are required")
@@ -196,7 +255,7 @@ func loadTLS(caPath, certPath, keyPath, serverName string) (*tls.Config, error) 
 	if !roots.AppendCertsFromPEM(caPEM) {
 		return nil, fmt.Errorf("Agent trust bundle contains no certificate")
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{certificate}, ServerName: serverName}, nil
+	return &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{certificate}, ServerName: serverName}, nil
 }
 
 func errorsOrRequired(err error) error {
