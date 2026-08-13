@@ -1,7 +1,7 @@
 # API 設計原則
 
 - 状態: Baseline
-- 更新日: 2026-08-09
+- 更新日: 2026-08-14
 
 ## 1. API の役割
 
@@ -42,9 +42,11 @@
 
 ETSI IFA 005 対応 API は、内部 API と独立した adapter/profile として提供します。
 
-## 4. 非同期変更
+## 4. 変更の完了境界
 
-時間のかかる変更は `202 Accepted` と Operation resource を返します。
+PostgreSQL resource authority の commit だけで desired mutation が完了し、Host/backend realization を伴わない resource は同期応答を許可します。Create は `201 Created`、Update は `200 OK` または `204 No Content`、同期 delete は `204 No Content` とします。Project はこの分類です。
+
+Host/backend realization または時間を持つ convergence を伴う変更は `202 Accepted` と Operation resource を返します。
 
 ```http
 POST /api/v1/vms
@@ -131,4 +133,4 @@ Terraform Provider、管理 UI、CLI、外部 automation は独自の resource l
 
 Terraform state を KIM authority とせず、Placement、Materialization、Recovery、EVACUATE が変更する Host-local physical incarnation は desired configuration から分離します。詳細と current/proposed gap は [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md) を参照します。
 
-Migration 001–072 / current main に対する executable Northbound surface、resource別 lifecycle、Provider blocker の実査結果は [KIM Northbound API / Terraform Readiness Review](reviews/kim-terraform-api-readiness-review-20260814.md) を参照します。現時点では Northbound runtime/OpenAPI/security/resource CRUD が未実装であり、内部 persistence function を public API とみなしません。
+Migration 073 の Project vertical slice は、同期的な PostgreSQL-only resource mutation、OIDC/RBAC、revision、idempotency、audit、OpenAPI の reference implementation です。backend-convergent resource の Operation contract、Project 以外の resource API、Terraform Provider/UI は未実装です。実査結果は [KIM Northbound API / Terraform Readiness Review](reviews/kim-terraform-api-readiness-review-20260814.md) を参照します。

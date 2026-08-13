@@ -1,0 +1,127 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "KIM Northbound API",
+    "version": "1.0.0-phase0",
+    "description": "Spec-first HTTP contract. KIM lifecycle metadata classifies persistent desired fields separately from computed and immutable fields."
+  },
+  "servers": [{"url": "/api/v1"}],
+  "security": [{"oauth2": []}],
+  "paths": {
+    "/projects": {
+      "post": {
+        "operationId": "createProject",
+        "parameters": [
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {"$ref": "#/components/parameters/RequestID"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProjectCreate"}}}},
+        "responses": {
+          "201": {"description": "Project authority committed synchronously", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}, "Location": {"schema": {"type": "string"}}, "X-Request-ID": {"$ref": "#/components/headers/RequestID"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Project"}}}},
+          "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "get": {
+        "operationId": "listProjects",
+        "parameters": [
+          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}},
+          {"name": "cursor", "in": "query", "schema": {"type": "string", "maxLength": 128}},
+          {"$ref": "#/components/parameters/RequestID"}
+        ],
+        "responses": {
+          "200": {"description": "Scope-filtered stable Project page", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProjectPage"}}}},
+          "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/projects/{project_id}": {
+      "parameters": [{"$ref": "#/components/parameters/ProjectID"}, {"$ref": "#/components/parameters/RequestID"}],
+      "get": {
+        "operationId": "getProject",
+        "responses": {
+          "200": {"description": "Current authorized Project desired projection", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}, "X-Request-ID": {"$ref": "#/components/headers/RequestID"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Project"}}}},
+          "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "patch": {
+        "operationId": "updateProject",
+        "parameters": [{"$ref": "#/components/parameters/IfMatch"}],
+        "requestBody": {"required": true, "content": {"application/merge-patch+json": {"schema": {"$ref": "#/components/schemas/ProjectPatch"}}, "application/json": {"schema": {"$ref": "#/components/schemas/ProjectPatch"}}}},
+        "responses": {
+          "200": {"description": "Project desired revision committed synchronously", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}, "X-Request-ID": {"$ref": "#/components/headers/RequestID"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Project"}}}},
+          "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteProject",
+        "parameters": [{"$ref": "#/components/parameters/IfMatch"}],
+        "responses": {
+          "204": {"description": "Project tombstone committed synchronously", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}}},
+          "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "description": "External-IdP human or automation access token. Host Agent and backend credentials are not accepted.",
+        "flows": {
+          "authorizationCode": {"authorizationUrl": "https://idp.example.invalid/oauth2/authorize", "tokenUrl": "https://idp.example.invalid/oauth2/token", "scopes": {}},
+          "clientCredentials": {"tokenUrl": "https://idp.example.invalid/oauth2/token", "scopes": {}}
+        }
+      }
+    },
+    "parameters": {
+      "ProjectID": {"name": "project_id", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/ProjectID"}},
+      "IdempotencyKey": {"name": "Idempotency-Key", "in": "header", "required": true, "schema": {"type": "string", "minLength": 1, "maxLength": 255}},
+      "IfMatch": {"name": "If-Match", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^\\\"[1-9][0-9]*\\\"$"}},
+      "RequestID": {"name": "X-Request-ID", "in": "header", "required": false, "description": "Client correlation hint. KIM returns its own trusted request ID.", "schema": {"type": "string", "maxLength": 255}}
+    },
+    "headers": {
+      "ETag": {"description": "Quoted persistent desired Project revision", "schema": {"type": "string", "pattern": "^\\\"[1-9][0-9]*\\\"$"}},
+      "RequestID": {"description": "KIM-generated request correlation ID", "schema": {"type": "string"}}
+    },
+    "responses": {
+      "Problem": {"description": "RFC 9457 compatible stable error", "headers": {"X-Request-ID": {"$ref": "#/components/headers/RequestID"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    },
+    "schemas": {
+      "ProjectID": {"type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "x-kim-field-class": ["COMPUTED", "IMMUTABLE"]},
+      "Project": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "deleteProtection", "revision", "createdAt", "updatedAt"],
+        "properties": {
+          "id": {"$ref": "#/components/schemas/ProjectID"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 255, "x-kim-field-class": ["REQUIRED_DESIRED"]},
+          "deleteProtection": {"type": "boolean", "x-kim-field-class": ["OPTIONAL_DESIRED"]},
+          "revision": {"type": "integer", "format": "int64", "minimum": 1, "readOnly": true, "x-kim-field-class": ["COMPUTED"]},
+          "createdAt": {"type": "string", "format": "date-time", "readOnly": true, "x-kim-field-class": ["COMPUTED"]},
+          "updatedAt": {"type": "string", "format": "date-time", "readOnly": true, "x-kim-field-class": ["COMPUTED"]}
+        },
+        "x-kim-resource": {"resourceType": "PROJECT", "identityField": "id", "revisionField": "revision", "scope": "SYSTEM", "importIdentifierFormat": "project/<uuid>", "mutationMode": "SYNCHRONOUS_AUTHORITY_COMMIT", "deleteProtection": true, "physicalIncarnationFields": []}
+      },
+      "ProjectCreate": {
+        "type": "object", "additionalProperties": false, "required": ["name"],
+        "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 255, "x-kim-field-class": ["REQUIRED_DESIRED"]}, "deleteProtection": {"type": "boolean", "default": false, "x-kim-field-class": ["OPTIONAL_DESIRED"]}}
+      },
+      "ProjectPatch": {
+        "type": "object", "additionalProperties": false, "minProperties": 1,
+        "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 255, "x-kim-field-class": ["REQUIRED_DESIRED"]}, "deleteProtection": {"type": "boolean", "x-kim-field-class": ["OPTIONAL_DESIRED"]}}
+      },
+      "ProjectPage": {
+        "type": "object", "additionalProperties": false, "required": ["items"],
+        "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/Project"}}, "nextCursor": {"type": "string"}}
+      },
+      "Problem": {
+        "type": "object", "additionalProperties": false, "required": ["type", "title", "status", "code", "detail", "requestId", "retryable"],
+        "properties": {
+          "type": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "integer"},
+          "code": {"type": "string", "enum": ["VALIDATION_FAILED", "REQUEST_TOO_LARGE", "UNAUTHENTICATED", "FORBIDDEN", "RESOURCE_NOT_FOUND", "RESOURCE_CONFLICT", "STALE_REVISION", "IDEMPOTENCY_CONFLICT", "DEPENDENCY_CONFLICT", "DELETE_PROTECTED", "OPERATION_IN_PROGRESS", "INTERNAL_ERROR", "SERVICE_UNAVAILABLE"]},
+          "detail": {"type": "string"}, "requestId": {"type": "string"}, "retryable": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

@@ -189,7 +189,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 
 | ID | Acceptance Contract |
 |---|---|
-| AT-API-001 | mutation APIが202+Operationを返し、request処理中にHost/backendへ接続しない |
+| AT-API-001 | Host/backend realizationを伴うmutation APIが202+Operationを返し、request処理中にHost/backendへ接続しない |
 | AT-API-002 | 同一idempotency key+payloadの並行再送が単一Operation/resourceへ収束する |
 | AT-API-003 | 同一idempotency key+異なるpayloadが409 conflictになる |
 | AT-IAC-001 | Terraform/UI/backendにKIM PostgreSQLと異なるcurrent authorityを与えず、refresh/readがauthorized KIM projectionだけを使用する |
@@ -203,6 +203,7 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-IAC-009 | stable logical ID importがdesired/computedを分離して再構成し、backend-only objectとphysical incarnationをadoptしない |
 | AT-IAC-010 | machine principalのProject/Site/resource/action scope、read/write/admin、rotation、audit、destructive protectionを検証し、backend/Agent credentialを開示しない |
 | AT-IAC-011 | logical Security PolicyをOVN ACL/Port Group/Address Setへcompile/read-backし、public desired/API/stateへraw OVN syntaxを要求しない |
+| AT-IAC-012 | PostgreSQL authority commitだけで完了するProject create/update/deleteが201/200/204で確定し、形式上だけのOperationやHost/backend接続を生成しない |
 | AT-DATA-001 | desired/allocation/Job/Command/idempotencyの一要素失敗で全transactionがrollbackする |
 | AT-DATA-002 | desired/observed generationを独立保持し、stale observationをcurrent表示しない |
 | AT-DATA-003 | schema catalogがCurrent Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionとowner/scope/retentionを宣言する |

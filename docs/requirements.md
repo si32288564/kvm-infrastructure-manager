@@ -398,7 +398,7 @@
 
 | ID | 要件 | 優先度 |
 |---|---|---|
-| OPS-001 | 変更 API は Operation ID を返し、非同期に完了できる | Must |
+| OPS-001 | Host/backend realizationまたは時間を持つconvergenceを伴う変更 API は Operation ID を返し、非同期に完了できる | Must |
 | OPS-002 | Operation の状態、進捗、失敗理由、相関 ID を照会できる | Must |
 | OPS-003 | 一時障害を分類し、上限付きで安全に再試行できる | Must |
 | OPS-004 | Webhook または Event Stream で状態変更を通知できる | Should |
@@ -444,6 +444,7 @@
 | IAC-012 | API error は validation、authorization、not found/tombstone、stale revision、dependency/allocation conflict、operation in progress、transient unavailable、backend UNKNOWN、terminal failed と retryability を stable machine-readable code で区別する | Must |
 | IAC-013 | Northbound automation principal は外部 IdP の machine identity を使用し、Project/Site/resource/action scope、read/write/admin separation、credential rotation、audit actor、destructive protectionを評価する。backend/Host Agent credentialを取得しない | Must |
 | IAC-014 | backend-independent Security Policy desired model を selector、direction、protocol/service/port、statefulness、action、priority、logging policy として定義し、raw OVN ACL syntaxを通常の public desired fieldにしない | Must |
+| IAC-015 | PostgreSQL resource authority commitだけで完了するmutationは201/200/204の同期応答を許容し、backend realizationを伴うmutationは202+Operationとする。形式上だけのOperationを作らない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

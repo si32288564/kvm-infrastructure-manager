@@ -49,6 +49,11 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 	}
 
 	requiredTables := []string{
+		"project_revision_evidence",
+		"projects_current",
+		"northbound_role_bindings_current",
+		"northbound_idempotency_evidence",
+		"northbound_audit_evidence",
 		"agent_message_receipts",
 		"agent_resync_checkpoints",
 		"host_inventory_snapshots",

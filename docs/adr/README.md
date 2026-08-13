@@ -45,3 +45,4 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0026: Local LVM relocation transport は相互認証した exact block capability とする](0026-cross-host-local-lvm-transport-authority.md)
 - [ADR-0027: Generic CleanupからLocal LVM source capacityを安全にreclaimする](0027-generic-local-lvm-source-cleanup-authority.md)
 - [ADR-0028: Local LVM transportを通常Host Agent sessionへbindする](0028-local-lvm-transport-agent-runtime.md)
+- [ADR-0029: Northbound resource mutation の完了境界を authority で分ける](0029-northbound-resource-mutation-completion-boundary.md)

@@ -8,7 +8,7 @@
 
 本書は KIM を IaC-first な KVM Infrastructure Control Plane として利用するための将来設計 SSOT です。Terraform、Ansible、管理 UI、KIM、Host Agent、各 backend の責務を分離し、同じ resource lifecycle contract から API、Terraform Provider、UI を構成します。
 
-本書は実装済みの機能を宣言するものではありません。`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。本書の追加によって Migration、API、Provider、UI、qualification gate は変更されません。
+`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073 の Project API は current reference vertical slice です。Provider、UI、他 resource API、backend Operation projection は引き続き proposed です。
 
 ## 2. 中核原則
 
@@ -102,6 +102,8 @@ flowchart TB
 ```
 
 KIM Resource Contract は JSON shape だけでなく、identity、revision、mutability、replacement、computed field、asynchronous convergence、import、delete protection、authorization を含む機械可読 contract です。OpenAPI 3.1 は HTTP contract の SSOT ですが、Provider/UI generation に不足する lifecycle metadata も OpenAPI extension または同一 versioned schema package で管理します。
+
+Project reference implementation は `api/openapi/kim-v1.json` の `x-kim-resource` と `x-kim-field-class` を SSOT として採用します。typed HTTP handler と contract test が route、schema、error code、metadata の drift を検出します。将来 generator を導入しても、この分類を独自に上書きしません。
 
 ## 4. Responsibility Boundaries
 
@@ -400,7 +402,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 | Area | Current repository state | Proposed target |
 |---|---|---|
-| Northbound API | API principles、resource path、OpenAPI/ETag/idempotency/Operation の設計 baseline はある。`kim-api` runtime は Phase 1 scaffold で未配線 | versioned Resource API と完全な lifecycle contract |
+| Northbound API | `kim-api` runtime、OIDC bearer verification、minimal RBAC、Project CRUD/list、ETag/If-Match、Idempotency-Key、Problem Details、cursor pagination、audit、OpenAPI 3.1 が Migration 073 で実装・qualification済み | Project patternを他resourceへ拡張し、backend-convergent mutationにunified Operationを追加 |
 | Resource persistence | Image、Flavor、Network、Volume、VM、Availability 等の persistence/authority は段階的に存在 | Terraform-ready logical resource surface と public CRUD semantics |
 | Terraform | Provider/module/registry artifact は存在しない | `terraform-provider-kim` と official modules |
 | UI | product UI resource editor/runtime console は未実装 | common contract に基づく interactive、authoring、troubleshooting UI |
@@ -409,18 +411,17 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 | Physical realization | Placement/Materialization/Recovery/EVACUATE の内部 authority に exact identity/generation がある | public desired schema から physical incarnation を一貫して排除 |
 | Network dataplane | OVN/OVS と一部 authority が存在。DPDK/FRR/Direct-I/O の target は別設計で Proposed | profile/policy resources と capability-aware realization |
 | Security Policy | API/resource architecture 上の概念はあるが、current persistence/compiler authority は確認できない | backend-independent resource と OVN compiler/read-back |
-| Project | compatibility identifier として使われる箇所があり、完全な first-class generation authority ではない | first-class scope resource、revision、ownership、quota/policy binding |
+| Project | first-class stable ID、immutable revision/current projection、owner ADMIN binding、delete protection/dependency guard、public CRUD/list contractが実装済み。quota/policy/tenant hierarchyは未実装 | quota/policy bindingと拡張scope model |
 
 ## 16. Capability Gaps Before Implementation
 
 ### 16.1 Terraform-ready API
 
-- complete OpenAPI 3.1 document と generated compatibility fixtures
-- desired/current/observed projection、stable ETag、tombstone semantics
-- CRUD/action/Operation の resource-specific contract
-- import、pagination/filter、read-after-write、eventual consistency contract
-- machine-readable mutability/replacement/computed/sensitive metadata
-- stable error code と retry taxonomy
+- Project以外のOpenAPI resource/lifecycle metadataと互換性fixture
+- backend-convergent CRUD/action/Operation の resource-specific contract
+- import endpoint/identifier、eventual consistency、event subscription contract
+- Project patternを再利用した各resourceのdependency/tombstone/retention semantics
+- common Operationのstable error、poll、cancel、retention projection
 
 ### 16.2 Provider and modules
 
@@ -465,11 +466,11 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ## 17. Migration Path
 
-1. current resource/operation tables と API principles から public resource inventory を作る。
+1. Project reference vertical slice の OpenAPI、security、revision、idempotency、audit patternを維持する（完了）。
 2. 各 resource に本書の lifecycle contract を記入し、public logical field と internal physical field を分離する。
-3. OpenAPI と lifecycle metadata の versioned SSOT、contract tests、stable errors を実装する。
-4. read-only API と UI status/troubleshooting view から開始し、authority bypass がないことを確認する。
-5. low-risk logical resource で Provider CRUD/import/refresh/response-loss tests を成立させる。
+3. backend convergenceを持つ最初のresourceでunified Operation contractを実装する。
+4. Project experimental Provider resource/scaffoldでCRUD/import/refresh/response-loss testsを成立させる。
+5. read-only status projection と UI troubleshooting viewでauthority bypassがないことを確認する。
 6. VM/Network/Storage/Policy の asynchronous materialization と delete protection を段階的に追加する。
 7. UI IaC authoring/export と Provider semantic equivalence を qualification する。
 8. Day 0 Ansible collection/workflow と Host ownership handoff を qualification する。
@@ -480,7 +481,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ## 18. Future Qualification Plan
 
-本書では gate を追加しません。実装時には最低限、次の evidence-based qualification を別計画で定義します。
+Project Phase 0 gate は validation report で qualification 済みです。後続実装では最低限、次の evidence-based qualification を継続します。
 
 - API contract/replay/idempotency/ETag/response-loss/error compatibility
 - Provider create/read/update/delete/import、state upgrade、partial failure、timeout/read-back
@@ -495,7 +496,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 ## 19. Explicitly Out of Scope
 
 - Terraform Provider、module、registry release の実装
-- Northbound API、OpenAPI、UI、Migration、database schema の変更
+- Project以外の Northbound API、Provider、UI、additional Migration/database schema の変更
 - qualification gate の追加または既存 gate の昇格
 - Ansible collection/playbook、PXE server、OS image pipeline の実装
 - Terraform state backend の選定・運用

@@ -6,6 +6,10 @@
 - Method: schema, producer, consumer, test, and latest validation evidence were cross-checked; older reports were treated as historical evidence, not current gate truth
 - Change scope: review documentation only; no migration, implementation, or refactor
 
+## 2026-08-14 Northbound Phase 0 update
+
+Migration 073 adds the qualified Northbound Project reference vertical slice: executable HTTP runtime, OIDC/RBAC, Project revision/current authority, idempotency, audit, CRUD/list, cursor pagination, ETag/If-Match, Problem Details, and OpenAPI lifecycle metadata. This is a cross-cutting delivery surface, not one of the 35 infrastructure/backend capability rows below. Therefore the denominator and scores remain unchanged: Architecture `31.5/35 = 90.0%`、Functional `30/35 = 85.7%`、Production `17.5/35 = 50.0%`. Project does not qualify Provider/UI or any VM/Network/Storage API.
+
 ## Executive summary
 
 KIM is an authority-oriented KVM control plane, not a generic virtualization shell. PostgreSQL owns desired state, identity, allocation, admission, execution, recovery, relocation, and cleanup decisions. Agents execute a closed set of typed operations, journal before mutation, and return observations; a command response is never sufficient evidence of convergence.

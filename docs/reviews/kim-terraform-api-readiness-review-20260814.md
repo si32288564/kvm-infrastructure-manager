@@ -1,17 +1,17 @@
 # KIM Northbound API / Terraform Readiness Review
 
 - Review date: 2026-08-14
-- Repository baseline: Migration 001–072
-- Baseline commit: `4f89f61df9550415a3f53ce172b3b1fbddd44103`
+- Repository baseline: Migration 001–073
+- Baseline commit: Phase 0 Project vertical-slice delivery commit
 - Primary SSOT: [Infrastructure Lifecycle and IaC Architecture](../infrastructure-lifecycle-iac-architecture.md)
-- Scope: repository-based review and docs-only contract definition
-- Decision: **No — `terraform-provider-kim` resource implementation must not start yet**
+- Scope: repository-based re-review after the executable Project reference vertical slice
+- Decision: **Conditional — Provider scaffold and an experimental Project resource may begin; all other resources remain blocked**
 
 ## 1. Executive Summary
 
 KIM の内部 authority model は Terraform と相性のよい要素を多く持っています。stable logical ID、immutable revision/evidence、current projection、idempotent replay、generation fencing、asynchronous subsystem Operation、desired/observed separation、Recovery/EVACUATE 後の logical identity continuity は PostgreSQL persistence と integration tests で確認できました。
 
-しかし、現在の repository に Northbound Resource API runtime はありません。`cmd/kim-api` は共通 Phase 1 scaffold を呼ぶだけで、通常起動時に `runtime is not wired yet` と終了します。`/api/v1` handler、OpenAPI artifact、resource serializer、HTTP CRUD/read/list、Northbound OIDC/RBAC enforcement、ETag/If-Match、public idempotency record、unified Operation projection、stable Problem Details mapping、API contract tests は見つかりませんでした。
+Migration 073 と Project Phase 0 vertical slice により、`cmd/kim-api` runtime、`/api/v1/projects` CRUD/list、OpenAPI 3.1、OIDC bearer verification、Project/system scope RBAC、ETag/If-Match、public idempotency、Problem Details、cursor pagination、immutable revision/audit evidenceが実装されました。Project は PostgreSQL authority commitだけで完了するため、ADR-0029に従い201/200/204を返し、形式上だけのOperationを作りません。
 
 したがって、内部 persistence function や table が存在する resource も `TERRAFORM_READY` ではありません。Provider を先行実装すると、次の P0 authority violation を誘発します。
 
@@ -20,14 +20,14 @@ KIM の内部 authority model は Terraform と相性のよい要素を多く持
 - subsystem-specific Recovery/EVACUATE/Cleanup state machine を Terraform CRUD として再実装する。
 - response loss、delete、stale update を Provider 側の推測や recreate で解決する。
 
-Provider 実装開始前の最小 blocker set は、P0 authority boundary、P1 resource contract、P1 machine-principal security、P1 representative API vertical slice の順で閉じる必要があります。Provider repository/scaffold の調査は可能ですが、resource CRUD 実装はまだ開始すべきではありません。
+これにより Provider の boundary/scaffold と experimental Project resource を同じpublic contractに対して開始する条件は成立しました。ただし unified Operation、import conformance、他resource契約、VM no-driftは未実装です。Projectの成功を全Provider readinessへ一般化しません。
 
 ## 2. Review Methodology
 
 次を current implementation の根拠として実査しました。
 
-1. accepted ADR-0001–0028 と architecture/API/security/resource documents
-2. Migration 001–072 の current/evidence/operation schema
+1. accepted ADR-0001–0029 と architecture/API/security/resource documents
+2. Migration 001–073 の current/evidence/operation schema
 3. `internal/persistence/postgres` の producer、consumer、read helper、integration tests
 4. `cmd/kim-api`、HTTP/gRPC listener、OpenAPI/Swagger artifact、OIDC/RBAC/ETag/idempotency implementation の repository search
 5. current architecture qualification inventory と validation documents
@@ -38,21 +38,21 @@ Provider 実装開始前の最小 blocker set は、P0 authority boundary、P1 r
 
 | Layer | Repository evidence | Finding |
 |---|---|---|
-| Public API process | `cmd/kim-api/main.go` → `componentmain.Run`; non-version invocation exits as unwired | absent |
-| HTTP resource handlers | `/api/v1` routes、resource handler、middleware がない | absent |
-| OpenAPI | design statement only; generated/source OpenAPI file がない | absent |
-| Northbound auth | OIDC/RBAC は requirements/design only; Agent mTLS authorization は別実装 | absent |
+| Public API process | configurable listener、TLS fail-closed、timeout、bounded body、request ID、panic recovery、health/readiness、graceful shutdown | implemented |
+| HTTP resource handlers | Project POST/GET/list/PATCH/DELETE under `/api/v1` | implemented for Project |
+| OpenAPI | `api/openapi/kim-v1.json` + executable contract test | implemented for Project/common contract |
+| Northbound auth | RS256 OIDC/JWKS verification for HUMAN/AUTOMATION; system/Project READER/WRITER/ADMIN enforcement | implemented minimal closed model |
 | Persistence | resource/authority producers and projections are extensive | implemented internally |
 | Operations | execution, Recovery, EVACUATE, cleanup 等の typed state machines | implemented per subsystem; no unified public projection |
-| Qualification | PostgreSQL integration、real/synthetic backend campaigns | strong internal evidence; not Northbound API qualification |
+| Qualification | real HTTP listener、PostgreSQL 17 concurrency/replay/authz、JWT、OpenAPI、race tests | Project Northbound qualification PASS |
 
 ## 3. Current Northbound API Inventory
 
-全行で Create/Read/List/Update/Delete endpoint は **none** です。`docs/api-principles.md` に path の例はありますが route implementation ではありません。表の `Internal authority` は API 実装とは別の repository maturity を示します。
+Projectだけが Create/Read/List/Update/Delete endpointを持ちます。他行の `Internal authority` は API 実装とは別の repository maturity を示します。
 
 | Resource/capability | Stable identity / revision | Internal authority and qualification | Public lifecycle gaps | Readiness |
 |---|---|---|---|---|
-| Project | `project_id` text が多くの row に存在。Project generation/table はない | compatibility/scope identifier。Migration 046 も first-class authority 未実装と明記 | ownership CRUD、revision、rename/delete、quota、scope auth、import 全て未定義 | `RESOURCE_MODEL_GAP` P1 |
+| Project | UUIDv4 stable ID + immutable resource revision | Migration 073 current/evidence、owner binding、idempotency、audit、dependency/protection guards、HTTP integration | quota/policy/tenant hierarchy、formal Provider import testは未実装 | `TERRAFORM_PHASE0_CONTRACT` (experimental candidate) |
 | Site | dedicated Site resource なし。Failure Domain HostGroup level の文字列としてのみ表現可能 | HostGroup hierarchy synthetic tests | Site identity/ownership/lifecycle/API がない | `RESOURCE_MODEL_GAP` P2 |
 | Host | stable `host_id`; identity/enrollment/authority/session generations | trust/inventory/qualification は実装・real tested | public inventory/status projection、admin mutations、ETag、scope/redaction がない。Terraform-managed resourceにするかも未決定 | `API_SEMANTIC_GAP` P1 |
 | Host Group | `host_group_id` + generation、immutable revision digest | Migrations 038–047、publish/snapshot/selectors/hierarchy synthetic pass | public CRUD/list、expected revision、delete guard、authorization、field contract がない | `API_SEMANTIC_GAP` P1 |
@@ -91,29 +91,29 @@ Public create が server-generated ID と client-supplied ID のどちらを使�
 
 ### 4.2 Revision and concurrency
 
-内部では generation/revision/digest と advisory/row locks が広く使われていますが、public resource revision projection と ETag はありません。internal function の `expected generation` や revision conflict は HTTP `If-Match` contract ではありません。stale Terraform plan が remote desired update を上書きしない保証がないため P1 blocker です。
+Project は public desired revision、ETag、required If-Matchを実装し、stale mutationを412で拒否します。他resourceの internal `expected generation` や revision conflict はまだ HTTP `If-Match` contract ではありません。
 
 ### 4.3 Create
 
-Image/Flavor/HostGroup/Policy 等の producer は stable revision replay と digest conflict を持ちます。Placement request、Recovery、EVACUATE 等も独自の request identity を持ちます。しかし Northbound `Idempotency-Key` store、principal/project/path scope、canonical request digest、resource+Operation atomic creation、retention/read-back endpoint はありません。
+Project は Northbound `Idempotency-Key` を principal/system parent/method/canonical pathとcanonical desired digestへbindし、resource transaction内で確定します。Image/Flavor/HostGroup/Policy 等は internal replay authorityのみで、Northbound contractは未実装です。
 
 VM create は複数 internal callsを Provider が順番に実行してはなりません。logical desired aggregateとOperationを一 transactionで受け、KIMだけが Final Admission/Materialization chainを進める public create contract が必要です。
 
 ### 4.4 Update
 
-多くの内部 resource は new immutable revision + current pointer の形式ですが、public PATCH/replace/action distinction はありません。fieldごとの mutable/immutable/replace-trigger metadata、absent/null/zero semantics、revision precondition がないため generated Provider schema は作れません。
+Project はtyped partial PATCHを採用し、absent/null/value、mutable/immutable分類、revision preconditionをOpenAPIとhandlerで検証します。他resourceにはpublic PATCH/replace/action distinctionがありません。
 
 Image/Flavor/Availability Policy の新 revision は in-place logical update candidateです。VM Flavor/Network/Volume/Availability変更は async reconcile、replace、明示 operation のどれかを resource-specific に決める必要があります。Providerが `ForceNew` を推測してはいけません。
 
 ### 4.5 Delete
 
-current tablesには `DELETING`、`DELETE_PENDING`、`DELETED` 等がありますが、一貫した producer/API/tombstone/retention はありません。dependency conflict、delete protection、cascade policy、response-loss read-back、terminal delete Operationを resourceごとに定義する必要があります。
+Project はdependency conflict、delete protection、tombstone、If-Match、同一削除retryを定義します。他resourceの `DELETING`、`DELETE_PENDING`、`DELETED` 等には一貫したpublic producer/API/tombstone/retentionがありません。
 
 特に VM/Volume/Network delete を current rowの削除やbackend absenceへ直接mappingすると unsafeです。Cleanup terminalとcapacity reclamationはworkload deletionと独立したままにします。
 
 ### 4.6 Read and refresh
 
-PostgreSQLには desired current、observed current、immutable evidenceがありますが、public DTOがありません。Terraform Readは次の三層を分離して返す必要があります。
+Projectには物理realizationを含まないpublic DTOがあります。backend resourceのTerraform Readは、PostgreSQL desired/current/immutable evidenceから次の三層を分離して返す必要があります。
 
 ```text
 spec    = persistent desired fields managed by client
@@ -213,7 +213,7 @@ This is now requirements `IAC-006`/`IAC-011`, invariants `INV-API-005`/`INV-API-
 
 ## 8. Async Operation Contract
 
-ADR-0002 and API principles already require `202 Accepted` + Operation. The gap is executable Northbound projection and cross-subsystem normalization.
+ADR-0002/ADR-0029 distinguish completion boundaries. PostgreSQL-only Project mutations complete synchronously; backend-convergent mutations require `202 Accepted` + Operation. The remaining gap is executable unified Northbound Operation projection and cross-subsystem normalization.
 
 Create/update/delete response must atomically identify both logical resource and Operation. On HTTP timeout the client retries the same Idempotency-Key or reads the resource/Operation; it does not issue delete/recreate. Provider wait timeout leaves KIM work running unless a separately authorized cancel request is accepted. Cancel acceptance never proves backend rollback.
 
@@ -321,14 +321,14 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 
 | Capability | Classification | Severity | Provider disposition |
 |---|---|---:|---|
-| Northbound API runtime | `API_SEMANTIC_GAP` | P0 | block all resource implementation |
-| OpenAPI + lifecycle metadata | `API_SEMANTIC_GAP` | P1 | define before generated/manual schema |
-| OIDC machine principal/RBAC | `API_SEMANTIC_GAP` | P0/P1 | block acceptance/use against KIM |
-| public idempotency + Operation create | `API_SEMANTIC_GAP` | P0/P1 | block create |
-| ETag/If-Match | `API_SEMANTIC_GAP` | P1 | block update/delete |
+| Northbound API runtime | `IMPLEMENTED_PROJECT_SLICE` | P0 closed for Project | reusable runtime; production deployment profile remains |
+| OpenAPI + lifecycle metadata | `IMPLEMENTED_PROJECT_SLICE` | P1 closed for Project | extend per resource; keep contract tests |
+| OIDC machine principal/RBAC | `IMPLEMENTED_MINIMAL_MODEL` | P0 closed for Project | extend tenant/site/policy model before broader resources |
+| public idempotency + Operation create | `PARTIAL` | Project idempotency PASS; Operation gap P1 | synchronous Project create allowed; backend resources blocked |
+| ETag/If-Match | `IMPLEMENTED_PROJECT_SLICE` | P1 closed for Project | extend per mutable resource |
 | desired/computed DTO separation | `API_SEMANTIC_GAP` | P0 | block VM/Volume/Port schema |
-| common error/retry contract | `API_SEMANTIC_GAP` | P1 | block safe retry behavior |
-| Project/Site scope | `RESOURCE_MODEL_GAP` | P1 | Project before tenant MVP; Site later |
+| common error/retry contract | `IMPLEMENTED_PROJECT_SLICE` | P1 closed for Project | backend UNKNOWN/Operation errors remain |
+| Project/Site scope | Project `IMPLEMENTED`; Site `RESOURCE_MODEL_GAP` | Project P1 closed | Project experimental candidate; Site later |
 | Image/Flavor logical persistence | `CONTRACT_READY_IMPLEMENTATION_GAP` only after public contract approval | P1 | first vertical-slice candidates |
 | HostGroup/Placement Scope | `API_SEMANTIC_GAP` | P1/P2 | admin phase after auth/redaction |
 | Network/Subnet | `API_SEMANTIC_GAP` | P1 | separate public resources before Provider |
@@ -339,25 +339,25 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 | Security/Datapath/Router/FRR | `RESOURCE_MODEL_GAP` | P1/P2 | not MVP |
 | Recovery/EVACUATE/Cleanup | `OPERATION_ONLY` | P1 public gap | polling/status only; no managed resource |
 
-No current row is `TERRAFORM_READY`. `UNKNOWN` is zero because repository evidence was sufficient to classify each requested area.
+Project is a qualified Phase 0 contract and experimental Provider candidate, not a generally production-ready Terraform resource. No non-Project row is `TERRAFORM_READY`. `UNKNOWN` is zero because repository evidence was sufficient to classify each requested area.
 
 ## 14. P0 / P1 / P2 / P3 Findings
 
 ### P0 — authority/destructive ambiguity
 
-1. No Northbound API runtime exists; any Provider would have to bypass the approved boundary.
-2. No public desired/computed schema prevents physical Host/BDF/LV/binding/generation from entering Terraform lifecycle.
+1. Northbound runtime exists for Project only; a Provider for any other resource would still bypass or invent an unimplemented contract.
+2. Project excludes physical fields; no public desired/computed schema yet prevents Host/BDF/LV/binding/generation leakage for backend resources.
 3. VM create/delete has no aggregate public Operation contract; client-side orchestration would steal Placement/Materialization/Cleanup authority.
-4. Northbound automation authentication/authorization enforcement is absent.
+4. Minimal Project/system RBAC exists; tenant/site/attribute policy and wider resource enforcement remain absent.
 5. Port and Attachment current models are tightly bound to Admission/physical incarnation and cannot be exposed directly as portable desired resources.
 
 ### P1 — Provider blockers
 
-1. OpenAPI/lifecycle metadata、stable resource revision、ETag/If-Match absent.
-2. public Idempotency-Key store/read-back and common Operation API absent.
-3. Read/List/filter/pagination/import/tombstone/dependency/delete protection absent.
-4. stable Problem Details/error retry taxonomy absent.
-5. Project first-class authority and scope semantics absent.
+1. OpenAPI/lifecycle metadata、revision、ETag/If-MatchはProjectのみ実装。
+2. public Idempotency-KeyはProjectで実装、common Operation APIは未実装。
+3. Project Read/List/cursor/tombstone/dependency/delete protectionは実装、formal import contractは未実装。
+4. Problem DetailsはProject/common HTTPで実装、backend UNKNOWN taxonomyはOperation実装待ち。
+5. Project first-class authorityは実装、Site/tenant hierarchyは未実装。
 6. Image/Flavor/Network/VM/Volume/Availability public resource-specific lifecycle contracts absent.
 7. Security Policy logical model/compiler absent if included beyond MVP.
 
@@ -378,21 +378,21 @@ No current row is `TERRAFORM_READY`. `UNKNOWN` is zero because repository eviden
 
 ### 15.1 MVP rule
 
-MVP must follow public API maturity, not internal schema breadth. Because no public resource is currently ready, Phase 0 is API contract work and contains no Provider resources.
+MVP must follow public API maturity, not internal schema breadth. Project Phase 0 is the only qualified public resource contract; Provider work must remain limited to scaffold/conformance and an experimental Project resource.
 
-### Phase 0 — Provider prerequisite, no resource implementation
+### Phase 0 — Project reference contract (complete)
 
-- Project scope/auth model decision
-- common Resource Contract/OpenAPI/error/Operation/idempotency/revision semantics
-- one read-only API/status vertical slice
-- machine-principal authentication and audit
-- generated compatibility and contract tests
+- Project scope/auth model and first-class authority
+- common Resource Contract/OpenAPI/error/idempotency/revision semantics
+- Project CRUD/list vertical slice and machine-principal authentication/audit
+- executable HTTP/PostgreSQL/OpenAPI contract tests
+- Operation semantics deliberately deferred because Project has no backend convergence
 
 ### Phase 1 — catalog and low-coupling logical resources
 
 Candidate order after contract implementation:
 
-1. Project, only after first-class scope authority exists
+1. Project experimental Provider resource and import conformance
 2. Flavor
 3. Image metadata/reference lifecycle
 4. Availability Policy, after typed public policy DTO and dependency references
@@ -422,14 +422,14 @@ Recovery/EVACUATE/Drain/Cleanup remain administrative Operation APIs in all phas
 
 Minimum blocker set, in order:
 
-1. **P0 boundary:** accept a Northbound Resource API/Provider trust-boundary ADR or explicit contract decision; forbid DB/internal/Agent/backend Provider access.
-2. **P1 schema SSOT:** define versioned OpenAPI 3.1 + lifecycle semantic metadata and field classifications.
-3. **P1 security:** implement OIDC machine principal、Project/resource authorization、audit/redaction foundation.
-4. **P1 common lifecycle:** implement Idempotency-Key、resource revision/ETag、Problem Details、cursor list、Operation read/poll、tombstone/dependency/delete protection primitives.
-5. **P1 vertical slice:** implement and qualify one low-coupling resource end-to-end: schema + producer + public Read/List/Create/Update/Delete + authorization + contract tests. Flavor is the best current candidate if Project scope is provided by a temporary accepted compatibility contract; otherwise Project first.
+1. **P0 boundary (Project complete):** ADR-0029 and the public service/persistence boundary forbid Provider DB/internal/Agent/backend access.
+2. **P1 schema SSOT (Project complete):** OpenAPI 3.1 + lifecycle semantic metadata classify the Project contract.
+3. **P1 security (minimal Project complete):** OIDC HUMAN/AUTOMATION、Project/system RBAC and immutable audit are enforced; broader tenant/site policy remains.
+4. **P1 common lifecycle (Project partial):** Idempotency-Key、revision/ETag、Problem Details、cursor list、tombstone/dependency/delete protection are complete; Operation read/poll is not applicable to Project and remains required for backend resources.
+5. **P1 vertical slice (Project complete):** schema + producer + public Read/List/Create/Update/Delete + authorization + contract tests are qualified.
 6. **P0 no-drift slice:** before VM Provider resource, implement public `spec/status/links` projection and Recovery A→B no-drift contract test.
 
-Only after items 1–5 may Provider Phase 1 resource implementation begin. VM resource waits for item 6 plus aggregate async create/delete contracts.
+The Project-applicable portions of items 1–5 are complete, so Provider scaffold and an experimental Project resource may begin. No other Phase 1 resource is authorized by this result. VM waits for unified Operation plus aggregate async create/delete and no-drift contracts.
 
 ## 17. Proposed Implementation Order
 
@@ -452,26 +452,27 @@ Resource inventory and field classification
 
 The current architecture qualification inventory denominator remains unchanged. Its 35 in-scope rows measure infrastructure authority/backend capabilities; this review evaluates the cross-cutting Northbound delivery surface and does not add or qualify a backend capability row. No Functional or Production score is raised.
 
-This review adds normative `IAC-001`–`IAC-014` requirements and planned acceptance contracts. They expose pre-existing public API/Provider gaps more precisely; they do not claim implementation. A future review may introduce a separate API/IaC readiness denominator once at least one executable Northbound vertical slice exists. Mixing that denominator into the existing backend qualification score now would imply false numerical precision.
+This re-review adds `IAC-015`/`INV-API-010`/`AT-IAC-012` and qualifies twelve Northbound Phase 0 gates for Project. The existing 35-row inventory measures infrastructure authority/backend capabilities, so its denominator and scores remain `31.5/35 = 90.0%` architecture、`30/35 = 85.7%` functional、`17.5/35 = 50.0%` production. Project is a cross-cutting delivery surface and does not silently qualify any backend row.
 
 ## 19. Final Decision
 
-**May implementation of `terraform-provider-kim` begin? No.**
+**May implementation of `terraform-provider-kim` begin? Conditional.**
 
 Allowed now:
 
-- Provider architecture/repository/scaffold evaluation with no resource CRUD
-- Resource Contract/OpenAPI design and compatibility tooling
-- Northbound security and common lifecycle implementation after separate approval
+- Provider architecture/repository/scaffold
+- experimental Project resource against the committed OpenAPI contract
+- Project import/refresh/response-loss conformance work
 
 Blocked now:
 
-- shipping or implementing Provider-managed KIM resources
+- shipping Project as production-ready before Provider acceptance/import tests
+- implementing Provider-managed KIM resources other than Project
 - direct PostgreSQL/internal function/Agent/backend integration from Provider
 - exposing current physical projection tables as Terraform desired schema
 - modeling Recovery/EVACUATE/Cleanup as Terraform resources
 
-Re-review condition: common Northbound lifecycle/security contract and one fully qualified public resource vertical slice are merged, with stable Read/import behavior and API contract tests.
+次の re-review condition: experimental Project ProviderのCRUD/import/refresh/response-loss acceptance、または最初のbackend-convergent resourceのunified Operation vertical slice。
 
 ## 20. Related Evidence
 
