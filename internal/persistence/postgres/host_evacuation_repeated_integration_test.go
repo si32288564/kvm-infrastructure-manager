@@ -46,7 +46,7 @@ func registerRepeatedEvacuationStorage(t *testing.T, ctx context.Context, db rec
 	return backend, vg
 }
 
-func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recoveryQualificationDB, suffix, label, vmID, imageID, imageChecksum, networkID, segmentID, portID, mac string, source repeatedEvacuationIncarnation, destinationHost, destinationBackend, destinationVG string, sourcePortGeneration, sourceBindingGeneration, sourcePowerObservation, destinationPowerObservation, retirementIntentGeneration, destinationIntentGeneration uint64, old *repeatedEvacuationMove) repeatedEvacuationMove {
+func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recoveryQualificationDB, suffix, label, vmID, imageID, imageChecksum, networkID, segmentID, portID, mac string, source repeatedEvacuationIncarnation, destinationHost, destinationBackend, destinationVG string, sourcePortGeneration, sourceBindingGeneration, sourcePowerObservation, destinationPowerObservation, retirementIntentGeneration, destinationIntentGeneration uint64, old *repeatedEvacuationMove, foreign map[string]string) repeatedEvacuationMove {
 	t.Helper()
 	move := repeatedEvacuationMove{Operation: "evacuation-repeated-" + label + "-" + suffix, Source: source}
 	operation, children, err := StartHostEvacuation(ctx, db, HostEvacuationRequest{OperationID: move.Operation, SourceHostID: source.Host, EvacuationGeneration: 1, SourceHostAuthorityGeneration: 1, DrainPolicyID: "planned", DrainPolicyRevision: 1, EvacuationPolicyRevision: 1, MaximumConcurrentWorkloads: 1, Reason: "repeated incarnation " + label, RequestedBy: "integration"})
@@ -79,6 +79,11 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 			t.Fatal("old E1 Network retirement authority uplifted to E2 2/2")
 		}
 	}
+	if foreign != nil {
+		if err := ReleaseHostEvacuationSourcePlacement(ctx, db, claim, "foreign-safety-release-"+label+"-"+suffix, foreign["storage_safety"]); !errors.Is(err, ErrHostEvacuationBlocked) {
+			t.Fatalf("foreign-origin Storage safety authorized planned release: %v", err)
+		}
+	}
 	if err := AuthorizeHostEvacuationSourceShutdown(ctx, db, claim, move.ShutdownAuthority, "evacuation-repeated-shutdown-job-"+label+"-"+suffix, move.ShutdownCommand); err != nil {
 		t.Fatal(err)
 	}
@@ -92,8 +97,16 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		t.Fatal(err)
 	}
 	rootEvidence := map[string]any{"attachment_id": source.Attachment, "volume_id": source.Volume, "binding_id": source.Binding, "domain_uuid": vmID, "target_device": "vda", "observed_lv_uuid": source.LV, "device_present": true, "device_identity_matches": true, "source_identity_matches": true, "holder_open": false}
-	rootAttempt := acceptEvacuationCommand(t, ctx, db, source.Host, rootCommand, rootVerification, source.Materialization, rootEvidence, "SUCCEEDED")
-	if err := AcceptSourceRootSafetyObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: "evacuation-repeated-root-evidence-" + label + "-" + suffix, AttachmentID: source.Attachment, VolumeID: source.Volume, AttachmentGeneration: 1, BindingID: source.Binding, BindingGeneration: 1, HostID: source.Host, DomainUUID: vmID, TargetDevice: "vda", ObservedLVUUID: source.LV, CommandID: rootCommand, VerificationID: rootVerification, AttemptIndex: uint32(rootAttempt), ObservationGeneration: source.Materialization, ObservationDigest: digestBytes([]byte(rootCommand + "/observation")), VerifierDigest: digestBytes([]byte(rootCommand + "/verifier")), EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true}); err != nil {
+	rootObservationGeneration := source.Materialization
+	var previousRootObservation uint64
+	if err := db.QueryRow(ctx, `SELECT coalesce(max(observation_generation),0) FROM kim.volume_attachment_observation_evidence WHERE attachment_id=$1`, source.Attachment).Scan(&previousRootObservation); err != nil {
+		t.Fatal(err)
+	}
+	if rootObservationGeneration <= previousRootObservation {
+		rootObservationGeneration = previousRootObservation + 1
+	}
+	rootAttempt := acceptEvacuationCommand(t, ctx, db, source.Host, rootCommand, rootVerification, rootObservationGeneration, rootEvidence, "SUCCEEDED")
+	if err := AcceptSourceRootSafetyObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: "evacuation-repeated-root-evidence-" + label + "-" + suffix, AttachmentID: source.Attachment, VolumeID: source.Volume, AttachmentGeneration: 1, BindingID: source.Binding, BindingGeneration: 1, HostID: source.Host, DomainUUID: vmID, TargetDevice: "vda", ObservedLVUUID: source.LV, CommandID: rootCommand, VerificationID: rootVerification, AttemptIndex: uint32(rootAttempt), ObservationGeneration: rootObservationGeneration, ObservationDigest: digestBytes([]byte(rootCommand + "/observation")), VerifierDigest: digestBytes([]byte(rootCommand + "/verifier")), EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true}); err != nil {
 		t.Fatal(err)
 	}
 	move.StorageSafety = "evacuation-repeated-storage-safety-" + label + "-" + suffix
@@ -151,6 +164,20 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 			t.Fatalf("old A->B Handoff/quiescence accepted for C: dry=%+v err=%v", dry, err)
 		}
 	}
+	if foreign != nil {
+		stale := destinationRequest
+		stale.RequestID += "-foreign-handoff"
+		stale.Network = append([]placement.NetworkRequirement(nil), destinationRequest.Network...)
+		stale.Network[0].HandoffID = foreign["handoff"]
+		stale.Network[0].SourceQuiescenceEvidenceID = foreign["network_quiescence"]
+		stale.Network[0].SourcePortGeneration = sourcePortGeneration - 1
+		stale.Network[0].SourceBindingGeneration = sourceBindingGeneration - 1
+		stale.Network[0].DestinationPortGeneration = sourcePortGeneration
+		stale.Network[0].DestinationBindingGeneration = sourceBindingGeneration
+		if dry, err := DryEvaluatePlacement(ctx, db, stale, destinationHost); err != nil || dry.Eligible {
+			t.Fatalf("Recovery A->B Handoff/quiescence accepted for planned C: dry=%+v err=%v", dry, err)
+		}
+	}
 	dry, err := DryEvaluatePlacement(ctx, db, destinationRequest, destinationHost)
 	if err != nil || !dry.Eligible {
 		t.Fatalf("%s destination dry=%+v err=%v", label, dry, err)
@@ -158,6 +185,11 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 	destinationAdmission, err := FinalAdmitPlacement(ctx, db, destinationRequest, dry)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if foreign != nil {
+		if _, err := PrepareVMMaterialization(ctx, db, VMMaterializationRequest{VMID: vmID, AdmissionID: destinationAdmission.AdmissionID, PlanID: "foreign-relocation-plan-" + label + "-" + suffix, JobID: "foreign-relocation-job-" + label + "-" + suffix, CommandID: "foreign-relocation-command-" + label + "-" + suffix, RelocationAuthorityID: foreign["operation"], MaterializationGeneration: source.Materialization + 1}); err == nil {
+			t.Fatal("Recovery Operation authorized planned destination materialization")
+		}
 	}
 	destinationBinding, destinationLV := realizeEvacuationBinding(t, ctx, db, destinationHost, destinationAdmission.AdmissionID, destinationRequest.Storage[0].VolumeID, destinationBackend, destinationVG, destinationRequest.RequestID)
 	move.Relocation = "evacuation-repeated-relocation-" + label + "-" + suffix
@@ -175,12 +207,35 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 			t.Fatal("old E1 relocation authority materialized E2 destination")
 		}
 	}
+	if foreign != nil {
+		if _, err := FinalizeHostEvacuation(ctx, db, move.Operation, foreign["terminal"]); !errors.Is(err, ErrHostEvacuationConflict) {
+			t.Fatalf("Recovery terminal identity mutated EVACUATE parent: %v", err)
+		}
+	}
 	materializeEvacuationVM(t, ctx, db, destinationHost, vmID, destinationAdmission.AdmissionID, destinationPlan, imageID, imageChecksum, destinationRequest.Storage[0].VolumeID, destinationBinding, destinationVG, destinationLV, "repeated-destination-"+label+"-"+suffix, move.Relocation, source.Materialization+1)
 	completeEvacuationOVNIntent(t, ctx, db, "evacuation-repeated-destination-intent-"+label+"-"+suffix, portID, "repeated-destination-worker-"+label+"-"+suffix, "repeated-destination-"+label+"-"+suffix, destinationIntentGeneration)
 	move.DestinationRealization = realizeEvacuationOVSPort(t, ctx, db, destinationHost, vmID, destinationPlan, portID, networkID, segmentID, mac, "repeated-destination-"+label+"-"+suffix, "evacuation-repeated-power-job-"+label+"-"+suffix, "evacuation-repeated-power-command-"+label+"-"+suffix, sourcePortGeneration+1, sourceBindingGeneration+1, source.Materialization+1)
 	acceptEvacuationCommand(t, ctx, db, destinationHost, "evacuation-repeated-power-command-"+label+"-"+suffix, "evacuation-repeated-power-verification-"+label+"-"+suffix, destinationPowerObservation, map[string]any{"domain_uuid": vmID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"}, "SUCCEEDED")
 	move.DestinationDataplane = convergeEvacuationOVSDataplane(t, ctx, db, destinationHost, vmID, destinationPlan, portID, networkID, segmentID, mac, "repeated-destination-"+label+"-"+suffix, sourcePortGeneration+1, sourceBindingGeneration+1, source.Materialization+1)
 	move.ChildVerification = "evacuation-repeated-child-verification-" + label + "-" + suffix
+	if foreign != nil {
+		rollback := errors.New("rollback foreign destination evidence")
+		err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE kim.vm_power_state_current SET evidence_id=$2 WHERE vm_id=$1`, vmID, foreign["power_evidence"]); err != nil {
+				return err
+			}
+			if _, err := EvaluateHostEvacuationChildEvidence(ctx, scopeTxBeginner{tx}, claim, move.ChildVerification+"-foreign-power", "evacuation-repeated-destination-binding-"+label+"-foreign-power-"+suffix, destinationAdmission.AdmissionID); !errors.Is(err, ErrHostEvacuationBlocked) {
+				t.Fatalf("Recovery destination power evidence verified EVACUATE destination: %v", err)
+			}
+			return rollback
+		})
+		if !errors.Is(err, rollback) {
+			t.Fatal(err)
+		}
+		if err := CompleteHostEvacuationChild(ctx, db, claim, foreign["verification"], "foreign-verification-terminal-"+label+"-"+suffix); err == nil {
+			t.Fatal("Recovery verification completed EVACUATE child")
+		}
+	}
 	if old != nil {
 		rollback := errors.New("rollback old destination evidence")
 		err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -204,7 +259,7 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		t.Fatal(err)
 	}
 	move.ChildTerminal = "evacuation-repeated-child-terminal-" + label + "-" + suffix
-	if label == "e2" {
+	if label == "e2" || label == "mixed-e2" {
 		rollback := errors.New("rollback terminal 4/4 drift")
 		err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, `UPDATE kim.network_ports_current SET port_generation=4 WHERE port_id=$1`, portID); err != nil {
@@ -317,7 +372,7 @@ func TestHostEvacuationRepeatedIncarnationPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.failure_epoch_evidence),(SELECT count(*) FROM kim.failure_fencing_proof_evidence)`).Scan(&beforeEpochs, &beforeFencing); err != nil {
 		t.Fatal(err)
 	}
-	e1 := executeRepeatedEvacuationMove(t, ctx, pool, suffix, "e1", vmID, imageID, checksum, networkID, segmentID, portID, mac, initial, hostB, backendB, vgB, 1, 1, 2, 3, 2, 3, nil)
+	e1 := executeRepeatedEvacuationMove(t, ctx, pool, suffix, "e1", vmID, imageID, checksum, networkID, segmentID, portID, mac, initial, hostB, backendB, vgB, 1, 1, 2, 3, 2, 3, nil, nil)
 	var afterE1Host, afterE1Admission, afterE1Plan, afterE1MAC, afterE1IP string
 	var afterE1Materialization, afterE1Port, afterE1Binding uint64
 	if err := pool.QueryRow(ctx, `SELECT vm.host_id,vm.placement_admission_id,vm.current_plan_id,(plan.plan_payload->>'materialization_generation')::bigint,p.port_generation,b.binding_generation,mac.mac_address::text,host(ip.ip_address) FROM kim.virtual_machines_current vm JOIN kim.vm_materialization_plan_evidence plan ON plan.plan_id=vm.current_plan_id JOIN kim.network_ports_current p ON p.placement_admission_id=vm.placement_admission_id JOIN kim.port_bindings_current b ON b.port_id=p.port_id JOIN kim.network_identity_claims mac ON mac.port_id=p.port_id AND mac.claim_type='MAC' JOIN kim.network_identity_claims ip ON ip.port_id=p.port_id AND ip.claim_type='IP' WHERE vm.vm_id=$1`, vmID).Scan(&afterE1Host, &afterE1Admission, &afterE1Plan, &afterE1Materialization, &afterE1Port, &afterE1Binding, &afterE1MAC, &afterE1IP); err != nil || afterE1Host != hostB || afterE1Admission != e1.Destination.Admission || afterE1Plan != e1.Destination.Plan || afterE1Materialization != 2 || afterE1Port != 2 || afterE1Binding != 2 || afterE1MAC != mac || afterE1IP != ip {
@@ -343,7 +398,7 @@ func TestHostEvacuationRepeatedIncarnationPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	backendC, vgC := registerRepeatedEvacuationStorage(t, ctx, pool, hostC, storageClass, suffix, 3)
-	e2 := executeRepeatedEvacuationMove(t, ctx, pool, suffix, "e2", vmID, imageID, checksum, networkID, segmentID, portID, mac, e1.Destination, hostC, backendC, vgC, 2, 2, 4, 5, 4, 5, &e1)
+	e2 := executeRepeatedEvacuationMove(t, ctx, pool, suffix, "e2", vmID, imageID, checksum, networkID, segmentID, portID, mac, e1.Destination, hostC, backendC, vgC, 2, 2, 4, 5, 4, 5, &e1, nil)
 	var finalHost, finalMAC, finalIP, drainA, drainB, latestHandoff string
 	var finalMaterialization, finalPort, finalBinding, activeDataplanes int
 	if err := pool.QueryRow(ctx, `SELECT vm.host_id,(plan.plan_payload->>'materialization_generation')::int,p.port_generation,b.binding_generation,mac.mac_address::text,host(ip.ip_address),da.drain_state,db.drain_state,h.handoff_id,(SELECT count(*) FROM kim.vm_port_dataplane_state_current d JOIN kim.vm_port_dataplane_observation_evidence e ON e.evidence_id=d.evidence_id WHERE d.vm_id=vm.vm_id AND d.convergence_state='CONVERGED' AND e.host_id=vm.host_id) FROM kim.virtual_machines_current vm JOIN kim.vm_materialization_plan_evidence plan ON plan.plan_id=vm.current_plan_id JOIN kim.network_ports_current p ON p.placement_admission_id=vm.placement_admission_id JOIN kim.port_bindings_current b ON b.port_id=p.port_id JOIN kim.network_identity_claims mac ON mac.port_id=p.port_id AND mac.claim_type='MAC' JOIN kim.network_identity_claims ip ON ip.port_id=p.port_id AND ip.claim_type='IP' JOIN kim.host_placement_drains_current da ON da.source_host_id=$2 JOIN kim.host_placement_drains_current db ON db.source_host_id=$3 JOIN kim.port_binding_handoffs_current h ON h.port_id=p.port_id WHERE vm.vm_id=$1`, vmID, hostA, hostB).Scan(&finalHost, &finalMaterialization, &finalPort, &finalBinding, &finalMAC, &finalIP, &drainA, &drainB, &latestHandoff, &activeDataplanes); err != nil || finalHost != hostC || finalMaterialization != 3 || finalPort != 3 || finalBinding != 3 || finalMAC != mac || finalIP != ip || drainA != "DRAINED" || drainB != "DRAINED" || latestHandoff != e2.Handoff || activeDataplanes != 1 {

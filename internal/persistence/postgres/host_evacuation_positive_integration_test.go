@@ -24,7 +24,19 @@ type evacuationPositiveFixture struct {
 
 func acceptEvacuationCommand(t *testing.T, ctx context.Context, db recoveryQualificationDB, hostID, commandID, verificationID string, observationGeneration uint64, evidence map[string]any, outcome string) int {
 	t.Helper()
-	grant, err := AcquireCommandLease(ctx, db, CommandLeaseRequest{CommandID: commandID, HostAuthorityGeneration: 1, Duration: time.Minute})
+	var authorityGeneration int64
+	if err := db.QueryRow(ctx, `SELECT authority_generation FROM kim.host_operation_authorities_current WHERE host_id=$1`, hostID).Scan(&authorityGeneration); err != nil {
+		t.Fatal(err)
+	}
+	leaseRequest := CommandLeaseRequest{CommandID: commandID, HostAuthorityGeneration: authorityGeneration, Duration: time.Minute}
+	var commandType, schemaVersion string
+	if err := db.QueryRow(ctx, `SELECT command_type,schema_version FROM kim.execution_commands WHERE command_id=$1`, commandID).Scan(&commandType, &schemaVersion); err != nil {
+		t.Fatal(err)
+	}
+	if isReadOnlyVerificationCommand(commandType, schemaVersion) {
+		leaseRequest.AuthorityScope = CommandLeaseScopeReadOnlyVerification
+	}
+	grant, err := AcquireCommandLease(ctx, db, leaseRequest)
 	if err != nil {
 		t.Fatal(err)
 	}

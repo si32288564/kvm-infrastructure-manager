@@ -655,6 +655,13 @@ func FinalizeHostEvacuation(ctx context.Context, db TxBeginner, operationID, ter
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "host-evacuation/"+operationID); err != nil {
 			return err
 		}
+		var recoveryTerminalExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.recovery_terminal_decision_evidence WHERE terminal_decision_id=$1)`, terminalID).Scan(&recoveryTerminalExists); err != nil {
+			return err
+		}
+		if recoveryTerminalExists {
+			return ErrHostEvacuationConflict
+		}
 		var drainRecorded time.Time
 		if err := tx.QueryRow(ctx, `SELECT e.evacuation_generation,e.source_host_id,e.source_host_authority_generation,e.placement_pool_id,e.placement_pool_generation,e.membership_generation,e.drain_id,e.workload_set_id,e.workload_set_generation,e.workload_set_digest,e.maximum_concurrent_workloads,e.operation_digest,c.lifecycle_state,c.state_generation,d.recorded_at
 			FROM kim.host_evacuation_operation_evidence e JOIN kim.host_evacuation_operations_current c USING(evacuation_operation_id,evacuation_generation) JOIN kim.host_placement_drain_evidence d ON d.drain_id=e.drain_id WHERE e.evacuation_operation_id=$1 FOR UPDATE OF c`, operationID).Scan(&out.EvacuationGeneration, &out.SourceHostID, &out.SourceHostAuthorityGeneration, &out.PlacementPoolID, &out.PlacementPoolGeneration, &out.MembershipGeneration, &out.DrainID, &out.WorkloadSetID, &out.WorkloadSetGeneration, &out.WorkloadSetDigest, &out.MaximumConcurrentWorkloads, &out.OperationDigest, &out.LifecycleState, &out.StateGeneration, &drainRecorded); err != nil {

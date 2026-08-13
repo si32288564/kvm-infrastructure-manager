@@ -489,6 +489,13 @@ func CommitRecoveryTerminalDecision(ctx context.Context, db TxBeginner, decision
 		return out, ErrRecoveryOperationConflict
 	}
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var evacuationTerminalExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_evacuation_terminal_evidence WHERE terminal_evidence_id=$1)`, decisionID).Scan(&evacuationTerminalExists); err != nil {
+			return err
+		}
+		if evacuationTerminalExists {
+			return ErrRecoveryOperationConflict
+		}
 		var existingOperation string
 		if err := tx.QueryRow(ctx, `SELECT recovery_operation_id FROM kim.recovery_terminal_decision_evidence WHERE terminal_decision_id=$1`, decisionID).Scan(&existingOperation); err == nil {
 			if err := tx.QueryRow(ctx, `SELECT terminal_decision_id,recovery_operation_id,verification_id,verification_digest,failure_epoch_id,budget_claim_id,decision_state,decided_by,decision_digest FROM kim.recovery_terminal_decision_evidence WHERE terminal_decision_id=$1`, decisionID).Scan(&out.TerminalDecisionID, &out.RecoveryOperationID, &out.VerificationID, &out.VerificationDigest, &out.FailureEpochID, &out.BudgetClaimID, &out.DecisionState, &out.DecidedBy, &out.DecisionDigest); err != nil || out.VerificationID != verificationID || out.DecidedBy != decidedBy {
