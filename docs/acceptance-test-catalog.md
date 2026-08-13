@@ -192,6 +192,17 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-API-001 | mutation APIが202+Operationを返し、request処理中にHost/backendへ接続しない |
 | AT-API-002 | 同一idempotency key+payloadの並行再送が単一Operation/resourceへ収束する |
 | AT-API-003 | 同一idempotency key+異なるpayloadが409 conflictになる |
+| AT-IAC-001 | Terraform/UI/backendにKIM PostgreSQLと異なるcurrent authorityを与えず、refresh/readがauthorized KIM projectionだけを使用する |
+| AT-IAC-002 | VMのlogical ID、Network、Datapath Profile、Availability desiredを維持したRecovery A→B後のrefreshがno-op planになり、Host/binding/generationをreplacement triggerにしない |
+| AT-IAC-003 | generated API/Provider/UI schemaがHost ID、pCPU/NUMA/PMD/RxQ/socket/interface/OVS UUID/PCI BDF/IOMMU/LV UUID/path/Materialization・Recovery・EVACUATE generationをdesired/export fieldに含めない |
+| AT-IAC-004 | Recovery/EVACUATE/Drain/Retry/Cancel/Read-back/Cleanup/Reconciliation/diagnosticがOperationとして照会され、Terraform persistent resource CRUDへ擬装されない |
+| AT-IAC-005 | OpenAPI+lifecycle metadataから生成したAPI/Provider/UI field分類、mutability、replacement、computed、sensitive、import、async/delete semanticsが一致する |
+| AT-IAC-006 | stale `If-Match` update/deleteを412で拒否し、refresh後もremote desired changeをsilent overwriteしない |
+| AT-IAC-007 | create response lossを同じIdempotency-Keyで再送し、単一resource/Operationへ収束してduplicateを作らない |
+| AT-IAC-008 | delete protection、dependent conflict、async delete/tombstone、response lossをstable error/Operation contractで区別し、verified terminal前にclient stateを除去しない |
+| AT-IAC-009 | stable logical ID importがdesired/computedを分離して再構成し、backend-only objectとphysical incarnationをadoptしない |
+| AT-IAC-010 | machine principalのProject/Site/resource/action scope、read/write/admin、rotation、audit、destructive protectionを検証し、backend/Agent credentialを開示しない |
+| AT-IAC-011 | logical Security PolicyをOVN ACL/Port Group/Address Setへcompile/read-backし、public desired/API/stateへraw OVN syntaxを要求しない |
 | AT-DATA-001 | desired/allocation/Job/Command/idempotencyの一要素失敗で全transactionがrollbackする |
 | AT-DATA-002 | desired/observed generationを独立保持し、stale observationをcurrent表示しない |
 | AT-DATA-003 | schema catalogがCurrent Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionとowner/scope/retentionを宣言する |

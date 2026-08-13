@@ -519,6 +519,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ## 21. Related Documents
 
+- [KIM Northbound API / Terraform Readiness Review](reviews/kim-terraform-api-readiness-review-20260814.md)
 - [System Architecture](architecture.md)
 - [API Design Principles](api-principles.md)
 - [Domain Model](domain-model.md)

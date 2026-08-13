@@ -130,3 +130,5 @@ timestampはUTC/offsetと意味（source/received/verified/expiry）を区別し
 Terraform Provider、管理 UI、CLI、外部 automation は独自の resource lifecycle semantics を持ちません。OpenAPI に identity、revision、mutability、replacement、computed field、Operation、import、drift、delete protection 等の machine-readable metadata を組み合わせた KIM Resource Contract を共通入力とします。
 
 Terraform state を KIM authority とせず、Placement、Materialization、Recovery、EVACUATE が変更する Host-local physical incarnation は desired configuration から分離します。詳細と current/proposed gap は [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md) を参照します。
+
+Migration 001–072 / current main に対する executable Northbound surface、resource別 lifecycle、Provider blocker の実査結果は [KIM Northbound API / Terraform Readiness Review](reviews/kim-terraform-api-readiness-review-20260814.md) を参照します。現時点では Northbound runtime/OpenAPI/security/resource CRUD が未実装であり、内部 persistence function を public API とみなしません。

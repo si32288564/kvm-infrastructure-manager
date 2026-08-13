@@ -32,6 +32,12 @@
 | INV-API-001 | Host/backend mutationを同期API request内で実行しない | AT-API-001 |
 | INV-API-002 | 同じidempotency scope/keyと同一payloadは同じOperation/結果へ収束する | AT-API-002 |
 | INV-API-003 | 同じidempotency keyの異なるpayloadはconflictになる | AT-API-003 |
+| INV-API-004 | Terraform state、UI client state、backend observationはKIM PostgreSQL resource authorityを置き換えない | AT-IAC-001 |
+| INV-API-005 | Recovery/EVACUATE後もlogical desired fieldsが不変ならphysical Host/binding/incarnation変更をdesired driftまたはreplacementにしない | AT-IAC-002 |
+| INV-API-006 | public persistent desired schemaへHost-local path/UUID/BDFまたはinternal operation generationを含めない | AT-IAC-003 |
+| INV-API-007 | persistent resource CRUDとRecovery/EVACUATE/Drain/Retry/Read-back/Cleanup等のOperationを同じlifecycle stateとして扱わない | AT-IAC-004 |
+| INV-API-008 | API、Terraform Provider、UIのfield mutability/replacement/computed/import semanticsは同じversioned Resource Contractから導出する | AT-IAC-005 |
+| INV-API-009 | stale resource revisionを持つupdate/deleteはcurrent desired stateを上書きしない | AT-IAC-006 |
 | INV-DATA-001 | desired state、allocation、attachment、execution authorityはPostgreSQL commitでのみ確定する | AT-DATA-001 |
 | INV-DATA-002 | desired stateとobserved stateを別resource/generationとして保持する | AT-DATA-002 |
 | INV-DATA-003 | terminal Job/Attempt/audit historyを結果に合わせて書き換えない | AT-EXEC-007 |

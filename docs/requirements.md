@@ -426,6 +426,25 @@
 | OPS-026 | UNKNOWN Command の read-only Verification を current authorized session generation へ bind した durable Outbox/Inbox message として配送し、Host mutation authority の rearm を要求または発生させない | Must |
 | OPS-027 | Lease expiry 後に replay された旧 Result は current authority を変更せず、PostgreSQL-backed `STALE` Receipt を返す。Agent は該当 spool evidence を解放せず、Receipt disposition を transport failure に昇格させず current session 上の read-only Verification を継続する | Must |
 
+### 2.15.1 Northbound Resource Lifecycle and IaC
+
+| ID | 要件 | 優先度 |
+|---|---|---|
+| IAC-001 | Northbound persistent resource は stable resource type/ID、scope、resource revision、desired/computed projection を持ち、display name や physical incarnation を identity にしない | Must |
+| IAC-002 | OpenAPI 3.1 の HTTP schema と versioned lifecycle semantic metadata を共通 KIM Resource Contract とし、API、Terraform Provider、UI が mutability、replacement、computed、sensitive、import、async/delete semantics を独自に発明しない | Must |
+| IAC-003 | create mutation は principal/project/method/canonical path scope の Idempotency-Key と canonical desired digest を Operation/resource identity へ不可分に bind し、response loss 後に read-back できる | Must |
+| IAC-004 | update/delete は current resource revision の `ETag` と `If-Match` 相当を要求し、stale client mutation を fail closed に拒否する | Must |
+| IAC-005 | public field を REQUIRED_DESIRED、OPTIONAL_DESIRED、COMPUTED、IMMUTABLE、SENSITIVE、OPERATION_ONLY、INTERNAL_ONLY へ machine-readable に分類し、absent、null、zero value を schema どおり区別する | Must |
+| IAC-006 | current Host、exact CPU/NUMA/HugePage/PMD/RxQ、socket/interface/backend UUID、PCI BDF/IOMMU、LV UUID/path、Materialization/Recovery/EVACUATE generation を desired configuration または replacement trigger にしない | Must |
+| IAC-007 | Recovery、EVACUATE、Drain、Retry、Cancel、Read-back、Cleanup、Reconciliation、diagnostic/qualification を persistent resource CRUD から分離した Operation として公開する | Must |
+| IAC-008 | Operation は stable ID、target resource/revision、requester/authorization、type、accepted time、phase、terminal state、stable error/retryability、cancel semantics、immutable history、polling、retention を持つ | Must |
+| IAC-009 | delete は protection、dependent conflict、cascade policy、asynchronous terminal/tombstone、response-loss read-back を resource ごとに定義し、backend deletion や request acceptance だけで state を消さない | Must |
+| IAC-010 | import は KIM stable logical ID と authorized Read projectionからだけ構成し、backend-only objectや Host-local incarnationを暗黙 adoptしない | Must |
+| IAC-011 | Recovery/EVACUATE/reconciliation により physical incarnation が変わっても logical desired fields が同じなら Terraform refresh は replacement または desired drift を生成しない | Must |
+| IAC-012 | API error は validation、authorization、not found/tombstone、stale revision、dependency/allocation conflict、operation in progress、transient unavailable、backend UNKNOWN、terminal failed と retryability を stable machine-readable code で区別する | Must |
+| IAC-013 | Northbound automation principal は外部 IdP の machine identity を使用し、Project/Site/resource/action scope、read/write/admin separation、credential rotation、audit actor、destructive protectionを評価する。backend/Host Agent credentialを取得しない | Must |
+| IAC-014 | backend-independent Security Policy desired model を selector、direction、protocol/service/port、statefulness、action、priority、logging policy として定義し、raw OVN ACL syntaxを通常の public desired fieldにしない | Must |
+
 ### 2.16 Fault、Performance、Audit
 
 | ID | 要件 | 優先度 |
