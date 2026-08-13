@@ -661,6 +661,22 @@ func FinalizeHostEvacuation(ctx context.Context, db TxBeginner, operationID, ter
 			return err
 		}
 		out.OperationID = operationID
+		var existingOperation string
+		var existingGeneration uint64
+		var existingWorkloads int
+		if err := tx.QueryRow(ctx, `SELECT evacuation_operation_id,evacuation_generation,workload_count FROM kim.host_evacuation_terminal_evidence WHERE terminal_evidence_id=$1`, terminalID).Scan(&existingOperation, &existingGeneration, &existingWorkloads); err == nil {
+			if existingOperation != operationID || existingGeneration != out.EvacuationGeneration {
+				return ErrHostEvacuationConflict
+			}
+			var currentTerminal, drainState string
+			if err := tx.QueryRow(ctx, `SELECT c.terminal_evidence_id,d.drain_state FROM kim.host_evacuation_operations_current c JOIN kim.host_placement_drains_current d ON d.drain_id=$2 AND d.source_host_id=$3 WHERE c.evacuation_operation_id=$1 AND c.lifecycle_state='VERIFIED'`, operationID, out.DrainID, out.SourceHostID).Scan(&currentTerminal, &drainState); err != nil || currentTerminal != terminalID || drainState != "DRAINED" {
+				return ErrHostEvacuationConflict
+			}
+			out.LifecycleState, out.WorkloadCount = "VERIFIED", existingWorkloads
+			return nil
+		} else if err != pgx.ErrNoRows {
+			return err
+		}
 		var total, verified, activeSource, postDrain int
 		if err := tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE result_state='VERIFIED') FROM kim.host_evacuation_workloads_current WHERE evacuation_operation_id=$1`, operationID).Scan(&total, &verified); err != nil {
 			return err
