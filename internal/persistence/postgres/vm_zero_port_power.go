@@ -28,6 +28,7 @@ func AuthorizeZeroPortVMPowerOn(ctx context.Context, db TxBeginner, vmID string,
 		}
 		var admissionID string
 		var networkCount int
+		var priorPowerObservation uint64
 		var ready bool
 		if err := tx.QueryRow(ctx, `
 			SELECT vm.placement_admission_id,jsonb_array_length(admission.network_requirements),
@@ -43,11 +44,14 @@ func AuthorizeZeroPortVMPowerOn(ctx context.Context, db TxBeginner, vmID string,
 		`, vmID, vmGeneration, hostID).Scan(&admissionID, &networkCount, &ready); err != nil || admissionID == "" || networkCount != 0 || !ready {
 			return ErrVMMaterializationConflict
 		}
+		if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT observation_generation FROM kim.vm_power_state_current WHERE vm_id=$1 AND vm_generation=$2),0)`, vmID, vmGeneration).Scan(&priorPowerObservation); err != nil {
+			return ErrVMMaterializationConflict
+		}
 		setDigest := digestBytes([]byte("[]"))
 		if tag, err := tx.Exec(ctx, `UPDATE kim.vm_materialization_readiness_current SET network_state='REALIZED',network_observation_generation=1,network_evidence_set_digest=$2,boot_readiness='READY',blocking_reasons='{}',updated_at=statement_timestamp() WHERE vm_id=$1 AND vm_generation=$3`, vmID, setDigest, vmGeneration); err != nil || tag.RowsAffected() != 1 {
 			return ErrVMMaterializationConflict
 		}
-		return createTypedVMPowerCommandTx(ctx, tx, vmID, vmGeneration, 1, hostID, libvirtdomain.StateRunning, jobID, commandID)
+		return createTypedVMPowerCommandTx(ctx, tx, vmID, vmGeneration, priorPowerObservation+1, hostID, libvirtdomain.StateRunning, jobID, commandID)
 	})
 }
 

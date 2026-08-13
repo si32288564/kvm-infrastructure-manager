@@ -144,9 +144,13 @@ func AcceptVMDefinitionObservation(ctx context.Context, db TxBeginner, observati
 				storage_state,boot_readiness,blocking_reasons
 			) VALUES ($1,$2,$3,$4,$5,'DEFINED','PENDING','PENDING','BOUND','BLOCKED',ARRAY['image_pending','network_pending'])
 			ON CONFLICT (vm_id) DO UPDATE SET
+				plan_id=EXCLUDED.plan_id,
 				observation_generation=EXCLUDED.observation_generation,
 				definition_evidence_id=EXCLUDED.definition_evidence_id,
-				domain_state='DEFINED',storage_state='BOUND',
+				domain_state='DEFINED',image_state='PENDING',network_state='PENDING',storage_state='BOUND',
+				image_observation_generation=NULL,image_evidence_id=NULL,
+				network_observation_generation=NULL,network_evidence_set_digest=NULL,
+				boot_readiness='BLOCKED',blocking_reasons=ARRAY['image_pending','network_pending'],
 				updated_at=statement_timestamp()
 			WHERE kim.vm_materialization_readiness_current.vm_generation=EXCLUDED.vm_generation
 			  AND kim.vm_materialization_readiness_current.observation_generation < EXCLUDED.observation_generation

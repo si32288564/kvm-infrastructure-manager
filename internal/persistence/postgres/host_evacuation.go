@@ -273,14 +273,14 @@ func loadHostEvacuationWorkloadsTx(ctx context.Context, tx pgx.Tx, operationID s
 }
 
 // EvaluateHostEvacuationEligibility derives profile eligibility from the
-// immutable snapshot. Local LVM data independence and physical PCI remain
-// explicitly blocked; zero-Port and OVN-only shapes may proceed.
+// immutable snapshot. One ordinary boot root may proceed only to the later
+// planned root-safety and relocation gates; physical PCI remains blocked.
 func EvaluateHostEvacuationEligibility(ctx context.Context, db TxBeginner, operationID string) error {
 	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT c.child_operation_id,jsonb_array_length(e.storage_requirements),jsonb_array_length(e.pci_requirements)
+		rows, err := tx.Query(ctx, `SELECT c.child_operation_id,jsonb_array_length(e.storage_requirements),jsonb_array_length(e.pci_requirements),COALESCE((e.storage_requirements->0->>'Bootable')::boolean,false)
 			FROM kim.host_evacuation_workloads_current c JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
 			WHERE c.evacuation_operation_id=$1 AND c.phase='DISCOVERED' ORDER BY e.ordinal FOR UPDATE OF c`, operationID)
 		if err != nil {
@@ -291,17 +291,18 @@ func EvaluateHostEvacuationEligibility(ctx context.Context, db TxBeginner, opera
 		for rows.Next() {
 			var d decision
 			var storageCount, pciCount int
-			if err := rows.Scan(&d.id, &storageCount, &pciCount); err != nil {
+			var rootBootable bool
+			if err := rows.Scan(&d.id, &storageCount, &pciCount, &rootBootable); err != nil {
 				rows.Close()
 				return err
 			}
 			switch {
-			case storageCount > 0:
+			case storageCount > 1 || (storageCount == 1 && !rootBootable):
 				d.phase, d.result, d.reason = "BLOCKED", "BLOCKED", "local_lvm_data_independence_unproven"
 			case pciCount > 0:
 				d.phase, d.result, d.reason = "BLOCKED", "BLOCKED", "physical_pci_vf_evacuation_unqualified"
 			default:
-				d.phase, d.result, d.reason = "READY_TO_QUIESCE", "ELIGIBLE", "planned_relocation_profile_eligible"
+				d.phase, d.result, d.reason = "READY_TO_QUIESCE", "ELIGIBLE", "planned_relocation_profile_requires_closed_later_gates"
 			}
 			decisions = append(decisions, d)
 		}

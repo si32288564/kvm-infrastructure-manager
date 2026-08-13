@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 
 	"github.com/jackc/pgx/v5"
@@ -15,8 +16,8 @@ var (
 )
 
 type VMMaterializationRequest struct {
-	VMID, AdmissionID, PlanID, JobID, CommandID string
-	MaterializationGeneration                   uint64
+	VMID, AdmissionID, PlanID, JobID, CommandID, RelocationAuthorityID string
+	MaterializationGeneration                                          uint64
 }
 
 type VMMaterializationDecision struct {
@@ -62,7 +63,7 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 				commandHost != existingHost || commandType != "VIRTUAL_MACHINE_DEFINE" ||
 				commandSchema != "kim.command.virtual-machine-define/v1" ||
 				commandTarget != "vm:"+request.VMID || commandDigest != existingDigest || existingMaterializationGeneration != expectedMaterializationGeneration {
-				return ErrVMMaterializationConflict
+				return fmt.Errorf("existing materialization replay identity: %w", ErrVMMaterializationConflict)
 			}
 			decision = VMMaterializationDecision{VMID: request.VMID, HostID: existingHost,
 				PlanID: request.PlanID, PlanDigest: existingDigest, JobID: request.JobID,
@@ -91,14 +92,14 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 			  AND compute.claim_state='RESERVED'
 		`, request.AdmissionID).Scan(&projectID, &workloadID, &hostID, &imageID,
 			&imageRevision, &flavorID, &flavorRevision, &shapeDigest, &vcpus, &memoryMiB); err != nil {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("admission authority: %w", ErrVMMaterializationConflict)
 		}
 		if err := lockHostAuthorityTx(ctx, tx, hostID); err != nil {
 			return err
 		}
 		var bootVolumes int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.volumes_current WHERE placement_admission_id=$1 AND bootable`, request.AdmissionID).Scan(&bootVolumes); err != nil || bootVolumes != 1 {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("boot volume authority: %w", ErrVMMaterializationConflict)
 		}
 		var allocationID, volumeID, bindingID, vgUUID, lvUUID, resourceKey, attachmentID string
 		var bindingGeneration, attachmentGeneration int64
@@ -126,14 +127,24 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 		`, request.AdmissionID).Scan(&allocationID, &volumeID, &bindingID,
 			&bindingGeneration, &vgUUID, &lvUUID, &resourceKey, &attachmentID,
 			&attachmentGeneration); err != nil {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("root binding authority: %w", ErrVMMaterializationConflict)
 		}
 		var vmGeneration int64
+		relocation := false
 		err := tx.QueryRow(ctx, `SELECT placement_admission_id,project_id,workload_id,host_id,vm_generation FROM kim.virtual_machines_current WHERE vm_id=$1 FOR UPDATE`, request.VMID).Scan(&existingAdmission, &existingVMID, &existingDigest, &existingHost, &vmGeneration)
 		if errors.Is(err, pgx.ErrNoRows) {
 			vmGeneration = 1
-		} else if err != nil || existingAdmission != request.AdmissionID || existingVMID != projectID || existingDigest != workloadID || existingHost != hostID || vmGeneration < 1 {
-			return ErrVMMaterializationConflict
+		} else if err != nil || existingVMID != projectID || existingDigest != workloadID || vmGeneration < 1 {
+			return fmt.Errorf("current VM identity: %w", ErrVMMaterializationConflict)
+		} else if existingAdmission != request.AdmissionID || existingHost != hostID {
+			if request.RelocationAuthorityID == "" || request.MaterializationGeneration == 0 {
+				return fmt.Errorf("relocation identity missing: %w", ErrVMMaterializationConflict)
+			}
+			var authorized bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_materialization_relocation_authority_evidence r JOIN kim.host_evacuation_workloads_current c ON c.child_operation_id=r.child_operation_id AND c.child_generation=r.child_generation AND c.phase='SOURCE_QUIESCED' WHERE r.relocation_authority_id=$1 AND r.vm_id=$2 AND r.vm_generation=$3 AND r.source_admission_id=$4 AND r.source_host_id=$5 AND r.destination_admission_id=$6 AND r.destination_host_id=$7 AND r.destination_materialization_generation=$8)`, request.RelocationAuthorityID, request.VMID, vmGeneration, existingAdmission, existingHost, request.AdmissionID, hostID, request.MaterializationGeneration).Scan(&authorized); err != nil || !authorized {
+				return fmt.Errorf("relocation authority mismatch: %w", ErrVMMaterializationConflict)
+			}
+			relocation = true
 		}
 		materializationGeneration := request.MaterializationGeneration
 		if materializationGeneration == 0 {
@@ -164,10 +175,15 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 		`, request.VMID, request.AdmissionID, projectID, workloadID, hostID, vmGeneration); err != nil {
 			return err
 		}
+		if relocation {
+			if tag, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET placement_admission_id=$2,host_id=$3,desired_power_state='SHUTOFF',lifecycle_state='MATERIALIZATION_PENDING',current_plan_id=NULL,updated_at=statement_timestamp() WHERE vm_id=$1 AND vm_generation=$4`, request.VMID, request.AdmissionID, hostID, vmGeneration); err != nil || tag.RowsAffected() != 1 {
+				return fmt.Errorf("relocation projection update: %w", ErrVMMaterializationConflict)
+			}
+		}
 		var acceptedVMAdmission, acceptedVMProject, acceptedVMWorkload, acceptedVMHost string
 		var acceptedVMGeneration int64
 		if err := tx.QueryRow(ctx, `SELECT placement_admission_id,project_id,workload_id,host_id,vm_generation FROM kim.virtual_machines_current WHERE vm_id=$1 FOR UPDATE`, request.VMID).Scan(&acceptedVMAdmission, &acceptedVMProject, &acceptedVMWorkload, &acceptedVMHost, &acceptedVMGeneration); err != nil || acceptedVMAdmission != request.AdmissionID || acceptedVMProject != projectID || acceptedVMWorkload != workloadID || acceptedVMHost != hostID || acceptedVMGeneration != vmGeneration {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("accepted VM projection: %w", ErrVMMaterializationConflict)
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO kim.vm_materialization_plan_evidence (
@@ -189,12 +205,12 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 			SELECT vm_id::text, placement_admission_id, host_id, plan_digest
 			FROM kim.vm_materialization_plan_evidence WHERE plan_id=$1
 		`, request.PlanID).Scan(&acceptedVMID, &acceptedAdmission, &acceptedHost, &acceptedDigest); err != nil || acceptedVMID != request.VMID || acceptedAdmission != request.AdmissionID || acceptedHost != hostID || acceptedDigest != planDigest {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("accepted materialization plan: %w", ErrVMMaterializationConflict)
 		}
 		if tag, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET current_plan_id=$2 WHERE vm_id=$1 AND vm_generation=$3`, request.VMID, request.PlanID, vmGeneration); err != nil {
 			return err
 		} else if tag.RowsAffected() != 1 {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("current plan projection: %w", ErrVMMaterializationConflict)
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO kim.execution_jobs (job_id, resource_type, resource_id, desired_revision, job_state)
@@ -205,7 +221,7 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 		var acceptedResourceType, acceptedResourceID string
 		var acceptedDesiredRevision int64
 		if err := tx.QueryRow(ctx, `SELECT resource_type,resource_id,desired_revision FROM kim.execution_jobs WHERE job_id=$1`, request.JobID).Scan(&acceptedResourceType, &acceptedResourceID, &acceptedDesiredRevision); err != nil || acceptedResourceType != "VIRTUAL_MACHINE" || acceptedResourceID != request.VMID || acceptedDesiredRevision != vmGeneration {
-			return ErrVMMaterializationConflict
+			return fmt.Errorf("execution job identity: %w", ErrVMMaterializationConflict)
 		}
 		commandDigest := digestBytes(planPayload)
 		tag, err := tx.Exec(ctx, `
@@ -231,7 +247,7 @@ func PrepareVMMaterialization(ctx context.Context, db TxBeginner, request VMMate
 		} else {
 			var acceptedJob, acceptedHost, acceptedType, acceptedSchema, acceptedTarget, acceptedCommandDigest string
 			if err := tx.QueryRow(ctx, `SELECT job_id,host_id,command_type,schema_version,target_resource_id,payload_digest FROM kim.execution_commands WHERE command_id=$1`, request.CommandID).Scan(&acceptedJob, &acceptedHost, &acceptedType, &acceptedSchema, &acceptedTarget, &acceptedCommandDigest); err != nil || acceptedJob != request.JobID || acceptedHost != hostID || acceptedType != "VIRTUAL_MACHINE_DEFINE" || acceptedSchema != "kim.command.virtual-machine-define/v1" || acceptedTarget != "vm:"+request.VMID || acceptedCommandDigest != commandDigest {
-				return ErrVMMaterializationConflict
+				return fmt.Errorf("existing define command identity: %w", ErrVMMaterializationConflict)
 			}
 		}
 		decision = VMMaterializationDecision{VMID: request.VMID, HostID: hostID, PlanID: request.PlanID, PlanDigest: planDigest, JobID: request.JobID, CommandID: request.CommandID}
