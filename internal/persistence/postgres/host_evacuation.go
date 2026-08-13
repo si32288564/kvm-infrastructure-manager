@@ -56,20 +56,10 @@ type PlannedSourceQuiescence struct {
 	SourceMaterializationGeneration, ReadBackObservationGeneration uint64
 }
 
-type PlannedSourceQuiescenceRequest struct {
-	EvidenceID, ShutdownCommandID, ShutdownResponseState string
-	ReadBackEvidenceID, ObservedPowerState               string
-	ReadBackObservationGeneration                        uint64
-	IdentityMatches                                      bool
-	ObservationDigest                                    string
-}
-
 type HostEvacuationChildVerification struct {
-	TerminalEvidenceID, DestinationAdmissionID, VerificationEvidenceDigest string
-	ChildPlanGeneration                                                    uint64
-	SourceStorageState, SourceNetworkState, SourcePCIState                 string
-	DestinationPowerState, DestinationStorageState                         string
-	DestinationNetworkState, DestinationPCIState, SourceOwnershipState     string
+	VerificationID, ChildOperationID, DestinationAdmissionID, DestinationHostID string
+	DestinationBindingID, VerificationDigest                                    string
+	ChildPlanGeneration                                                         uint64
 }
 
 type evacuationSnapshot struct {
@@ -455,47 +445,10 @@ func transitionHostEvacuationSlotTx(ctx context.Context, tx pgx.Tx, operationID,
 	return err
 }
 
-func RecordPlannedSourceQuiescence(ctx context.Context, db TxBeginner, claim HostEvacuationClaim, request PlannedSourceQuiescenceRequest) (PlannedSourceQuiescence, error) {
-	var out PlannedSourceQuiescence
-	if request.EvidenceID == "" || request.ShutdownCommandID == "" || request.ReadBackEvidenceID == "" || request.ReadBackObservationGeneration == 0 || !request.IdentityMatches || request.ObservedPowerState != "SHUTOFF" || (request.ShutdownResponseState != "RECEIVED" && request.ShutdownResponseState != "LOST") || len(request.ObservationDigest) != 64 {
-		return out, ErrHostEvacuationConflict
-	}
-	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
-			return err
-		}
-		if err := validateEvacuationClaimTx(ctx, tx, claim); err != nil {
-			return err
-		}
-		var phase, currentHost, currentPlan, authorityState string
-		var expectedHostAuthorityGeneration uint64
-		if err := tx.QueryRow(ctx, `SELECT c.phase,e.vm_id::text,e.vm_generation,e.source_host_id,e.source_plan_id,e.source_plan_digest,e.source_materialization_generation,a.authority_generation,a.authority_state,vm.host_id,vm.current_plan_id
-			FROM kim.host_evacuation_workloads_current c JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
-			JOIN kim.host_evacuation_operation_evidence operation ON operation.evacuation_operation_id=c.evacuation_operation_id
-			JOIN kim.host_operation_authorities_current a ON a.host_id=e.source_host_id JOIN kim.virtual_machines_current vm ON vm.vm_id=e.vm_id
-			WHERE c.child_operation_id=$1 FOR UPDATE OF c,vm`, claim.ChildOperationID).Scan(&phase, &out.VMID, &out.VMGeneration, &out.SourceHostID, &out.SourcePlanID, &out.SourcePlanDigest, &out.SourceMaterializationGeneration, &out.SourceHostAuthorityGeneration, &authorityState, &currentHost, &currentPlan); err != nil {
-			return err
-		}
-		if err := tx.QueryRow(ctx, `SELECT source_host_authority_generation FROM kim.host_evacuation_operation_evidence WHERE evacuation_operation_id=$1`, claim.OperationID).Scan(&expectedHostAuthorityGeneration); err != nil {
-			return err
-		}
-		if phase != "QUIESCING_SOURCE" || authorityState != "ARMED" || out.SourceHostAuthorityGeneration != expectedHostAuthorityGeneration || currentHost != out.SourceHostID || currentPlan != out.SourcePlanID {
-			return ErrHostEvacuationStale
-		}
-		out.EvidenceID, out.ChildOperationID, out.ChildGeneration = request.EvidenceID, claim.ChildOperationID, 1
-		out.ShutdownCommandID, out.ShutdownResponseState = request.ShutdownCommandID, request.ShutdownResponseState
-		out.ReadBackEvidenceID, out.ReadBackObservationGeneration, out.ObservationDigest = request.ReadBackEvidenceID, request.ReadBackObservationGeneration, request.ObservationDigest
-		out.QuiescenceDigest = digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%d/%s/%s/%s/%d/SHUTOFF", out.ChildOperationID, out.VMID, out.VMGeneration, out.SourceHostID, out.SourcePlanDigest, request.ObservationDigest, request.ReadBackObservationGeneration)))
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.planned_source_quiescence_evidence(quiescence_evidence_id,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_host_authority_generation,source_plan_id,source_plan_digest,source_materialization_generation,shutdown_command_id,shutdown_response_state,read_back_evidence_id,read_back_observation_generation,observed_power_state,identity_matches,observation_digest,quiescence_digest) VALUES($1,$2,1,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'SHUTOFF',true,$14,$15)`, out.EvidenceID, out.ChildOperationID, out.VMID, out.VMGeneration, out.SourceHostID, out.SourceHostAuthorityGeneration, out.SourcePlanID, out.SourcePlanDigest, out.SourceMaterializationGeneration, out.ShutdownCommandID, out.ShutdownResponseState, out.ReadBackEvidenceID, out.ReadBackObservationGeneration, out.ObservationDigest, out.QuiescenceDigest); err != nil {
-			return err
-		}
-		return transitionHostEvacuationChildTx(ctx, tx, claim.ChildOperationID, "SOURCE_QUIESCED", "RUNNING", "typed_shutdown_read_back_shutoff", "OBSERVATION", out.EvidenceID)
-	})
-	return out, err
-}
-
-func CompleteHostEvacuationChild(ctx context.Context, db TxBeginner, claim HostEvacuationClaim, verification HostEvacuationChildVerification) error {
-	if verification.TerminalEvidenceID == "" || verification.DestinationAdmissionID == "" || verification.ChildPlanGeneration == 0 || len(verification.VerificationEvidenceDigest) != 64 {
+// AuthorizeHostEvacuationSourceShutdown binds the exact claimed child to the
+// ordinary typed VM power-off primitive. It creates no quiescence evidence.
+func AuthorizeHostEvacuationSourceShutdown(ctx context.Context, db TxBeginner, claim HostEvacuationClaim, shutdownAuthorityID, jobID, commandID string) error {
+	if shutdownAuthorityID == "" || jobID == "" || commandID == "" {
 		return ErrHostEvacuationConflict
 	}
 	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
@@ -505,52 +458,76 @@ func CompleteHostEvacuationChild(ctx context.Context, db TxBeginner, claim HostE
 		if err := validateEvacuationClaimTx(ctx, tx, claim); err != nil {
 			return err
 		}
-		var phase, sourceHost, vmID, destinationHost, currentHost, currentAdmission, drainState, authorityState string
-		var vmGeneration, expectedHostAuthorityGeneration, currentHostAuthorityGeneration uint64
-		if err := tx.QueryRow(ctx, `SELECT c.phase,e.source_host_id,e.vm_id::text,e.vm_generation,a.host_id,vm.host_id,vm.placement_admission_id,d.drain_state,hoa.authority_state,operation.source_host_authority_generation,hoa.authority_generation
-			FROM kim.host_evacuation_workloads_current c JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
-			JOIN kim.host_evacuation_operation_evidence operation ON operation.evacuation_operation_id=c.evacuation_operation_id
-			JOIN kim.placement_admission_decisions a ON a.admission_id=$2
-			JOIN kim.virtual_machines_current vm ON vm.vm_id=e.vm_id AND vm.vm_generation=e.vm_generation
-			JOIN kim.host_placement_drains_current d ON d.source_host_id=e.source_host_id
-			JOIN kim.host_operation_authorities_current hoa ON hoa.host_id=e.source_host_id
-			WHERE c.child_operation_id=$1 FOR UPDATE OF c,vm`, claim.ChildOperationID, verification.DestinationAdmissionID).Scan(&phase, &sourceHost, &vmID, &vmGeneration, &destinationHost, &currentHost, &currentAdmission, &drainState, &authorityState, &expectedHostAuthorityGeneration, &currentHostAuthorityGeneration); err != nil {
-			return err
+		var phase, vmID, sourceHost, sourcePlan string
+		var vmGeneration, materializationGeneration, expectedAuthority, currentAuthority, currentPowerObservation uint64
+		var authorityState string
+		if err := tx.QueryRow(ctx, `SELECT c.phase,e.vm_id::text,e.vm_generation,e.source_host_id,e.source_plan_id,e.source_materialization_generation,o.source_host_authority_generation,a.authority_generation,a.authority_state,power.observation_generation
+			FROM kim.host_evacuation_workloads_current c
+			JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
+			JOIN kim.host_evacuation_operation_evidence o ON o.evacuation_operation_id=c.evacuation_operation_id
+			JOIN kim.host_operation_authorities_current a ON a.host_id=e.source_host_id
+			JOIN kim.virtual_machines_current vm ON vm.vm_id=e.vm_id AND vm.vm_generation=e.vm_generation AND vm.host_id=e.source_host_id AND vm.current_plan_id=e.source_plan_id
+			JOIN kim.vm_power_state_current power ON power.vm_id=vm.vm_id AND power.vm_generation=vm.vm_generation AND power.observed_power_state='RUNNING' AND power.convergence_state='MATCHED'
+			WHERE c.child_operation_id=$1 FOR UPDATE OF c,vm,a`, claim.ChildOperationID).Scan(&phase, &vmID, &vmGeneration, &sourceHost, &sourcePlan, &materializationGeneration, &expectedAuthority, &currentAuthority, &authorityState, &currentPowerObservation); err != nil {
+			return ErrHostEvacuationBlocked
 		}
-		if phase != "SOURCE_QUIESCED" || destinationHost == sourceHost || currentHost != destinationHost || currentAdmission != verification.DestinationAdmissionID || drainState != "DRAINING" || authorityState != "ARMED" || currentHostAuthorityGeneration != expectedHostAuthorityGeneration {
+		if phase != "QUIESCING_SOURCE" || authorityState != "ARMED" || currentAuthority != expectedAuthority {
 			return ErrHostEvacuationStale
 		}
-		if verification.SourceStorageState != "SAFE" && verification.SourceStorageState != "NOT_REQUIRED" {
-			return ErrHostEvacuationBlocked
-		}
-		if verification.SourceNetworkState != "RETIRED" && verification.SourceNetworkState != "NOT_REQUIRED" {
-			return ErrHostEvacuationBlocked
-		}
-		if verification.SourcePCIState != "RETIRED" && verification.SourcePCIState != "NOT_REQUIRED" {
-			return ErrHostEvacuationBlocked
-		}
-		if verification.DestinationPowerState != "RUNNING" || (verification.DestinationStorageState != "CURRENT" && verification.DestinationStorageState != "NOT_REQUIRED") || (verification.DestinationNetworkState != "CURRENT" && verification.DestinationNetworkState != "NOT_REQUIRED") || (verification.DestinationPCIState != "CURRENT" && verification.DestinationPCIState != "NOT_REQUIRED") || verification.SourceOwnershipState != "RETIRED" {
-			return ErrHostEvacuationBlocked
-		}
-		var quiescenceID, quiescenceDigest string
-		if err := tx.QueryRow(ctx, `SELECT quiescence_evidence_id,quiescence_digest FROM kim.planned_source_quiescence_evidence WHERE child_operation_id=$1 AND child_generation=1`, claim.ChildOperationID).Scan(&quiescenceID, &quiescenceDigest); err != nil {
-			return ErrHostEvacuationBlocked
-		}
-		terminalDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%s/%d/%s", claim.ChildOperationID, quiescenceDigest, verification.DestinationAdmissionID, verification.ChildPlanGeneration, verification.VerificationEvidenceDigest)))
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.host_evacuation_child_terminal_evidence(terminal_evidence_id,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,destination_host_id,destination_admission_id,child_plan_generation,quiescence_evidence_id,quiescence_digest,source_storage_state,source_network_state,source_pci_state,destination_power_state,destination_storage_state,destination_network_state,destination_pci_state,source_ownership_state,verification_evidence_digest,terminal_state,terminal_digest) VALUES($1,$2,1,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'RUNNING',$14,$15,$16,'RETIRED',$17,'VERIFIED',$18)`, verification.TerminalEvidenceID, claim.ChildOperationID, vmID, vmGeneration, sourceHost, destinationHost, verification.DestinationAdmissionID, verification.ChildPlanGeneration, quiescenceID, quiescenceDigest, verification.SourceStorageState, verification.SourceNetworkState, verification.SourcePCIState, verification.DestinationStorageState, verification.DestinationNetworkState, verification.DestinationPCIState, verification.VerificationEvidenceDigest, terminalDigest); err != nil {
+		if err := createTypedVMPowerCommandTx(ctx, tx, vmID, vmGeneration, currentPowerObservation+1, sourceHost, "SHUTOFF", jobID, commandID); err != nil {
 			return err
 		}
-		if err := transitionHostEvacuationChildTx(ctx, tx, claim.ChildOperationID, "VERIFIED", "VERIFIED", "destination_and_source_read_back_verified", "TERMINAL", verification.TerminalEvidenceID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE kim.host_evacuation_workloads_current SET destination_host_id=$2,destination_admission_id=$3,child_plan_generation=$4,terminal_evidence_id=$5 WHERE child_operation_id=$1`, claim.ChildOperationID, destinationHost, verification.DestinationAdmissionID, verification.ChildPlanGeneration, verification.TerminalEvidenceID); err != nil {
-			return err
-		}
-		if err := transitionHostEvacuationSlotTx(ctx, tx, claim.OperationID, claim.ChildOperationID, "RELEASED", "child_verified"); err != nil {
-			return err
-		}
-		return updateHostEvacuationAggregateTx(ctx, tx, claim.OperationID)
+		digest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%d/%s/%d/%s/%s", claim.ChildOperationID, vmID, vmGeneration, sourceHost, currentAuthority, sourcePlan, commandID)))
+		_, err := tx.Exec(ctx, `INSERT INTO kim.host_evacuation_source_shutdown_authority_evidence(shutdown_authority_id,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_host_authority_generation,source_plan_id,source_materialization_generation,shutdown_command_id,authority_digest) VALUES($1,$2,1,$3::uuid,$4,$5,$6,$7,$8,$9,$10)`, shutdownAuthorityID, claim.ChildOperationID, vmID, vmGeneration, sourceHost, currentAuthority, sourcePlan, materializationGeneration, commandID, digest)
+		return err
 	})
+}
+
+// RecordPlannedSourceQuiescence accepts only an evidence identifier. Every
+// positive fact is re-derived from immutable execution and libvirt read-back.
+func RecordPlannedSourceQuiescence(ctx context.Context, db TxBeginner, claim HostEvacuationClaim, evidenceID string) (PlannedSourceQuiescence, error) {
+	var out PlannedSourceQuiescence
+	if evidenceID == "" {
+		return out, ErrHostEvacuationConflict
+	}
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
+			return err
+		}
+		if err := validateEvacuationClaimTx(ctx, tx, claim); err != nil {
+			return err
+		}
+		var phase, currentHost, currentPlan, authorityState, shutdownAuthorityID, verifierDigest string
+		var expectedHostAuthorityGeneration, attemptIndex, leaseGeneration uint64
+		if err := tx.QueryRow(ctx, `SELECT c.phase,e.vm_id::text,e.vm_generation,e.source_host_id,e.source_plan_id,e.source_plan_digest,e.source_materialization_generation,operation.source_host_authority_generation,a.authority_generation,a.authority_state,vm.host_id,vm.current_plan_id,
+			sa.shutdown_authority_id,sa.shutdown_command_id,power.evidence_id,power.observation_generation,power.observation_digest,power.verifier_digest,attempt.attempt_index,attempt.lease_generation,
+			verification.verification_id,CASE WHEN result.execution_outcome IS NULL OR result.execution_outcome='UNKNOWN' THEN 'LOST' ELSE 'RECEIVED' END
+			FROM kim.host_evacuation_workloads_current c JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
+			JOIN kim.host_evacuation_operation_evidence operation ON operation.evacuation_operation_id=c.evacuation_operation_id
+			JOIN kim.host_operation_authorities_current a ON a.host_id=e.source_host_id JOIN kim.virtual_machines_current vm ON vm.vm_id=e.vm_id
+			JOIN kim.host_evacuation_source_shutdown_authority_evidence sa ON sa.child_operation_id=c.child_operation_id AND sa.child_generation=c.child_generation AND sa.vm_id=e.vm_id AND sa.vm_generation=e.vm_generation AND sa.source_host_id=e.source_host_id AND sa.source_plan_id=e.source_plan_id
+			JOIN kim.vm_power_observation_evidence power ON power.command_id=sa.shutdown_command_id AND power.vm_id=e.vm_id AND power.vm_generation=e.vm_generation AND power.host_id=e.source_host_id AND power.desired_power_state='SHUTOFF' AND power.observed_power_state='SHUTOFF'
+			JOIN kim.command_attempts attempt ON attempt.command_id=power.command_id AND attempt.attempt_index=power.attempt_index AND attempt.host_authority_generation=sa.source_host_authority_generation
+			LEFT JOIN kim.command_results result ON result.command_id=attempt.command_id AND result.attempt_index=attempt.attempt_index
+			JOIN kim.command_verification_evidence verification ON verification.verification_id=power.verification_id AND verification.command_id=attempt.command_id AND verification.attempt_index=attempt.attempt_index AND verification.verification_state='MATCHED' AND verification.observation_generation=power.observation_generation AND verification.observation_digest=power.observation_digest
+			WHERE c.child_operation_id=$1 FOR UPDATE OF c,vm`, claim.ChildOperationID).Scan(&phase, &out.VMID, &out.VMGeneration, &out.SourceHostID, &out.SourcePlanID, &out.SourcePlanDigest, &out.SourceMaterializationGeneration, &expectedHostAuthorityGeneration, &out.SourceHostAuthorityGeneration, &authorityState, &currentHost, &currentPlan, &shutdownAuthorityID, &out.ShutdownCommandID, &out.ReadBackEvidenceID, &out.ReadBackObservationGeneration, &out.ObservationDigest, &verifierDigest, &attemptIndex, &leaseGeneration, new(string), &out.ShutdownResponseState); err != nil {
+			return ErrHostEvacuationBlocked
+		}
+		if phase != "QUIESCING_SOURCE" || authorityState != "ARMED" || out.SourceHostAuthorityGeneration != expectedHostAuthorityGeneration || currentHost != out.SourceHostID || currentPlan != out.SourcePlanID {
+			return ErrHostEvacuationStale
+		}
+		out.EvidenceID, out.ChildOperationID, out.ChildGeneration = evidenceID, claim.ChildOperationID, 1
+		out.QuiescenceDigest = digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%d/%s/%s/%s/%d/SHUTOFF", out.ChildOperationID, out.VMID, out.VMGeneration, out.SourceHostID, out.SourcePlanDigest, out.ObservationDigest, out.ReadBackObservationGeneration)))
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.planned_source_quiescence_evidence(quiescence_evidence_id,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_host_authority_generation,source_plan_id,source_plan_digest,source_materialization_generation,shutdown_command_id,shutdown_response_state,read_back_evidence_id,read_back_observation_generation,observed_power_state,identity_matches,observation_digest,quiescence_digest) VALUES($1,$2,1,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'SHUTOFF',true,$14,$15)`, out.EvidenceID, out.ChildOperationID, out.VMID, out.VMGeneration, out.SourceHostID, out.SourceHostAuthorityGeneration, out.SourcePlanID, out.SourcePlanDigest, out.SourceMaterializationGeneration, out.ShutdownCommandID, out.ShutdownResponseState, out.ReadBackEvidenceID, out.ReadBackObservationGeneration, out.ObservationDigest, out.QuiescenceDigest); err != nil {
+			return err
+		}
+		executionDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%d/%s/%d/%s", shutdownAuthorityID, out.ShutdownCommandID, attemptIndex, out.ReadBackEvidenceID, out.ReadBackObservationGeneration, out.ObservationDigest)))
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.planned_source_quiescence_execution_evidence(quiescence_evidence_id,shutdown_authority_id,shutdown_command_id,shutdown_attempt_index,shutdown_lease_generation,read_back_verification_id,power_observation_evidence_id,power_observation_generation,power_observation_digest,verifier_digest,evidence_digest) SELECT $1,$2,$3,$4,$5,power.verification_id,$6,$7,$8,$9,$10 FROM kim.vm_power_observation_evidence power WHERE power.evidence_id=$6`, out.EvidenceID, shutdownAuthorityID, out.ShutdownCommandID, attemptIndex, leaseGeneration, out.ReadBackEvidenceID, out.ReadBackObservationGeneration, out.ObservationDigest, verifierDigest, executionDigest); err != nil {
+			return err
+		}
+		return transitionHostEvacuationChildTx(ctx, tx, claim.ChildOperationID, "SOURCE_QUIESCED", "RUNNING", "typed_shutdown_read_back_shutoff", "OBSERVATION", out.EvidenceID)
+	})
+	return out, err
 }
 
 func BlockHostEvacuationChild(ctx context.Context, db TxBeginner, claim HostEvacuationClaim, reason string) error {

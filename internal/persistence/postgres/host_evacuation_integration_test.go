@@ -183,6 +183,15 @@ func TestHostEvacuationBoundedConcurrencyAndFailureEscalationPostgreSQLIntegrati
 	if _, err := ClaimHostEvacuationWorkload(ctx, pool, request.OperationID, "worker-c", time.Minute); !errors.Is(err, ErrHostEvacuationBudgetExhausted) {
 		t.Fatalf("third claim while 2/2 active = %v", err)
 	}
+	// Identifiers and caller intent cannot manufacture SHUTOFF, destination
+	// RUNNING, materialization readiness, or child terminal authority. Neither
+	// verifier accepts a child lacking the closed execution/read-back chain.
+	if _, err := RecordPlannedSourceQuiescence(ctx, pool, claim1, "fake-shutoff-evidence-"+suffix); !errors.Is(err, ErrHostEvacuationBlocked) {
+		t.Fatalf("fake SHUTOFF authority error = %v", err)
+	}
+	if _, err := EvaluateHostEvacuationChildEvidence(ctx, pool, claim1, "fake-child-verification-"+suffix, "fake-destination-binding-"+suffix, "fake-destination-admission-"+suffix); !errors.Is(err, ErrHostEvacuationBlocked) {
+		t.Fatalf("fake destination RUNNING authority error = %v", err)
+	}
 	if err := BlockHostEvacuationChild(ctx, pool, claim1, "qualified_partial_block"); err != nil {
 		t.Fatal(err)
 	}
