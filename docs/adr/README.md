@@ -42,3 +42,4 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0023: Trust Domainを分離しcredentialをgenerationでfenceする](0023-separated-trust-domains-and-generation-fenced-credentials.md)
 - [ADR-0024: Developer Preview の Agent transport に gRPC bidirectional stream を採用する](0024-initial-agent-transport-grpc.md)
 - [ADR-0025: Planned Local LVM relocation は content identity を boot prerequisite にする](0025-planned-local-lvm-relocation-content-authority.md)
+- [ADR-0026: Local LVM relocation transport は相互認証した exact block capability とする](0026-cross-host-local-lvm-transport-authority.md)

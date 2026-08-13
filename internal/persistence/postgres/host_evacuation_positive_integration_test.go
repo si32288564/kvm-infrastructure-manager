@@ -122,6 +122,121 @@ func qualifyEvacuationLocalLVMCopy(t *testing.T, ctx context.Context, db recover
 	if err != nil {
 		t.Fatalf("prepare Local LVM copy: %v", err)
 	}
+	transportSession, err := PrepareLocalLVMTransportSession(ctx, db, LocalLVMTransportSessionRequest{TransportSessionID: "local-lvm-transport-" + suffix, CopyOperationID: copyID, Duration: time.Minute, ChunkSizeBytes: 1 << 20, MaximumConcurrentPerHost: 1})
+	if err != nil {
+		t.Fatalf("prepare cross-Host Local LVM transport: %v", err)
+	}
+	if transportSession.AuthorityDigest != transportSession.AgentAuthority().Digest() || transportSession.SourceHostID != authority.SourceHostID || transportSession.DestinationHostID != authority.DestinationHostID {
+		t.Fatalf("transport authority did not preserve exact copy identity: %+v", transportSession)
+	}
+	if _, err := PrepareLocalLVMTransportSession(ctx, db, LocalLVMTransportSessionRequest{TransportSessionID: "local-lvm-transport-conflict-" + suffix, CopyOperationID: copyID, Duration: time.Minute, ChunkSizeBytes: 1 << 20, MaximumConcurrentPerHost: 1}); err == nil {
+		t.Fatal("concurrent session for the same destination LV was accepted")
+	}
+	if err := RecordLocalLVMTransportProgress(ctx, db, transportSession.TransportSessionID, 1, 0, 0, "STARTED", "PENDING"); err != nil {
+		t.Fatal(err)
+	}
+	// The block side effect completed but the destination Agent response was
+	// lost. Success is recovered only from the two independent read-backs.
+	if err := RecordLocalLVMTransportProgress(ctx, db, transportSession.TransportSessionID, 1, authority.ExpectedSizeBytes, authority.ExpectedSizeBytes, "DISCONNECTED", "LOST"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordLocalLVMTransportProgress(ctx, db, transportSession.TransportSessionID, 1, authority.ExpectedSizeBytes, authority.ExpectedSizeBytes, "LEASE_EXPIRED", "LOST"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordLocalLVMTransportProgress(ctx, db, transportSession.TransportSessionID, 2, authority.ExpectedSizeBytes, authority.ExpectedSizeBytes, "READ_BACK", "LOST"); err != nil {
+		t.Fatal(err)
+	}
+	peer := func(role string) LocalLVMTransportPeerObservation {
+		if role == "SOURCE" {
+			return LocalLVMTransportPeerObservation{EvidenceID: "local-lvm-transport-source-" + suffix, Role: role, HostID: transportSession.SourceHostID, CertificateFingerprint: transportSession.SourceCertificateFingerprint, CredentialBindingRevision: transportSession.SourceCredentialBindingRevision, SessionGeneration: transportSession.SourceSessionGeneration, VolumeID: transportSession.SourceVolumeID, BindingID: transportSession.SourceBindingID, BindingGeneration: transportSession.SourceBindingGeneration, LVUUID: transportSession.SourceLVUUID, SizeBytes: transportSession.ExactByteCount, ContentDigest: contentDigest, ObservationGeneration: 1, ObservationDigest: digestBytes([]byte("source-transport-observation/" + suffix)), VerifierArtifactDigest: digestBytes([]byte("source-transport-verifier/" + suffix))}
+		}
+		return LocalLVMTransportPeerObservation{EvidenceID: "local-lvm-transport-destination-" + suffix, Role: role, HostID: transportSession.DestinationHostID, CertificateFingerprint: transportSession.DestinationCertificateFingerprint, CredentialBindingRevision: transportSession.DestinationCredentialBindingRevision, SessionGeneration: transportSession.DestinationSessionGeneration, VolumeID: transportSession.DestinationVolumeID, BindingID: transportSession.DestinationBindingID, BindingGeneration: transportSession.DestinationBindingGeneration, LVUUID: transportSession.DestinationLVUUID, SizeBytes: transportSession.ExactByteCount, ContentDigest: contentDigest, ObservationGeneration: 1, ObservationDigest: digestBytes([]byte("destination-transport-observation/" + suffix)), VerifierArtifactDigest: digestBytes([]byte("destination-transport-verifier/" + suffix))}
+	}
+	transportTerminalID := "local-lvm-transport-terminal-" + suffix
+	sourceObservation, destinationObservation := peer("SOURCE"), peer("DESTINATION")
+	wrongPeer := sourceObservation
+	wrongPeer.EvidenceID += "-wrong-peer"
+	wrongPeer.HostID = transportSession.DestinationHostID
+	if err := RecordLocalLVMTransportPeerObservation(ctx, db, transportSession.TransportSessionID, wrongPeer); !errors.Is(err, ErrHostEvacuationBlocked) {
+		t.Fatalf("wrong source peer accepted: %v", err)
+	}
+	mismatchTx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatchDestination := destinationObservation
+	mismatchDestination.ContentDigest = digestBytes([]byte("different-content/" + suffix))
+	if err := RecordLocalLVMTransportPeerObservation(ctx, scopeTxBeginner{mismatchTx}, transportSession.TransportSessionID, sourceObservation); err != nil {
+		_ = mismatchTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err := RecordLocalLVMTransportPeerObservation(ctx, scopeTxBeginner{mismatchTx}, transportSession.TransportSessionID, mismatchDestination); err != nil {
+		_ = mismatchTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	mismatchCompletion := LocalLVMTransportCompletion{TerminalEvidenceID: transportTerminalID + "-digest-mismatch", AttemptIndex: 2, BytesTransferred: transportSession.ExactByteCount, ResponseState: "LOST", SourceEvidenceID: sourceObservation.EvidenceID, DestinationEvidenceID: destinationObservation.EvidenceID}
+	err = CompleteLocalLVMTransport(ctx, scopeTxBeginner{mismatchTx}, transportSession.TransportSessionID, mismatchCompletion)
+	_ = mismatchTx.Rollback(ctx)
+	if !errors.Is(err, ErrHostEvacuationBlocked) {
+		t.Fatalf("mismatched peer digests accepted: %v", err)
+	}
+	if err := RecordLocalLVMTransportPeerObservation(ctx, db, transportSession.TransportSessionID, sourceObservation); err != nil {
+		t.Fatalf("record source transport read-back: %v", err)
+	}
+	if err := RecordLocalLVMTransportPeerObservation(ctx, db, transportSession.TransportSessionID, destinationObservation); err != nil {
+		t.Fatalf("record destination transport read-back: %v", err)
+	}
+	completion := LocalLVMTransportCompletion{TerminalEvidenceID: transportTerminalID, AttemptIndex: 2, BytesTransferred: transportSession.ExactByteCount, ResponseState: "LOST", SourceEvidenceID: sourceObservation.EvidenceID, DestinationEvidenceID: destinationObservation.EvidenceID}
+	for label, drift := range map[string]func(pgx.Tx) error{
+		"source authority": func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE kim.host_operation_authorities_current SET authority_state='DISARMED' WHERE host_id=$1`, transportSession.SourceHostID)
+			return err
+		},
+		"source credential": func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE kim.agent_credential_bindings_current SET binding_state='REVOKED' WHERE host_id=$1`, transportSession.SourceHostID)
+			return err
+		},
+		"source incarnation": func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET host_id=$2 WHERE vm_id=(SELECT vm_id FROM kim.local_lvm_relocation_copy_operation_evidence WHERE copy_operation_id=$1)`, copyID, transportSession.DestinationHostID)
+			return err
+		},
+		"destination binding": func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, transportSession.DestinationBindingID)
+			return err
+		},
+		"destination session": func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `UPDATE kim.agent_transport_sessions_current SET state='FENCED' WHERE host_id=$1`, transportSession.DestinationHostID)
+			return err
+		},
+	} {
+		tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := drift(tx); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		candidate := completion
+		candidate.TerminalEvidenceID += "-stale-" + label
+		err = CompleteLocalLVMTransport(ctx, scopeTxBeginner{tx}, transportSession.TransportSessionID, candidate)
+		_ = tx.Rollback(ctx)
+		if !errors.Is(err, ErrHostEvacuationStale) {
+			t.Fatalf("%s drift accepted: %v", label, err)
+		}
+	}
+	if err := CompleteLocalLVMTransport(ctx, db, transportSession.TransportSessionID, completion); err != nil {
+		t.Fatalf("complete cross-Host Local LVM transport read-back: %v", err)
+	}
+	if err := CompleteLocalLVMTransport(ctx, db, transportSession.TransportSessionID, completion); err != nil {
+		t.Fatalf("transport terminal replay: %v", err)
+	}
+	conflictingReplay := completion
+	conflictingReplay.SourceEvidenceID += "-different"
+	conflictingReplay.DestinationEvidenceID += "-different"
+	if err := CompleteLocalLVMTransport(ctx, db, transportSession.TransportSessionID, conflictingReplay); !errors.Is(err, ErrHostEvacuationConflict) {
+		t.Fatalf("conflicting transport replay accepted: %v", err)
+	}
 	evidence := map[string]any{"copy_operation_id": copyID, "source_host_id": authority.SourceHostID, "source_volume_id": authority.SourceVolumeID, "source_binding_id": authority.SourceBindingID, "source_binding_generation": float64(1), "source_lv_uuid": authority.SourceLVUUID, "destination_host_id": authority.DestinationHostID, "destination_volume_id": authority.DestinationVolumeID, "destination_binding_id": authority.DestinationBindingID, "destination_binding_generation": float64(1), "destination_lv_uuid": authority.DestinationLVUUID, "source_size_bytes": float64(authority.ExpectedSizeBytes), "destination_size_bytes": float64(authority.ExpectedSizeBytes), "digest_algorithm": "SHA-256", "source_content_digest": contentDigest, "destination_content_digest": contentDigest, "copy_state": "COMPLETE"}
 	commandVerificationID := "local-lvm-copy-command-verification-" + suffix
 	if responseLost {
@@ -139,6 +254,10 @@ func qualifyEvacuationLocalLVMCopy(t *testing.T, ctx context.Context, db recover
 	}
 	if verified.ContentDigest != contentDigest || verified.ResponseState != wantResponse {
 		t.Fatalf("copy verification=%+v", verified)
+	}
+	var linkedTransportTerminal string
+	if err := db.QueryRow(ctx, `SELECT transport_terminal_evidence_id FROM kim.local_lvm_relocation_copy_verification_evidence WHERE verification_id=$1`, verified.VerificationID).Scan(&linkedTransportTerminal); err != nil || linkedTransportTerminal != transportTerminalID {
+		t.Fatalf("copy verification transport terminal=%q err=%v", linkedTransportTerminal, err)
 	}
 	replayed, err := VerifyLocalLVMRelocationCopy(ctx, db, claim, copyID, commandVerificationID, "local-lvm-source-content-"+suffix, "local-lvm-destination-content-"+suffix, "local-lvm-copy-verification-"+suffix, "local-lvm-copy-terminal-"+suffix)
 	if err != nil || replayed.TerminalDigest != verified.TerminalDigest {
@@ -488,11 +607,15 @@ func TestHostEvacuationNonEmptyZeroPortPositivePostgreSQLIntegration(t *testing.
 		}
 	}
 	for label, target := range map[string]struct{ table, column, id string }{
-		"copy operation":    {"local_lvm_relocation_copy_operation_evidence", "copy_operation_id", "local-lvm-copy-positive-" + f.Suffix},
-		"copy attempt":      {"local_lvm_relocation_copy_attempt_evidence", "copy_operation_id", "local-lvm-copy-positive-" + f.Suffix},
-		"source content":    {"local_lvm_relocation_content_observation_evidence", "content_evidence_id", copyVerification.SourceContentEvidenceID},
-		"copy verification": {"local_lvm_relocation_copy_verification_evidence", "verification_id", copyVerification.VerificationID},
-		"copy terminal":     {"local_lvm_relocation_copy_terminal_evidence", "terminal_evidence_id", copyVerification.TerminalEvidenceID},
+		"copy operation":     {"local_lvm_relocation_copy_operation_evidence", "copy_operation_id", "local-lvm-copy-positive-" + f.Suffix},
+		"copy attempt":       {"local_lvm_relocation_copy_attempt_evidence", "copy_operation_id", "local-lvm-copy-positive-" + f.Suffix},
+		"source content":     {"local_lvm_relocation_content_observation_evidence", "content_evidence_id", copyVerification.SourceContentEvidenceID},
+		"copy verification":  {"local_lvm_relocation_copy_verification_evidence", "verification_id", copyVerification.VerificationID},
+		"copy terminal":      {"local_lvm_relocation_copy_terminal_evidence", "terminal_evidence_id", copyVerification.TerminalEvidenceID},
+		"transport session":  {"local_lvm_relocation_transport_session_evidence", "transport_session_id", "local-lvm-transport-positive-" + f.Suffix},
+		"transport event":    {"local_lvm_relocation_transport_event_evidence", "transport_session_id", "local-lvm-transport-positive-" + f.Suffix},
+		"transport peer":     {"local_lvm_relocation_transport_peer_observation_evidence", "peer_evidence_id", "local-lvm-transport-source-positive-" + f.Suffix},
+		"transport terminal": {"local_lvm_relocation_transport_terminal_evidence", "terminal_evidence_id", "local-lvm-transport-terminal-positive-" + f.Suffix},
 	} {
 		statement := fmt.Sprintf("UPDATE kim.%s SET recorded_at=recorded_at WHERE %s=$1", target.table, target.column)
 		if _, err := pool.Exec(ctx, statement, target.id); err == nil {

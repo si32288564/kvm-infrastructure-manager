@@ -146,6 +146,21 @@ func VerifyLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim Host
 		if stringValue("copy_operation_id") != operationID || stringValue("source_host_id") != sourceHost || stringValue("source_volume_id") != sourceVolume || stringValue("source_binding_id") != sourceBinding || uintValue("source_binding_generation") != sourceBindingGeneration || stringValue("source_lv_uuid") != sourceLV || stringValue("destination_host_id") != destinationHost || stringValue("destination_volume_id") != destinationVolume || stringValue("destination_binding_id") != destinationBinding || uintValue("destination_binding_generation") != destinationBindingGeneration || stringValue("destination_lv_uuid") != destinationLV || uintValue("source_size_bytes") != expectedSize || uintValue("destination_size_bytes") != expectedSize || stringValue("digest_algorithm") != "SHA-256" || len(sourceDigest) != 64 || sourceDigest != destinationDigest || stringValue("copy_state") != "COMPLETE" {
 			return ErrHostEvacuationBlocked
 		}
+		var transportTerminalID, transportTerminalDigest string
+		var transportCount int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM kim.local_lvm_relocation_transport_session_evidence WHERE copy_operation_id=$1 AND copy_generation=$2`, operationID, generation).Scan(&transportCount); err != nil {
+			return err
+		}
+		if transportCount > 0 {
+			if err := tx.QueryRow(ctx, `SELECT terminal.terminal_evidence_id,terminal.terminal_digest
+				FROM kim.local_lvm_relocation_transport_terminal_evidence terminal
+				JOIN kim.local_lvm_relocation_transport_sessions_current current USING(transport_session_id,transport_generation)
+				WHERE terminal.copy_operation_id=$1 AND terminal.copy_generation=$2 AND terminal.terminal_state='VERIFIED'
+				AND terminal.bytes_transferred=$3 AND terminal.source_content_digest=$4 AND terminal.destination_content_digest=$5
+				AND current.session_state='VERIFIED' AND current.terminal_evidence_id=terminal.terminal_evidence_id`, operationID, generation, expectedSize, sourceDigest, destinationDigest).Scan(&transportTerminalID, &transportTerminalDigest); err != nil {
+				return ErrHostEvacuationBlocked
+			}
+		}
 		// Re-read all source safety and both binding incarnations immediately before accepting identity.
 		var stillCurrent bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_evacuation_source_storage_safety_evidence s JOIN kim.volume_backend_bindings_current sb ON sb.binding_id=$3 AND sb.binding_generation=$4 AND sb.volume_id=$5 AND sb.lv_uuid=$6 AND sb.host_id=$7 AND sb.binding_state='BOUND' JOIN kim.volume_backend_bindings_current db ON db.binding_id=$8 AND db.binding_generation=$9 AND db.volume_id=$10 AND db.lv_uuid=$11 AND db.host_id=$12 AND db.binding_state='BOUND' JOIN kim.virtual_machines_current vm ON vm.vm_id=s.vm_id AND vm.current_plan_id=s.source_plan_id AND vm.host_id=s.source_host_id WHERE s.safety_evidence_id=$1 AND s.safety_digest=$2 AND s.source_materialization_generation=$13 AND s.safety_state='SAFE')`, safetyID, safetyDigest, sourceBinding, sourceBindingGeneration, sourceVolume, sourceLV, sourceHost, destinationBinding, destinationBindingGeneration, destinationVolume, destinationLV, destinationHost, sourceMaterialization).Scan(&stillCurrent); err != nil || !stillCurrent {
@@ -174,8 +189,12 @@ func VerifyLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim Host
 				return err
 			}
 		}
-		verificationDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%d/%s/%s/%s/%s", operationID, generation, sourceEvidenceDigest, destinationEvidenceDigest, sourceDigest, destinationDigest)))
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.local_lvm_relocation_copy_verification_evidence(verification_id,copy_operation_id,copy_generation,source_content_evidence_id,destination_content_evidence_id,expected_size_bytes,digest_algorithm,source_content_digest,destination_content_digest,content_identity_state,verification_digest) VALUES($1,$2,$3,$4,$5,$6,'SHA-256',$7,$8,'VERIFIED',$9)`, verificationID, operationID, generation, sourceEvidenceID, destinationEvidenceID, expectedSize, sourceDigest, destinationDigest, verificationDigest); err != nil {
+		verificationDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%d/%s/%s/%s/%s/%s", operationID, generation, sourceEvidenceDigest, destinationEvidenceDigest, sourceDigest, destinationDigest, transportTerminalDigest)))
+		var transportTerminal any
+		if transportTerminalID != "" {
+			transportTerminal = transportTerminalID
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.local_lvm_relocation_copy_verification_evidence(verification_id,copy_operation_id,copy_generation,source_content_evidence_id,destination_content_evidence_id,expected_size_bytes,digest_algorithm,source_content_digest,destination_content_digest,content_identity_state,verification_digest,transport_terminal_evidence_id) VALUES($1,$2,$3,$4,$5,$6,'SHA-256',$7,$8,'VERIFIED',$9,$10)`, verificationID, operationID, generation, sourceEvidenceID, destinationEvidenceID, expectedSize, sourceDigest, destinationDigest, verificationDigest, transportTerminal); err != nil {
 			return err
 		}
 		terminalDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%d/%s/%s/%d/%s", operationID, generation, verificationDigest, destinationBinding, destinationBindingGeneration, destinationLV)))
