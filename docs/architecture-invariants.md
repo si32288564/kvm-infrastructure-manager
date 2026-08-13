@@ -235,6 +235,10 @@
 | INV-DPL-012 | Qualification Evidence は immutable とし、binding 対象の observation/stack/evaluator/artifact/operation set が変化した場合は CURRENT を継承しない | FI-PCI-002 |
 | INV-DPL-013 | Qualification Binding が STALE、UNKNOWN、REVOKED、または欠損なら allocation state を BLOCKED とし、Observed AVAILABLE から自動昇格しない | FI-PCI-001 |
 | INV-DPL-014 | VF claim は current Host/device/qualification/policy/NUMA/IOMMU generation と active claim 不在を一 transaction で再検証し、device ごとに一つの active/release-pending claim だけを許可する | AT-DPL-017 |
+| INV-DPL-015 | VF retirementはexact allocation generation/Host/BDF/Port/Binding/VMへbindし、old proofをlater allocation incarnationへupliftしない | AT-DPL-018, FI-PCI-006 |
+| INV-DPL-016 | `PCI_VF_RETIRE` response loss/Lease expiryはnon-execution proofではなく、successor claimを`READ_BACK_FIRST`へ限定する | AT-DPL-018, FI-PCI-005 |
+| INV-DPL-017 | positive VF retirementはKIM ownership、source Domain非稼働、inactive hostdev absence、driver/holder release、IOMMU identityのtyped read-backをすべて要求する | AT-DPL-019, FI-PCI-007 |
+| INV-DPL-018 | RecoveryはPCI control planeにならず、generic retirement/handoffとordinary Placement/SR-IOV realizationのcurrent evidenceだけをconsumerとして利用する | AT-DPL-020, FI-PCI-008 |
 
 ## 9. Host Lifecycle and Compliance
 

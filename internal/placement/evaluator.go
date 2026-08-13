@@ -32,6 +32,9 @@ type PCIRequirement struct {
 	DeviceAddress, PolicyID, QualificationID, RequiredIOMMUGroup string
 	PolicyGeneration, QualificationRevision                      uint64
 	RequiredNUMANodeID                                           *int
+	HandoffID, SourceClaimID, SourceDeviceAddress, SourceHostID  string
+	SourceRetirementEvidenceID                                   string
+	SourceAllocationGeneration                                   uint64
 }
 
 type NetworkRequirement struct {

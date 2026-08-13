@@ -360,6 +360,9 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-DPL-015 | qualification revision/profile、artifact/evaluator digest、observation/stack binding、validated operation set を immutable evidence として保存する |
 | AT-DPL-016 | Observed AVAILABLE でも Qualification 欠損/STALE/UNKNOWN/REVOKED の device を allocation BLOCKED と判定する |
 | AT-DPL-017 | current qualification/policy/NUMA/IOMMU を満たす VF claim だけを commit し、同じ VF への concurrent/second claim を一意制約と transaction で拒否する |
+| AT-DPL-018 | exact VF retirement attempt 1 の response-lossを`DISPATCH_UNKNOWN`に残し、attempt 2 `READ_BACK_FIRST`のsame typed observationだけで一つの VERIFIED evidence/RELEASE_PENDINGへ収束する |
+| AT-DPL-019 | wrong ownership/BDF/allocation generation、running source Domain、hostdev/driver/holder残存、IOMMU mismatchのいずれでもpositive retirementを拒否する |
+| AT-DPL-020 | verified source retirement、destination Final Admission claim、VF handoff、SR-IOV libvirt hostdev realizationを同一Recovery evidence setへbindし、terminal前driftを拒否する |
 
 ## 14. Security / Audit / Documentation
 

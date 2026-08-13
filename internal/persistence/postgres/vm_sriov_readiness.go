@@ -107,6 +107,13 @@ func AcceptSRIOVPortRealizationAndMaybeArmPower(ctx context.Context, db TxBeginn
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_network_port_realizations_current(vm_id,vm_generation,port_id,port_generation,binding_generation,observation_generation,evidence_id,preboot_state) VALUES($1,$2,$3,$4,$5,$6,$7,'REALIZED') ON CONFLICT(vm_id,port_id) DO UPDATE SET observation_generation=EXCLUDED.observation_generation,evidence_id=EXCLUDED.evidence_id,preboot_state='REALIZED',updated_at=statement_timestamp() WHERE kim.vm_network_port_realizations_current.observation_generation<EXCLUDED.observation_generation`, v.VMID, v.VMGeneration, v.PortID, v.PortGeneration, v.BindingGeneration, v.ObservationGeneration, v.EvidenceID); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(ctx, `UPDATE kim.pci_vf_handoffs_current h SET handoff_state='DESTINATION_REALIZED',updated_at=statement_timestamp()
+			FROM kim.pci_vf_allocation_claims claim WHERE h.destination_claim_id=claim.claim_id
+			 AND h.destination_allocation_generation=claim.allocation_generation AND h.port_id=$1
+			 AND claim.claim_id=$2 AND claim.host_id=$3 AND claim.device_address=$4 AND claim.claim_state='ACTIVE'
+			 AND h.handoff_state='DESTINATION_RESERVED'`, v.PortID, v.VFClaimID, v.HostID, v.DeviceAddress); err != nil {
+			return err
+		}
 		return maybeArmReadyVMPowerTx(ctx, tx, v.VMID, v.VMGeneration, v.HostID, v.ObservationGeneration, v.PowerJobID, v.PowerCommandID)
 	})
 }

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	libvirt "libvirt.org/go/libvirt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -23,6 +25,17 @@ func New(uri string) (*Backend, func() error, error) {
 		return nil, nil, errors.New("connect to libvirt failed")
 	}
 	return &Backend{Client: &client{c}}, func() error { _, err := c.Close(); return err }, nil
+}
+
+func NewRetirement(uri string) (*RetirementBackend, func() error, error) {
+	if uri == "" {
+		return nil, nil, errors.New("libvirt URI is required")
+	}
+	c, err := libvirt.NewConnect(uri)
+	if err != nil {
+		return nil, nil, errors.New("connect to libvirt failed")
+	}
+	return &RetirementBackend{Client: &client{c}}, func() error { _, err := c.Close(); return err }, nil
 }
 
 type domainDescription struct {
@@ -100,6 +113,98 @@ func (c *client) AttachHostDevice(ctx context.Context, uuid string, o Observatio
 	}
 	if err := d.AttachDeviceFlags(string(payload), libvirt.DOMAIN_DEVICE_MODIFY_CONFIG); err != nil {
 		return errors.New("attach typed SR-IOV hostdev failed")
+	}
+	return nil
+}
+
+func (c *client) RetirementState(ctx context.Context, uuid, address, iommuGroup string) (RetirementObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return RetirementObservation{}, err
+	}
+	d, err := c.connection.LookupDomainByUUIDString(uuid)
+	if err != nil {
+		return RetirementObservation{}, errors.New("lookup libvirt Domain failed")
+	}
+	defer d.Free()
+	state, _, err := d.GetState()
+	if err != nil {
+		return RetirementObservation{}, errors.New("read libvirt Domain state failed")
+	}
+	hostdev, err := c.HostDevice(ctx, uuid, address, "")
+	if err != nil {
+		return RetirementObservation{}, err
+	}
+	deviceRoot := filepath.Join("/sys/bus/pci/devices", address)
+	driverBound := false
+	if _, err := os.Lstat(filepath.Join(deviceRoot, "driver")); err == nil {
+		driverBound = true
+	} else if !os.IsNotExist(err) {
+		return RetirementObservation{}, errors.New("read VF driver binding failed")
+	}
+	observedGroup := ""
+	if target, err := os.Readlink(filepath.Join(deviceRoot, "iommu_group")); err == nil {
+		observedGroup = filepath.Base(target)
+	} else if !os.IsNotExist(err) {
+		return RetirementObservation{}, errors.New("read VF IOMMU group failed")
+	}
+	holder, err := vfioGroupOpen(observedGroup)
+	if err != nil {
+		return RetirementObservation{}, err
+	}
+	holder = holder || driverBound
+	return RetirementObservation{DomainRunning: state == libvirt.DOMAIN_RUNNING || state == libvirt.DOMAIN_BLOCKED || state == libvirt.DOMAIN_PAUSED, HostDevicePresent: hostdev.Present, DriverBound: driverBound, HolderPresent: holder, DeviceAddress: address, IOMMUGroup: observedGroup}, nil
+}
+
+func vfioGroupOpen(group string) (bool, error) {
+	if group == "" {
+		return false, nil
+	}
+	processes, err := os.ReadDir("/proc")
+	if err != nil {
+		return false, errors.New("read process table for VF holder failed")
+	}
+	wanted := filepath.Join("/dev/vfio", group)
+	for _, process := range processes {
+		if !process.IsDir() {
+			continue
+		}
+		fds, err := os.ReadDir(filepath.Join("/proc", process.Name(), "fd"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return false, errors.New("read process descriptors for VF holder failed")
+		}
+		for _, fd := range fds {
+			target, err := os.Readlink(filepath.Join("/proc", process.Name(), "fd", fd.Name()))
+			if err == nil && target == wanted {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+func (c *client) DetachHostDevice(ctx context.Context, uuid, address, iommuGroup string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	parsed, err := parsePCI(address)
+	if err != nil {
+		return err
+	}
+	d, err := c.connection.LookupDomainByUUIDString(uuid)
+	if err != nil {
+		return errors.New("lookup libvirt Domain failed")
+	}
+	defer d.Free()
+	i := hostdevInterface{Type: "hostdev", Managed: "yes"}
+	i.Source.Address = parsed
+	payload, err := xml.Marshal(i)
+	if err != nil {
+		return err
+	}
+	if err := d.DetachDeviceFlags(string(payload), libvirt.DOMAIN_DEVICE_MODIFY_CONFIG); err != nil {
+		return errors.New("detach typed SR-IOV hostdev failed")
 	}
 	return nil
 }

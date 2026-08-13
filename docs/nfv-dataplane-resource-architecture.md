@@ -138,6 +138,10 @@ Qualification Evidence は qualification/profile revision、test artifact/evalua
 
 Current Qualification Binding は `CURRENT / STALE / UNKNOWN / REVOKED`、Allocation State は `AVAILABLE / BLOCKED / CLAIMED / UNKNOWN` を使用します。Observed が `AVAILABLE` でも binding が `CURRENT` でなければ allocation は `BLOCKED` です。firmware、driver、kernel、IOMMU topology、libvirt/QEMU profile、artifact/evaluator、observation generation/digest の変化は過去 qualification を `STALE` にします。
 
+VF ownership lifecycleはallocationとreleaseを別authorityにします。Migration 063のgeneric `PCI_VF_RETIRE/v1` はexact allocation generation、Host/BDF、Port/Binding、VM incarnationを固定し、source Domainのinactive hostdev、Linux sysfs driver/holder、IOMMU identityをread-backします。Lease expiryやdetach responseはphysical releaseの証明ではなく、曖昧なattemptは`DISPATCH_UNKNOWN`から`READ_BACK_FIRST`へ進みます。verified retirementだけがclaimを`RELEASE_PENDING`へ進め、logical Port/workload identityは保持されます。
+
+VF handoffはverified source retirementとordinary destination Placement VF claimを結ぶassociation authorityです。Recoveryはこのauthorityのconsumerであり、BDFはHost-local identityなのでsource/destination同一を要求しません。destination SR-IOV hostdevのexact libvirt read-backとhandoffがcurrentな場合だけdangerous-step/Recovery Verificationへ進めます。
+
 ## 5. Eligibility and Admission
 
 Dataplane要求を含むVM placementは、既存resource shapeに以下を追加します。

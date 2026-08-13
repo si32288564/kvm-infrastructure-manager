@@ -34,6 +34,8 @@ type RecoveryVerification struct {
 	VerificationID, RecoveryOperationID, MaterializationID, DestinationAdmissionID string
 	DestinationHostID, VMID, PowerEvidenceID, PowerObservationDigest               string
 	StorageAttachmentEvidenceID, NetworkEvidenceSetDigest, PCIRequirementsDigest   string
+	PCIEvidenceSetDigest                                                           string
+	PCIObservationGeneration                                                       uint64
 	FencingProofID, FencingProofDigest, FencingUsability                           string
 	StorageSafetyProofID, StorageSafetyProofDigest, StorageUsability               string
 	BudgetClaimID, ResultState, ReasonCode, VerifierVersion, VerifierDigest        string
@@ -42,6 +44,30 @@ type RecoveryVerification struct {
 	PowerObservationGeneration, StorageAttachmentGeneration                        uint64
 	StorageObservationGeneration, NetworkObservationGeneration                     uint64
 	BudgetStateGeneration                                                          uint64
+}
+
+func currentRecoveryPCIEvidenceSetTx(ctx context.Context, tx pgx.Tx, admissionID, vmID string, vmGeneration uint64) (uint64, string, bool, error) {
+	var required, matched int
+	var generation uint64
+	var evidenceSet string
+	err := tx.QueryRow(ctx, `SELECT jsonb_array_length(a.pci_requirements),count(*) FILTER(WHERE realization.evidence_id IS NOT NULL AND retirement_current.claim_id IS NOT NULL AND handoff.handoff_id IS NOT NULL),coalesce(max(realization.observation_generation),0),
+		coalesce(string_agg(claim.claim_id||':'||claim.allocation_generation||':'||claim.device_address||':'||retirement.evidence_id||':'||handoff.handoff_id||':'||realization.evidence_id||':'||realization.observation_digest,',' ORDER BY claim.claim_id),'')
+		FROM kim.placement_admission_decisions a
+		LEFT JOIN kim.pci_vf_allocation_claims claim ON claim.placement_admission_id=a.admission_id AND claim.claim_state='ACTIVE'
+		LEFT JOIN kim.pci_vf_handoffs_current hc ON hc.destination_claim_id=claim.claim_id AND hc.destination_allocation_generation=claim.allocation_generation AND hc.handoff_state IN ('DESTINATION_REALIZED','VERIFIED')
+		LEFT JOIN kim.pci_vf_handoff_evidence handoff ON handoff.handoff_id=hc.handoff_id AND handoff.destination_admission_id=a.admission_id
+		LEFT JOIN kim.pci_vf_retirement_evidence retirement ON retirement.evidence_id=handoff.source_retirement_evidence_id AND retirement.result_state='VERIFIED'
+		LEFT JOIN kim.pci_vf_retirement_operations_current retirement_current ON retirement_current.claim_id=retirement.claim_id AND retirement_current.allocation_generation=retirement.allocation_generation AND retirement_current.terminal_evidence_id=retirement.evidence_id AND retirement_current.operation_state='VERIFIED'
+		LEFT JOIN kim.vm_network_port_realizations_current current ON current.vm_id=$2 AND current.vm_generation=$3 AND current.port_id=claim.port_id AND current.port_generation=claim.port_generation AND current.binding_generation=claim.binding_generation AND current.preboot_state='REALIZED'
+		LEFT JOIN kim.vm_network_port_realization_evidence realization ON realization.evidence_id=current.evidence_id AND realization.vf_claim_id=claim.claim_id AND realization.device_address=claim.device_address AND realization.binding_type='SRIOV_DIRECT'
+		WHERE a.admission_id=$1 GROUP BY a.pci_requirements`, admissionID, vmID, vmGeneration).Scan(&required, &matched, &generation, &evidenceSet)
+	if err != nil {
+		return 0, "", false, err
+	}
+	if required == 0 {
+		return 0, digestBytes([]byte("[]")), true, nil
+	}
+	return generation, digestBytes([]byte(evidenceSet)), matched == required && matched > 0, nil
 }
 
 type RecoveryTerminalDecision struct {
@@ -409,6 +435,16 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 		out.PCIRequirementsDigest = digestBytes([]byte("[]"))
 		var pciCount int
 		_ = tx.QueryRow(ctx, `SELECT jsonb_array_length(pci_requirements) FROM kim.placement_admission_decisions WHERE admission_id=$1`, out.DestinationAdmissionID).Scan(&pciCount)
+		pciCurrent := true
+		if pciCount > 0 {
+			out.PCIObservationGeneration, out.PCIEvidenceSetDigest, pciCurrent, err = currentRecoveryPCIEvidenceSetTx(ctx, tx, out.DestinationAdmissionID, out.VMID, out.VMGeneration)
+			if err != nil {
+				return err
+			}
+			if err := tx.QueryRow(ctx, `SELECT pci_requirements_digest FROM kim.placement_admission_decisions WHERE admission_id=$1`, out.DestinationAdmissionID).Scan(&out.PCIRequirementsDigest); err != nil {
+				return err
+			}
+		}
 		switch {
 		case op.LifecycleState != "VERIFYING":
 			out.ResultState, out.ReasonCode = "STALE_OPERATION", "operation_not_current_verifying"
@@ -428,8 +464,8 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_network_not_realized"
 		case !networkEvidenceCurrent:
 			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_network_evidence_set_not_current"
-		case pciCount != 0:
-			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "pci_recovery_verification_not_qualified"
+		case pciCount != 0 && !pciCurrent:
+			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_pci_evidence_set_not_current"
 		default:
 			out.ResultState, out.ReasonCode = "VERIFIED", "exact_destination_multi_domain_read_back_converged"
 		}
@@ -437,14 +473,14 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 		copy.VerificationDigest = ""
 		raw, _ := json.Marshal(copy)
 		out.VerificationDigest = digestReleaseBytes(raw)
-		_, err = tx.Exec(ctx, `INSERT INTO kim.recovery_verification_evidence(verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id,vm_generation,power_evidence_id,power_observation_generation,power_observation_digest,storage_attachment_evidence_id,storage_attachment_generation,storage_observation_generation,network_observation_generation,network_evidence_set_digest,pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,0),NULLIF($12,''),NULLIF($13,''),NULLIF($14,0),NULLIF($15,0),NULLIF($16,0),NULLIF($17,''),$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`, out.VerificationID, out.RecoveryOperationID, out.OperationGeneration, out.OperationStateGeneration, out.MaterializationID, out.DestinationAdmissionID, out.DestinationHostID, out.VMID, out.VMGeneration, out.PowerEvidenceID, out.PowerObservationGeneration, out.PowerObservationDigest, out.StorageAttachmentEvidenceID, out.StorageAttachmentGeneration, out.StorageObservationGeneration, out.NetworkObservationGeneration, out.NetworkEvidenceSetDigest, out.PCIRequirementsDigest, out.FencingProofID, out.FencingProofDigest, out.FencingUsability, out.StorageSafetyProofID, out.StorageSafetyProofDigest, out.StorageUsability, out.BudgetClaimID, out.BudgetStateGeneration, out.ResultState, out.ReasonCode, out.VerifierVersion, out.VerifierDigest, out.VerificationDigest)
+		_, err = tx.Exec(ctx, `INSERT INTO kim.recovery_verification_evidence(verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id,vm_generation,power_evidence_id,power_observation_generation,power_observation_digest,storage_attachment_evidence_id,storage_attachment_generation,storage_observation_generation,network_observation_generation,network_evidence_set_digest,pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest,pci_observation_generation,pci_evidence_set_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,0),NULLIF($12,''),NULLIF($13,''),NULLIF($14,0),NULLIF($15,0),NULLIF($16,0),NULLIF($17,''),$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NULLIF($32,0),NULLIF($33,''))`, out.VerificationID, out.RecoveryOperationID, out.OperationGeneration, out.OperationStateGeneration, out.MaterializationID, out.DestinationAdmissionID, out.DestinationHostID, out.VMID, out.VMGeneration, out.PowerEvidenceID, out.PowerObservationGeneration, out.PowerObservationDigest, out.StorageAttachmentEvidenceID, out.StorageAttachmentGeneration, out.StorageObservationGeneration, out.NetworkObservationGeneration, out.NetworkEvidenceSetDigest, out.PCIRequirementsDigest, out.FencingProofID, out.FencingProofDigest, out.FencingUsability, out.StorageSafetyProofID, out.StorageSafetyProofDigest, out.StorageUsability, out.BudgetClaimID, out.BudgetStateGeneration, out.ResultState, out.ReasonCode, out.VerifierVersion, out.VerifierDigest, out.VerificationDigest, out.PCIObservationGeneration, out.PCIEvidenceSetDigest)
 		return err
 	})
 	return out, err
 }
 
 func loadRecoveryVerificationTx(ctx context.Context, tx pgx.Tx, id string, out *RecoveryVerification) error {
-	return tx.QueryRow(ctx, `SELECT verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id::text,vm_generation,coalesce(power_evidence_id,''),coalesce(power_observation_generation,0),coalesce(power_observation_digest,''),coalesce(storage_attachment_evidence_id,''),coalesce(storage_attachment_generation,0),coalesce(storage_observation_generation,0),coalesce(network_observation_generation,0),coalesce(network_evidence_set_digest,''),pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest FROM kim.recovery_verification_evidence WHERE verification_id=$1`, id).Scan(&out.VerificationID, &out.RecoveryOperationID, &out.OperationGeneration, &out.OperationStateGeneration, &out.MaterializationID, &out.DestinationAdmissionID, &out.DestinationHostID, &out.VMID, &out.VMGeneration, &out.PowerEvidenceID, &out.PowerObservationGeneration, &out.PowerObservationDigest, &out.StorageAttachmentEvidenceID, &out.StorageAttachmentGeneration, &out.StorageObservationGeneration, &out.NetworkObservationGeneration, &out.NetworkEvidenceSetDigest, &out.PCIRequirementsDigest, &out.FencingProofID, &out.FencingProofDigest, &out.FencingUsability, &out.StorageSafetyProofID, &out.StorageSafetyProofDigest, &out.StorageUsability, &out.BudgetClaimID, &out.BudgetStateGeneration, &out.ResultState, &out.ReasonCode, &out.VerifierVersion, &out.VerifierDigest, &out.VerificationDigest)
+	return tx.QueryRow(ctx, `SELECT verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id::text,vm_generation,coalesce(power_evidence_id,''),coalesce(power_observation_generation,0),coalesce(power_observation_digest,''),coalesce(storage_attachment_evidence_id,''),coalesce(storage_attachment_generation,0),coalesce(storage_observation_generation,0),coalesce(network_observation_generation,0),coalesce(network_evidence_set_digest,''),pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest,coalesce(pci_observation_generation,0),coalesce(pci_evidence_set_digest,'') FROM kim.recovery_verification_evidence WHERE verification_id=$1`, id).Scan(&out.VerificationID, &out.RecoveryOperationID, &out.OperationGeneration, &out.OperationStateGeneration, &out.MaterializationID, &out.DestinationAdmissionID, &out.DestinationHostID, &out.VMID, &out.VMGeneration, &out.PowerEvidenceID, &out.PowerObservationGeneration, &out.PowerObservationDigest, &out.StorageAttachmentEvidenceID, &out.StorageAttachmentGeneration, &out.StorageObservationGeneration, &out.NetworkObservationGeneration, &out.NetworkEvidenceSetDigest, &out.PCIRequirementsDigest, &out.FencingProofID, &out.FencingProofDigest, &out.FencingUsability, &out.StorageSafetyProofID, &out.StorageSafetyProofDigest, &out.StorageUsability, &out.BudgetClaimID, &out.BudgetStateGeneration, &out.ResultState, &out.ReasonCode, &out.VerifierVersion, &out.VerifierDigest, &out.VerificationDigest, &out.PCIObservationGeneration, &out.PCIEvidenceSetDigest)
 }
 
 func CommitRecoveryTerminalDecision(ctx context.Context, db TxBeginner, decisionID, verificationID, decidedBy string) (RecoveryTerminalDecision, error) {

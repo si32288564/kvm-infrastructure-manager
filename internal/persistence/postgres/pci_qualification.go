@@ -329,8 +329,9 @@ func claimQualifiedVFTx(ctx context.Context, tx pgx.Tx, request PCIVFClaimReques
 			INSERT INTO kim.pci_vf_allocation_claims (
 				claim_id, host_id, device_address, project_id, workload_id,
 				policy_id, policy_generation, host_capability_generation,
-				qualification_id, qualification_revision, placement_admission_id, claim_state
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),'ACTIVE')
+				qualification_id, qualification_revision, placement_admission_id, claim_state,
+				allocation_generation
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),'ACTIVE',1)
 		`, request.ClaimID, request.HostID, request.DeviceAddress, request.ProjectID, request.WorkloadID,
 		request.PolicyID, request.PolicyGeneration, request.HostCapabilityGeneration,
 		request.QualificationID, request.QualificationRevision, request.PlacementAdmissionID)

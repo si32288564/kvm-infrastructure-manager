@@ -112,6 +112,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			defer closeSRIOVBackend()
 			executionBackends = append(executionBackends, sriovBackend)
+			retirementBackend, closeRetirementBackend, retirementErr := sriovnetwork.NewRetirement(*libvirtURI)
+			if retirementErr != nil {
+				fmt.Fprintf(stderr, "kim-host-agent VF retirement error: %v\n", retirementErr)
+				return 2
+			}
+			defer closeRetirementBackend()
+			executionBackends = append(executionBackends, retirementBackend)
 		}
 	}
 	if *imageCacheRoot != "" && *localLVMVGUUID == "" {

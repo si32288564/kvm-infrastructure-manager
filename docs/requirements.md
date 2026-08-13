@@ -339,6 +339,10 @@
 | DPL-018 | Qualification Evidence を observation generation/digest、device/firmware/driver/kernel/IOMMU/libvirt/QEMU profile、evaluator/test artifact digest、validated operation set に binding する | Must |
 | DPL-019 | current binding を CURRENT、STALE、UNKNOWN、REVOKED で評価し、CURRENT 以外の allocation state を BLOCKED とする | Must |
 | DPL-020 | VF Final Admission は Host capability generation、device observation、PF/VF relationship、Qualification Binding、policy、NUMA/IOMMU constraint、既存 claim を同一 PostgreSQL transaction で再検証する | Must |
+| DPL-021 | VF release は exact allocation/Port/Binding/VM incarnation に対する closed typed `PCI_VF_RETIRE/v1` と libvirt/sysfs read-backを使用し、Command successまたはLease expiryだけで再利用可能にしない | Must |
+| DPL-022 | source VF retirement は workload/Port identityを削除せず、inactive hostdev absence、driver release、holder absence、IOMMU identityをimmutable evidenceとして確定する | Must |
+| DPL-023 | VF handoff は verified source retirementとordinary destination Final Admission claimを結合し、source/destination BDFが同一であることを要求しない | Must |
+| DPL-024 | Recovery dangerous-step/Verificationはcurrent VF retirement/handoff/destination SR-IOV realization evidence setを再検証し、stale/UNKNOWN/ABA時はfail closedにする | Must |
 
 ### 2.14 Storage
 

@@ -1785,6 +1785,73 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE kim.volume_attachment_observation_evidence SET holder_open=true WHERE evidence_id=$1`, detachObservation.EvidenceID); err == nil {
 		t.Fatal("immutable Attachment evidence accepted UPDATE")
 	}
+
+	// Generic VF retirement is an exact claim/Port incarnation authority. A
+	// lost mutation response remains DISPATCH_UNKNOWN; the successor attempt is
+	// READ_BACK_FIRST and only an exact typed command verification can release
+	// the source allocation into RELEASE_PENDING.
+	var vfPortID, vfDevice string
+	var vfAllocationGeneration, vfPortGeneration, vfBindingGeneration uint64
+	if err := pool.QueryRow(ctx, `SELECT port_id,device_address,allocation_generation,port_generation,binding_generation FROM kim.pci_vf_allocation_claims WHERE claim_id=$1`, vfClaimID).Scan(&vfPortID, &vfDevice, &vfAllocationGeneration, &vfPortGeneration, &vfBindingGeneration); err != nil {
+		t.Fatal(err)
+	}
+	vfRetirementRequest := PCIVFRetirementRequest{OperationID: "vf-retirement-" + suffix, OperationGeneration: 1, ClaimID: vfClaimID, AllocationGeneration: vfAllocationGeneration, SourceHostID: hostID, DeviceAddress: vfDevice, PortID: vfPortID, PortGeneration: vfPortGeneration, BindingGeneration: vfBindingGeneration, WorkloadID: winner.request.WorkloadID, VMID: vmMaterialization.VMID, VMGeneration: 1, OwnershipMarker: digestBytes([]byte("vf-owner-" + suffix))}
+	if _, err := CommitPCIVFRetirement(ctx, pool, vfRetirementRequest); err != nil {
+		t.Fatal(err)
+	}
+	seedRetirementVerification := func(claim PCIVFRetirementClaim, commandID, verificationID, state, observationDigest string, attempt int) {
+		jobID := "job:" + commandID
+		if _, err := AuthorizePCIVFRetirementCommand(ctx, pool, claim, jobID, commandID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO kim.command_lease_grants(command_id,lease_generation,attempt_index,host_id,host_authority_generation,session_generation,token_digest,not_before,expires_at) VALUES($1,1,$2,$3,1,1,$4,statement_timestamp()-interval '1 minute',statement_timestamp()+interval '1 minute')`, commandID, attempt, hostID, digestBytes([]byte(commandID))); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO kim.command_attempts(command_id,attempt_index,lease_generation,host_authority_generation,session_generation) VALUES($1,$2,1,1,1)`, commandID, attempt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO kim.command_verification_evidence(verification_id,command_id,attempt_index,observation_generation,observation_digest,verification_state,verifier_artifact_digest,evidence_payload) VALUES($1,$2,$3,$4,$5,$6,$7,'{}')`, verificationID, commandID, attempt, int64(attempt), observationDigest, state, digestBytes([]byte("vf-retirement-verifier"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claim1, err := ClaimPCIVFRetirement(ctx, pool, vfClaimID, vfAllocationGeneration, "vf-worker-a", time.Minute)
+	if err != nil || claim1.ClaimMode != "APPLY_ALLOWED" {
+		t.Fatalf("VF retirement claim1=%#v err=%v", claim1, err)
+	}
+	unknownDigest := digestBytes([]byte("vf-retirement-unknown-" + suffix))
+	seedRetirementVerification(claim1, "vf-retirement-command-1-"+suffix, "vf-retirement-verification-1-"+suffix, "UNKNOWN", unknownDigest, 1)
+	unknown := PCIVFRetirementObservation{EvidenceID: "vf-retirement-evidence-unknown-" + suffix, PCIVFRetirementRequest: vfRetirementRequest, ClaimGeneration: claim1.ClaimGeneration, OwnershipMarkerMatches: true, SourceDomainNotRunning: true, SourceHostdevAbsent: false, VFDriverReleased: false, VFHolderAbsent: false, IOMMUGroupMatches: true, PCIObservationGeneration: 1, LibvirtObservationGeneration: 1, PCIObservationDigest: digestBytes([]byte("vf-pci-unknown")), LibvirtObservationDigest: unknownDigest, CommandID: "vf-retirement-command-1-" + suffix, AttemptIndex: 1, VerificationID: "vf-retirement-verification-1-" + suffix, VerifierDigest: digestBytes([]byte("vf-retirement-verifier")), ApplyResponseState: "LOST", ResultState: "UNKNOWN", EvidenceDigest: digestBytes([]byte("vf-retirement-evidence-unknown"))}
+	if err := CompletePCIVFRetirement(ctx, pool, claim1, unknown); err != nil {
+		t.Fatal(err)
+	}
+	claim2, err := ClaimPCIVFRetirement(ctx, pool, vfClaimID, vfAllocationGeneration, "vf-worker-b", time.Minute)
+	if err != nil || claim2.ClaimMode != "READ_BACK_FIRST" || claim2.ClaimGeneration != 2 {
+		t.Fatalf("VF retirement claim2=%#v err=%v", claim2, err)
+	}
+	matchedDigest := digestBytes([]byte("vf-retirement-matched-" + suffix))
+	seedRetirementVerification(claim2, "vf-retirement-command-2-"+suffix, "vf-retirement-verification-2-"+suffix, "MATCHED", matchedDigest, 2)
+	verified := unknown
+	verified.EvidenceID = "vf-retirement-evidence-verified-" + suffix
+	verified.ClaimGeneration = claim2.ClaimGeneration
+	verified.SourceHostdevAbsent = true
+	verified.VFDriverReleased = true
+	verified.VFHolderAbsent = true
+	verified.LibvirtObservationGeneration = 2
+	verified.LibvirtObservationDigest = matchedDigest
+	verified.CommandID = "vf-retirement-command-2-" + suffix
+	verified.AttemptIndex = 2
+	verified.VerificationID = "vf-retirement-verification-2-" + suffix
+	verified.ApplyResponseState = "UNKNOWN"
+	verified.ResultState = "VERIFIED"
+	verified.EvidenceDigest = digestBytes([]byte("vf-retirement-evidence-verified"))
+	if err := CompletePCIVFRetirement(ctx, pool, claim2, verified); err != nil {
+		t.Fatal(err)
+	}
+	var vfRetirementState, vfClaimState string
+	var vfAttempts int
+	if err := pool.QueryRow(ctx, `SELECT r.operation_state,c.claim_state,(SELECT count(*) FROM kim.pci_vf_retirement_attempt_evidence a WHERE a.claim_id=r.claim_id AND a.allocation_generation=r.allocation_generation) FROM kim.pci_vf_retirement_operations_current r JOIN kim.pci_vf_allocation_claims c ON c.claim_id=r.claim_id WHERE r.claim_id=$1`, vfClaimID).Scan(&vfRetirementState, &vfClaimState, &vfAttempts); err != nil || vfRetirementState != "VERIFIED" || vfClaimState != "RELEASE_PENDING" || vfAttempts != 2 {
+		t.Fatalf("VF retirement=%s claim=%s attempts=%d err=%v", vfRetirementState, vfClaimState, vfAttempts, err)
+	}
 }
 
 func cloneStorageRequirements(requirements []placement.StorageRequirement) []placement.StorageRequirement {
@@ -1954,7 +2021,7 @@ func qualifyPlacementVF(t *testing.T, ctx context.Context, db *pgxpool.Pool, hos
 		ProfileRevision: "sriov-profile/v1", TestArtifactDigest: digestBytes([]byte("test-artifact")),
 		EvaluatorDigest: digestBytes([]byte("evaluator")), ObservedGeneration: 1,
 		ObservationDigest: observationDigest, BindingFingerprint: fingerprint,
-		ValidatedOperations: []string{"VF_DISCOVER", "VF_ASSIGN", "VF_READ_BACK"}, EvidenceState: "QUALIFIED",
+		ValidatedOperations: []string{"VF_DISCOVER", "VF_ASSIGN", "VF_DETACH", "VF_READ_BACK"}, EvidenceState: "QUALIFIED",
 	}); err != nil {
 		t.Fatal(err)
 	}

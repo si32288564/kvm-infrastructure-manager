@@ -398,6 +398,31 @@ func finalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 				return err
 			}
 		}
+		// Final Admission binds an SR-IOV allocation claim to the exact Port
+		// incarnation created in this transaction. Non-Network PCI claims remain
+		// unbound and cannot be consumed by VF retirement/handoff authority.
+		for _, required := range request.PCI {
+			if _, err := tx.Exec(ctx, `UPDATE kim.pci_vf_allocation_claims claim SET
+				port_id=port.port_id,port_generation=port.port_generation,binding_generation=binding.binding_generation
+				FROM kim.network_ports_current port JOIN kim.port_bindings_current binding ON binding.port_id=port.port_id
+				WHERE claim.claim_id=$1 AND claim.placement_admission_id=$2
+				 AND port.placement_admission_id=$2 AND binding.placement_admission_id=$2
+				 AND binding.binding_type='SRIOV_DIRECT' AND binding.device_address=claim.device_address`,
+				"pci:"+request.RequestID+":"+required.DeviceAddress, admission.AdmissionID); err != nil {
+				return err
+			}
+			if required.HandoffID != "" {
+				claimID := "pci:" + request.RequestID + ":" + required.DeviceAddress
+				var portID, device string
+				var portGeneration, allocationGeneration uint64
+				if err := tx.QueryRow(ctx, `SELECT coalesce(port_id,''),coalesce(port_generation,0),device_address,allocation_generation FROM kim.pci_vf_allocation_claims WHERE claim_id=$1`, claimID).Scan(&portID, &portGeneration, &device, &allocationGeneration); err != nil || portID == "" {
+					return ErrPlacementStale
+				}
+				if err := commitPCIVFHandoffTx(ctx, tx, PCIVFHandoffRequest{HandoffID: required.HandoffID, WorkloadID: request.WorkloadID, PortID: portID, PortGeneration: portGeneration, SourceClaimID: required.SourceClaimID, SourceAllocationGeneration: required.SourceAllocationGeneration, SourceHostID: required.SourceHostID, SourceDeviceAddress: required.SourceDeviceAddress, SourceRetirementEvidenceID: required.SourceRetirementEvidenceID, DestinationClaimID: claimID, DestinationAllocationGeneration: allocationGeneration, DestinationHostID: current.HostID, DestinationDeviceAddress: device, DestinationAdmissionID: admission.AdmissionID}); err != nil {
+					return err
+				}
+			}
+		}
 		for _, required := range request.Storage {
 			if err := claimLocalLVMStorageTx(ctx, tx, admission.AdmissionID, request, current, required); err != nil {
 				return err

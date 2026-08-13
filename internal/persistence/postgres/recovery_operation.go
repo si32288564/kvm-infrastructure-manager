@@ -140,6 +140,25 @@ func addRecoveryNetworkHandoffRequirementsTx(ctx context.Context, tx pgx.Tx, ope
 	return nil
 }
 
+func addRecoveryPCIHandoffRequirementsTx(ctx context.Context, tx pgx.Tx, operationID, sourceAdmissionID string, request *PlacementAdmissionRequest) error {
+	for index := range request.PCI {
+		r := &request.PCI[index]
+		var claimID, hostID, device, evidenceID string
+		var allocationGeneration uint64
+		if err := tx.QueryRow(ctx, `SELECT claim.claim_id,claim.allocation_generation,claim.host_id,claim.device_address,e.evidence_id
+			FROM kim.pci_vf_allocation_claims claim
+			JOIN kim.pci_vf_retirement_operations_current retirement ON retirement.claim_id=claim.claim_id AND retirement.allocation_generation=claim.allocation_generation AND retirement.operation_state='VERIFIED'
+			JOIN kim.pci_vf_retirement_evidence e ON e.evidence_id=retirement.terminal_evidence_id AND e.result_state='VERIFIED'
+			WHERE claim.placement_admission_id=$1 AND claim.device_address=$2 AND claim.claim_state='RELEASE_PENDING'`, sourceAdmissionID, r.DeviceAddress).Scan(&claimID, &allocationGeneration, &hostID, &device, &evidenceID); err != nil {
+			return ErrRecoveryOperationBlocked
+		}
+		r.HandoffID = fmt.Sprintf("recovery-pci-handoff:%s:%d", operationID, index+1)
+		r.SourceClaimID, r.SourceAllocationGeneration, r.SourceHostID = claimID, allocationGeneration, hostID
+		r.SourceDeviceAddress, r.SourceRetirementEvidenceID = device, evidenceID
+	}
+	return nil
+}
+
 func recoveryPlacementResourceID(kind, operationID string, index int) string {
 	digest := digestReleaseBytes([]byte(operationID))
 	return fmt.Sprintf("recovery-%s-%s-%d", kind, digest[:32], index)
@@ -244,6 +263,9 @@ func PlanRecoveryOperation(ctx context.Context, db TxBeginner, operationID, plan
 		}
 		destinationRequest := recoveryPlacementRequest(operationID, baseRequest)
 		if err := addRecoveryNetworkHandoffRequirementsTx(ctx, tx, operationID, epoch.AdmissionID, &destinationRequest); err != nil {
+			return err
+		}
+		if err := addRecoveryPCIHandoffRequirementsTx(ctx, tx, operationID, epoch.AdmissionID, &destinationRequest); err != nil {
 			return err
 		}
 		if err := addRecoveryBootStorageRequirementTx(ctx, tx, operationID, epoch.AdmissionID, destinationHostID, &destinationRequest); err != nil {
@@ -511,6 +533,15 @@ func EvaluateRecoveryDangerousStep(ctx context.Context, db TxBeginner, evaluatio
 			 WHERE m.recovery_operation_id=$1 AND r.boot_readiness='READY' AND r.network_state='REALIZED' AND r.network_evidence_set_digest IS NOT NULL)
 			AND NOT EXISTS(SELECT 1 FROM kim.network_ports_current p LEFT JOIN kim.port_bindings_current b ON b.port_id=p.port_id LEFT JOIN kim.port_binding_handoffs_current h ON h.port_id=p.port_id AND h.destination_binding_generation=b.binding_generation AND h.handoff_state IN ('DESTINATION_REALIZED','VERIFIED') WHERE p.placement_admission_id=a.admission_id AND (b.host_id<>$2 OR h.handoff_id IS NULL)) END
 			FROM kim.placement_admission_decisions a WHERE a.admission_id=$3`, operationID, destinationHost, out.DestinationAdmissionID).Scan(&networkReady)
+		var pciReady bool
+		_ = tx.QueryRow(ctx, `SELECT CASE WHEN jsonb_array_length(a.pci_requirements)=0 THEN true ELSE
+			(SELECT count(*)=jsonb_array_length(a.pci_requirements) FROM kim.pci_vf_allocation_claims claim
+			 JOIN kim.pci_vf_handoffs_current handoff ON handoff.destination_claim_id=claim.claim_id AND handoff.destination_allocation_generation=claim.allocation_generation AND handoff.handoff_state IN ('DESTINATION_REALIZED','VERIFIED')
+			 JOIN kim.pci_vf_handoff_evidence he ON he.handoff_id=handoff.handoff_id AND he.destination_admission_id=a.admission_id
+			 JOIN kim.pci_vf_retirement_operations_current retirement ON retirement.claim_id=he.source_claim_id AND retirement.allocation_generation=he.source_allocation_generation AND retirement.operation_state='VERIFIED'
+			 JOIN kim.pci_vf_retirement_evidence re ON re.evidence_id=retirement.terminal_evidence_id AND re.result_state='VERIFIED'
+			 WHERE claim.placement_admission_id=a.admission_id AND claim.host_id=$1 AND claim.claim_state='ACTIVE') END
+			FROM kim.placement_admission_decisions a WHERE a.admission_id=$2`, destinationHost, out.DestinationAdmissionID).Scan(&pciReady)
 		switch {
 		case operation.LifecycleState != "RUNNING" && operation.LifecycleState != "VERIFYING":
 			out.ResultState, out.ReasonCode = "BLOCKED_OPERATION", "operation_not_at_dangerous_step"
@@ -524,6 +555,8 @@ func EvaluateRecoveryDangerousStep(ctx context.Context, db TxBeginner, evaluatio
 			out.ResultState, out.ReasonCode = "BLOCKED_DESTINATION", "destination_admission_not_current_exact"
 		case !networkReady:
 			out.ResultState, out.ReasonCode = "BLOCKED_DESTINATION", "destination_network_handoff_not_current_ready"
+		case !pciReady:
+			out.ResultState, out.ReasonCode = "BLOCKED_DESTINATION", "destination_pci_handoff_not_current_ready"
 		default:
 			out.ResultState, out.ReasonCode = "AUTHORIZED", "all_current_dangerous_step_inputs_satisfied"
 		}
