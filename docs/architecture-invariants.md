@@ -351,6 +351,15 @@
 | INV-AVR-039 | composite Local LVM Storage Safetyはauthoritative planのroot positive Proofと全data Attachmentのexisting detached/no-holder evidenceを要求する。Eligibility/Operation start/dangerous-stepはroot power/holder、Binding、Attachment、current plan generation/digestを再検証し、ABA/drift後のold Proofを再利用しない | AT-AVR-024, FI-AVR-018 |
 | INV-AVR-040 | real helperのphysical successはexecution authorityではない。exact CP Leaseとcapability-free helper evidenceのHost/Lease/Attempt/session/typed Command/payload digestを結合し、ordinary Agent Result transactionがResult、Verification、Receipt、Job convergenceをatomic commitした場合だけaccepted execution evidenceとする。transport/helper errorはside effect不在証明にしない | AT-AVR-025, FI-AVR-019 |
 | INV-AVR-041 | FENCED Hostへのread-only Leaseはcurrent AUTHORIZED sessionとexact Host/Fencing generationにbindした`SOURCE_ROOT_SAFETY_READ_BACK/v1`だけを許し、Hostをrearmせずmutation Commandを受理しない。real backend observationもordinary acceptanceとexact Failure Epoch provenanceを通らない限りRecovery authorityへ昇格せず、accepted Terminal DecisionだけがVERIFIED/RECOVERED/RELEASEDをatomic commitする | AT-AVR-026, FI-AVR-020 |
+| INV-AVR-042 | planned Host Evacuation Operation/child/quiescence/slot/terminal evidenceはFailure Epoch、Confirmation、Fencing Proof、Recovery Budgetを参照せず、Recovery Operationの`EVACUATE` actionをplanned authorityとして使用しない | AT-AVR-027, FI-AVR-021 |
+| INV-AVR-043 | per-Host Placement drainとFinal Admissionは同じHost advisory lockで直列化し、drain commit後のnew Admissionを拒否してからimmutable workload setを確定する | AT-AVR-028, FI-AVR-022 |
+| INV-AVR-044 | workload setはcaller VM listではなくcurrent PostgreSQL VM/Admission/materialization/requirement authorityから導出し、replay時のdifferent source generation/policy/set digestをconflictにする | AT-AVR-028, FI-AVR-022 |
+| INV-AVR-045 | parentはlibvirt/LVM/OVN/PCI mutationを実行せず、child claimだけがdangerous phaseへ進む。active/UNKNOWN slot総数はmaximum concurrencyを超えず、Lease expiryだけでdangerous slotをreclaimしない | AT-AVR-029, FI-AVR-023 |
+| INV-AVR-046 | planned source quiescenceはexact current VM/source Host/plan/materializationとARMED Host authority、typed shutdown、identity-matched SHUTOFF read-backを要求し、Command response lossをSHUTOFF/absenceへ推測しない | AT-AVR-030, FI-AVR-024 |
+| INV-AVR-047 | Local LVM data independence不明とreal PCI VF未qualificationをEVACUATE eligibilityへ縮退させない。OVN identity/HandoffとVM/Port/Binding/materialization generationはRecoveryとplanned relocationで同じincarnation historyを使う | AT-AVR-031, FI-AVR-025 |
+| INV-AVR-048 | source authority失効時はnonterminal childをRECOVERY_REQUIREDへ進めslotをreleaseするが、Failure Epoch/Fencing Proof/Recovery Operationを生成せず、historical quiescenceをfailure fencingへ昇格させない | AT-AVR-032, FI-AVR-026 |
+| INV-AVR-049 | child BLOCKED/CONFLICTING/RECOVERY_REQUIREDは既VERIFIED childをrollbackせずparentをPARTIAL/BLOCKEDにする。cancelはsource quiescence前だけ許可し、restartはcurrent projectionとimmutable evidenceから再開する | AT-AVR-033, FI-AVR-023 |
+| INV-AVR-050 | parent VERIFIEDはsnapshot count=VERIFIED count、source active VM 0、post-drain Admission 0だけをpositive terminalにし、HostをDRAINEDに維持する。cleanupとexplicit undrainは別authorityである | AT-AVR-034, AT-AVR-035 |
 
 ## 12. Workload Resilience Intent
 

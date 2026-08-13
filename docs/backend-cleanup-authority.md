@@ -48,3 +48,10 @@ Network cleanup binds the immutable exact A→B Handoff, source quiescence, and
 Port/Binding retirement evidence. It does not require A→B to remain the
 Port-wide current Handoff after a later B→C move; current logical Port/IP/MAC and
 the destination dataplane are still required and preserved.
+
+Migration 066はplanned Host Evacuation child terminalまでを実装するが、
+`MATERIALIZATION_CLEANUP_PRODUCER_API`は未実装である。EVACUATE parent/childは
+generic cleanup rowを直接insertせず、cleanup未実施またはBLOCKEDでもevacuation
+terminalを変更しない。future producerはexact old materialization、new verified
+materialization、source Host/plan/generationをproducer-specific immutable evidenceで
+検証してからMigration 065 origin adapterを発行する必要がある。

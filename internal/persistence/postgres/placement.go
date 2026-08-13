@@ -202,6 +202,12 @@ func finalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "placement-request/"+request.RequestID); err != nil {
 			return err
 		}
+		// Serialize Final Admission with a Host evacuation drain. This closes
+		// the race where a dry result was produced before the drain snapshot but
+		// would otherwise commit after the immutable workload set was recorded.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "host-placement/"+dry.HostID); err != nil {
+			return err
+		}
 		var existing PlacementAdmission
 		var existingProjectID, existingWorkloadID, existingImageID, existingFlavorID, existingPCIDigest, existingNetworkDigest, existingStorageDigest string
 		var existingScopeID, existingScopeDigest, existingVisibilityDigest string
@@ -536,6 +542,11 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 			  AND claim_state IN ('RESERVED','ALLOCATED','RELEASE_PENDING')
 		) claims ON true
 		WHERE database.singleton AND capability.host_id=$1
+		  AND NOT EXISTS (
+		    SELECT 1 FROM kim.host_placement_drains_current drain
+		    WHERE drain.source_host_id=capability.host_id
+		      AND drain.drain_state IN ('DRAINING','DRAINED')
+		  )
 		  AND (
 		    (selector_current.selector_id IS NULL AND membership_set.selector_id IS NULL)
 		    OR (

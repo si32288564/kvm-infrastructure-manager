@@ -167,3 +167,9 @@ Recovery Eligibilityは既存Placement Scopeとdry eligibilityをread-only consu
 Migration 054のRecovery PlanはEligibility candidateのうちone exact destination Hostとnew destination resource identitiesを固定するがreservationではない。Operation startは同じrequest/Hostを既存Placement ScopeとFinal Admissionへ渡し、ordinary Placementと同じCompute/PCI/Network/Storage transaction/unique constraintsを使用する。Recovery provenanceはseparate immutable associationからOperation/Epoch/Decisionへ辿り、Plan drift時に別Hostへsilent substitutionしない。
 
 Migration 055のmaterializerもそのexact destination Admissionだけを使用し、Host不適格化時にPlacementを再実行または別Hostへ切り替えない。同一workloadの複数historical Admission/materializationを保持するためPlan uniquenessは`(vm_id, vm_generation, placement_admission_id)`へ限定して進めるが、同じAdmission/incarnationのduplicate authorityは許可しない。
+
+## 10. Host evacuation drain consumer boundary
+
+Migration 066はPool-wide lifecycleと別にper-Host `host_placement_drains_current`を追加する。`DRAINING/DRAINED` Hostはdry evaluationとFinal Admissionの双方でineligibleであり、read-only observationとexplicit evacuation child mutationは許可される。DRAININGはFENCEDではない。
+
+Final AdmissionとHost evacuation startは`host-placement/<host_id>` advisory lockを共有する。これにより、drain workload-set snapshotと並行するAdmissionは完全にdrain前へcommitしてsnapshotへ含まれるか、drain後にineligibleとして拒否される。evacuation terminal後もHostはDRAINEDであり、別のexplicit undrain authorityまでcandidateへ戻らない。

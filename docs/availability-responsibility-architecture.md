@@ -483,3 +483,29 @@ dangerous-step Evaluationはpure evidenceでありpower capabilityではない�
 Recovery Verificationもpure immutable evidenceである。exact destination power `RUNNING/MATCHED`、Attachment `ATTACHED`かつholder open、Network `REALIZED`、PCI requirement、source Proof usability、Budget generationを固定するがterminal stateを変更しない。explicit Terminal Decisionだけが同一transactionでOperation `VERIFYING→VERIFIED`、Failure Epoch `FENCED→RECOVERED`、Budget `CONSUMED→RELEASED`を進める。Recovery成功はsource cleanup完了を意味しない。
 
 non-empty Network RecoveryではEligibilityはPort mutationを行わない。source quiescenceと`PortBindingHandoff`はdestination Final Admission/materialization phaseのexplicit authorityとし、dangerous-stepはdestination power直前にcurrent Handoffとpre-power Network readinessを再検証する。post-powerはNB identity、SB destination chassis、Host-side OVS exact `iface-id`とdataplaneが同一generation setで一致するまでRecovery Verificationをpositiveにしない。Verification後のPort/Binding/NB/SB/OVS driftはold VerificationによるTerminal commitをstale rejectする。
+
+## Planned Host evacuation authority
+
+Migration 066のplanned Host evacuationはRecovery Operationの`EVACUATE` actionとは別aggregateである。source Hostは原則reachableでHost Operation Authorityが`ARMED`のままtyped shutdown/read-back/retirementを実行する。Failure Epoch、Confirmation、Fencing Proof、Recovery Budgetを作成または参照しない。
+
+```text
+Host Placement Drain
+  -> immutable current managed-workload snapshot
+  -> bounded child slot claim
+  -> exact planned source quiescence
+  -> component retirement
+  -> ordinary destination Final Admission/materialization
+  -> child verification/terminal
+  -> aggregate parent terminal
+  -> optional generic cleanup producer
+```
+
+start transactionは`host-placement/<source_host_id>` advisory lockをFinal Admissionと共有する。per-Host drainを先にcurrentにし、同じtransactionでVM、Admission、materialization plan、Availability Binding、Network/Storage/PCI requirementsをcaller listなしにsnapshotする。same request replayはoriginal workload-set digestへ収束し、source authority generation、policy revision、workload-set identityが異なるreplayはconflictである。
+
+parentはorchestrationだけを所有しbackend mutationを行わない。child claimのactive/UNKNOWN総数を`maximum_concurrent_workloads`以下に保つ。Lease expiry時、source mutation前だけslotをreclaimできる。`QUIESCING_SOURCE`以降はside effect不在を推測せずslotを`UNKNOWN`として保持し、current child observationとの明示reconciliationを要求する。
+
+planned source quiescenceはexact VM generation、source Host authority generation、source plan/materialization generation、typed shutdown command identity、identity-matched `SHUTOFF` read-backをimmutableに固定する。shutdown response lossでもread-backは必須であり、このevidenceはFencing Proofではない。Storage、Network、PCIのsource safety/retirementは独立条件である。Local LVM guest data independenceが証明されないprofileとreal PCI VF未qualification profileは`BLOCKED`を維持する。
+
+child terminalはdestination ordinary Admission/current VM identity、source quiescence、source ownership retirement、destination RUNNINGとcomponent readinessを要求する。parent terminalはsnapshot全child VERIFIED、source active VM 0、drain後source Admission 0を要求し、Hostを`DRAINED`のまま維持する。一child BLOCKEDは既VERIFIED childをrollbackせずparentを`PARTIAL/BLOCKED`にする。cleanupはpost-terminal hygieneであり、explicit undrainだけが別transitionでPlacementを再許可する。
+
+planned中にsource Host authorityが失効した場合、nonterminal childを`RECOVERY_REQUIRED`、parentを`SOURCE_UNREACHABLE`へ進めるが、Recoveryへsilent conversionしない。必要な後続処理は新しいFailure Observation、Failure Epoch、Confirmation、Fencing、Recovery authorityから開始する。
