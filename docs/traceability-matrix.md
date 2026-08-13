@@ -342,6 +342,13 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | PKI-031 | pki-and-trust-lifecycle-architecture, security | ADR-0005, ADR-0023 | INV-PKI-025 | AT-PKI-024, FI-PKI-020 | Planned |
 | PKI-032 | pki-and-trust-lifecycle-architecture, failure-model, fault-injection-matrix | ADR-0010, ADR-0023 | INV-PKI-008, INV-PKI-015, INV-PKI-016 | AT-PKI-025, FI-PKI-005, FI-PKI-009, FI-PKI-011, FI-PKI-018 | Planned |
 
+| CMP-016 | compute-and-vm-lifecycle, availability-and-recovery, data-persistence-architecture | ADR-0006, ADR-0013 | INV-CMP-006, INV-CMP-007 | AT-CMP-014, FI-LIBVIRT-005 | Implemented |
+| CMP-017 | compute-and-vm-lifecycle, agent-execution-architecture | ADR-0006, ADR-0013 | INV-CMP-007 | AT-CMP-014, AT-CMP-015, FI-LIBVIRT-006 | Implemented |
+| CMP-018 | failure-model, agent-execution-architecture | ADR-0010, ADR-0013 | INV-CMP-008, INV-CMP-009 | AT-CMP-015, FI-LIBVIRT-005 | Implemented |
+| CMP-019 | data-persistence-architecture, availability-and-recovery | ADR-0009, ADR-0013 | INV-CMP-006, INV-CMP-008 | AT-CMP-014, AT-CMP-015 | Implemented |
+| CMP-020 | storage-resource-architecture, nfv-dataplane-resource-architecture | ADR-0012, ADR-0013 | INV-CMP-010, INV-CMP-011 | AT-CMP-016, AT-CMP-017, FI-STORAGE-020, FI-PCI-009 | In Progress |
+| CMP-021 | network-resource-architecture, compute-and-vm-lifecycle | ADR-0007, ADR-0013 | INV-CMP-011 | AT-CMP-017, FI-NET-027 | Implemented |
+
 ## 19. Coverage Gate
 
 Phase 0完了条件:

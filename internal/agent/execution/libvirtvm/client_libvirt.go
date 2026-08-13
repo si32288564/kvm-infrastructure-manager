@@ -26,6 +26,65 @@ func New(uri string, resolver libvirtvolume.VolumeResolver) (*Backend, func() er
 	return &Backend{Domains: &libvirtClient{connection: connection}, Volumes: resolver}, func() error { _, err := connection.Close(); return err }, nil
 }
 
+func NewCleanup(uri string) (*CleanupBackend, func() error, error) {
+	if uri == "" {
+		return nil, nil, errors.New("libvirt URI is required")
+	}
+	connection, err := libvirt.NewConnect(uri)
+	if err != nil {
+		return nil, nil, errors.New("connect to libvirt failed")
+	}
+	return &CleanupBackend{Client: &libvirtClient{connection: connection}}, func() error { _, err := connection.Close(); return err }, nil
+}
+
+func (client *libvirtClient) DomainCleanupState(ctx context.Context, uuid string) (CleanupObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return CleanupObservation{}, err
+	}
+	domain, err := client.connection.LookupDomainByUUIDString(uuid)
+	if err != nil {
+		var libvirtError libvirt.Error
+		if errors.As(err, &libvirtError) && libvirtError.Code == libvirt.ERR_NO_DOMAIN {
+			return CleanupObservation{UUID: uuid}, nil
+		}
+		return CleanupObservation{}, errors.New("lookup libvirt Domain for cleanup failed")
+	}
+	defer domain.Free()
+	state, _, err := domain.GetState()
+	if err != nil {
+		return CleanupObservation{}, errors.New("read libvirt Domain cleanup state failed")
+	}
+	description, err := domain.GetXMLDesc(libvirt.DOMAIN_XML_INACTIVE)
+	if err != nil {
+		return CleanupObservation{}, errors.New("read inactive libvirt Domain cleanup XML failed")
+	}
+	var parsed domainXML
+	if err := xml.Unmarshal([]byte(description), &parsed); err != nil {
+		return CleanupObservation{}, errors.New("parse libvirt Domain cleanup XML failed")
+	}
+	running := state == libvirt.DOMAIN_RUNNING || state == libvirt.DOMAIN_BLOCKED
+	return CleanupObservation{Present: true, Running: running, UUID: parsed.UUID, PlanDigest: parsed.Metadata.Materialization.PlanDigest, MaterializationGeneration: parsed.Metadata.Materialization.Generation}, nil
+}
+
+func (client *libvirtClient) UndefineDomain(ctx context.Context, uuid string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	domain, err := client.connection.LookupDomainByUUIDString(uuid)
+	if err != nil {
+		return errors.New("lookup libvirt Domain for undefine failed")
+	}
+	defer domain.Free()
+	state, _, err := domain.GetState()
+	if err != nil || state != libvirt.DOMAIN_SHUTOFF {
+		return errors.New("refuse to undefine non-SHUTOFF libvirt Domain")
+	}
+	if err := domain.Undefine(); err != nil {
+		return errors.New("undefine typed libvirt Domain failed")
+	}
+	return nil
+}
+
 func (client *libvirtClient) Domain(ctx context.Context, uuid string) (DomainObservation, error) {
 	if err := ctx.Err(); err != nil {
 		return DomainObservation{}, err

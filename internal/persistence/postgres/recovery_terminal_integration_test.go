@@ -251,6 +251,13 @@ func qualifyRecoveryMaterializationTerminal(t *testing.T, ctx context.Context, p
 	if err := pool.QueryRow(ctx, `SELECT c.lifecycle_state,e.epoch_state,b.claim_state FROM kim.recovery_operations_current c JOIN kim.recovery_operation_evidence o USING(recovery_operation_id) JOIN kim.failure_epochs_current e ON e.failure_epoch_id=o.failure_epoch_id JOIN kim.recovery_budget_claims_current b ON b.claim_id=o.recovery_budget_claim_id WHERE c.recovery_operation_id=$1`, operationID).Scan(&operationState, &epochState, &budgetState); err != nil || operationState != "VERIFIED" || epochState != "RECOVERED" || budgetState != "RELEASED" {
 		t.Fatalf("terminal projection=%s/%s/%s err=%v", operationState, epochState, budgetState, err)
 	}
+	// Terminal success alone is deliberately insufficient: this historical
+	// fixture predates explicit source materialization retirement, so cleanup
+	// eligibility must fail closed instead of inferring retirement.
+	if _, err := CommitRecoverySourceDomainCleanup(ctx, pool, "cleanup-without-retirement-"+suffix, 1, decision.TerminalDecisionID); !errors.Is(err, ErrBackendCleanupStale) {
+		t.Fatalf("Terminal without source retirement granted cleanup: %v", err)
+	}
+
 	// Budget release is independent from destination cleanup. Model a later,
 	// separately-authorized resource reconciliation only inside this rollback
 	// fixture, then require a fresh Evaluation before the next Planning Claim.

@@ -84,6 +84,12 @@
 | INV-CMP-003 | Image `REALIZED` は Network realization または boot authority を暗黙に進めず、Network `PENDING` 中は boot readiness を `BLOCKED` に保つ | AT-CMP-011 |
 | INV-CMP-004 | READY 判定は current Domain/Storage/Image と required Port 全件の current evidence を再検証する transaction とし、その transaction からだけ typed RUNNING Command authority を発行する | AT-CMP-012 |
 | INV-CMP-005 | power Command の Result、process liveness、transport ACK だけで VM runtime state を確定せず、current VM generation と READY authority に結び付く standard libvirt read-back evidence だけを current power projection へ昇格する | AT-CMP-013, FI-LIBVIRT-004 |
+| INV-CMP-006 | Recovery successとsource cleanup successを同一視せず、cleanup mutation/terminalはRecovery Operation/Epoch/Budget transitionを更新しない | AT-CMP-014, FI-LIBVIRT-005 |
+| INV-CMP-007 | caller supplied path/XML/flags/backend nameでcleanupせず、immutable authorityから導出したexact Host/plan/materialization/backend identityだけをtyped Commandへ投入する | AT-CMP-014, FI-LIBVIRT-006 |
+| INV-CMP-008 | undefine response loss、Lease expiry、Agent lossをDomain absence証明にせず、successor READ_BACK_FIRSTとstandard libvirt absence observationだけをcleanup VERIFIEDにする | AT-CMP-015, FI-LIBVIRT-005 |
+| INV-CMP-009 | old materialization cleanup authorityを同じVM UUID/nameのnew incarnationへ適用せず、plan digest/materialization/resource/cleanup generationでABAをfenceする | AT-CMP-015, FI-LIBVIRT-006 |
+| INV-CMP-010 | source LVのdata independence、holder/attachment absence、exact VG/LV UUID、explicit cleanup policyが未証明ならphysical deleteとcapacity reclaimをBLOCKEDにする | AT-CMP-016, FI-STORAGE-020 |
+| INV-CMP-011 | Network/PCI cleanupはlogical Port/MAC/IP、destination binding/VF Claim、immutable historical evidenceを削除せず、existing exact retirement absenceだけをNO_MUTATION_REQUIREDとして消費する | AT-CMP-017, FI-NET-027, FI-PCI-009 |
 
 ## 6. Execution
 

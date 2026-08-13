@@ -241,6 +241,12 @@
 | CMP-013 | Image materialization 成功だけでは VM を boot ready にせず、current Network realization evidence が未確定なら `BLOCKED` を維持する | Must |
 | CMP-014 | current VM/Plan と全 required component/Port evidence を同一 PostgreSQL transaction で再検証し、Boot Readiness `READY` と typed power-on Job/Command authority を不可分に生成する | Must |
 | CMP-015 | typed power-on の成功は標準 libvirt read-back の immutable evidence と current VM/runtime generation が一致した場合だけ current power projection を `MATCHED` へ進め、`RUNNING` を dataplane/guest readiness と同一視しない | Must |
+| CMP-016 | backend cleanupをRecovery Terminalから分離したgeneric exact-incarnation authorityとし、Recovery由来ではaccepted Terminal、RECOVERED Epoch、VERIFIED Operation、logical source retirementを全て要求する | Must |
+| CMP-017 | destructive Domain cleanupはexact source Host/VM/plan/materialization generationへbindしたclosed typed `VIRTUAL_MACHINE_UNDEFINE/v1`だけを許し、SHUTOFFとKIM metadata identityを確認後に標準libvirt APIで実行する | Must |
+| CMP-018 | cleanup timeout、response loss、Agent loss、Lease expiryをabsenceへ縮退させず、`DISPATCH_UNKNOWN`からsuccessor `READ_BACK_FIRST`でexact physical absenceを観測した場合だけVERIFIEDへ進める | Must |
+| CMP-019 | immutable cleanup eligibility/Attempt/Observation/Terminal evidenceとper-artifact current projectionを分離し、cleanup BLOCKED/UNKNOWN/CONFLICTINGでRecovery VERIFIED/Epoch RECOVEREDを巻き戻さない | Must |
+| CMP-020 | Local LVM capacityはexact LV physical absenceとdata-independence policyが証明されるまで再利用せず、logical Port/MAC/IPおよびhistorical PCI Claim/retirement evidenceをsource cleanupで削除しない | Must |
+| CMP-021 | Network source retirementのcurrent NB/SB/source-OVS absence evidenceは追加mutationなしの`ALREADY_ABSENT` cleanupとして利用できるが、logical LSPまたはdestination dataplaneの削除authorityへ昇格させない | Must |
 
 ### 2.11 Scheduler
 

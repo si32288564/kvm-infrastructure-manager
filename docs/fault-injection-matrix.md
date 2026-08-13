@@ -298,6 +298,12 @@ test harnessが障害を解除しただけでは合格になりません。期�
 | FI-IDENTITY-001 | JWKS/certificate revocation state unavailable | trust validation unavailable | privileged mutation fail closed | bounded auth error、audit | stale/unknown trustで新mutation | trust generation復旧 |
 | FI-AUDIT-001 | durable audit outbox writeを失敗させる | audit unavailable | 管理mutation transaction rollback | failure metric、request correlation | 監査なしmutation | audit durability復旧後に再受付 |
 
+| FI-LIBVIRT-005 | exact obsolete Domain undefine完了後にResult responseをdropまたはAgentをkillする | physical absence、Attempt outcome ambiguous | Cleanup `DISPATCH_UNKNOWN`、successor `READ_BACK_FIRST`、duplicate undefineなし | cleanup/Lease/Attempt/Command/Observation/Terminal digests | blind undefine retry、Recovery rollback、Command successだけでVERIFIED | exact Domain absence observationでone cleanup Terminalへ収束 |
+| FI-LIBVIRT-006 | cleanup eligibility後に同じVM UUIDを異なるplan/materialization generationで再定義、またはsource DomainをRUNNINGへ戻す | cleanup identity/power drift | old cleanup STALE/CONFLICTING、mutation 0 | VM/plan/materialization/Host/backend identity generations | current destination/foreign incarnation undefine | current exact authorityで新cleanup評価またはoperator escalation |
+| FI-STORAGE-020 | post-Recovery source LVにholder/attachment、stale root safety、missing cleanup policy/data-independence、VG/LV name reuseを注入 | physical deletion safety incomplete | cleanup BLOCKED、capacity unreclaimed | exact VG/LV UUID、Binding/materialization/policy/proof generations | inactive/name matchだけでlvremove、absence前capacity reuse | explicit data-independence proofとexact physical absenceを再評価 |
+| FI-NET-027 | source OVN retirement後にsource binding/OVS ifaceをrevive、またはdestination Portをsource artifactとして提示する | existing absence evidence stale/conflicting | ALREADY_ABSENT cleanup拒否、logical Port/MAC/IPとdestination不変 | retirement/Handoff/Port/Binding/OVS generations | LSP delete、active identity release、destination iface削除 | current source retirement read-backを再実行 |
+| FI-PCI-009 | released source Claimにdriver/VFIO holder状態UNKNOWN、old allocation generation、またはunqualified physical post-release profileを与える | PCI physical cleanup safety incomplete | physical cleanup BLOCKED、historical Claim/evidence保持 | allocation/retirement/handoff/driver evidence | fixtureだけでdriver restored/AVAILABLE宣言 | real disposable VF profileで再qualification |
+
 ## 4. Coverage Mapping
 
 | Failure Model class | Injection IDs |
