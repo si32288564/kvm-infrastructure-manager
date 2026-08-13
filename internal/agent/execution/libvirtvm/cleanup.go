@@ -15,6 +15,8 @@ import (
 
 const CleanupCommandType = "VIRTUAL_MACHINE_UNDEFINE"
 const CleanupSchemaVersion = "kim.command.virtual-machine-undefine/v1"
+const CleanupReadBackCommandType = "VIRTUAL_MACHINE_CLEANUP_READ_BACK"
+const CleanupReadBackSchemaVersion = "kim.command.virtual-machine-cleanup-read-back/v1"
 
 type CleanupObservation struct {
 	Present, Running          bool
@@ -28,9 +30,12 @@ type CleanupClient interface {
 }
 
 type CleanupBackend struct{ Client CleanupClient }
+type CleanupReadBackBackend struct{ Client CleanupClient }
 
-func (CleanupBackend) CommandType() string   { return CleanupCommandType }
-func (CleanupBackend) SchemaVersion() string { return CleanupSchemaVersion }
+func (CleanupBackend) CommandType() string           { return CleanupCommandType }
+func (CleanupBackend) SchemaVersion() string         { return CleanupSchemaVersion }
+func (CleanupReadBackBackend) CommandType() string   { return CleanupReadBackCommandType }
+func (CleanupReadBackBackend) SchemaVersion() string { return CleanupReadBackSchemaVersion }
 
 type cleanupRequest struct {
 	CleanupOperationID              string `json:"cleanup_operation_id"`
@@ -80,6 +85,33 @@ func (b CleanupBackend) Observe(ctx context.Context, verification contract.Verif
 	return cleanupResult(r, current, verification.AttemptIndex).Observation, nil
 }
 
+// Execute is deliberately observation-only.  A READ_BACK_FIRST successor must
+// use this closed command before PostgreSQL may issue a separate undefine
+// command for an exact inactive Domain that is still present.
+func (b CleanupReadBackBackend) Execute(ctx context.Context, lease contract.CommandLease) (agentexecution.BackendResult, error) {
+	r, err := (CleanupBackend{Client: b.Client}).decode(lease.TargetResourceID, lease.CommandPayload)
+	if err != nil {
+		return agentexecution.BackendResult{}, err
+	}
+	current, err := b.Client.DomainCleanupState(ctx, r.DomainUUID)
+	if err != nil {
+		return agentexecution.BackendResult{}, err
+	}
+	return cleanupReadBackResult(r, current, lease.AttemptIndex), nil
+}
+
+func (b CleanupReadBackBackend) Observe(ctx context.Context, verification contract.VerificationRequest) (contract.Observation, error) {
+	r, err := (CleanupBackend{Client: b.Client}).decode(verification.TargetResourceID, verification.CommandPayload)
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	current, err := b.Client.DomainCleanupState(ctx, r.DomainUUID)
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	return cleanupReadBackResult(r, current, verification.AttemptIndex).Observation, nil
+}
+
 func (b CleanupBackend) decode(target string, payload []byte) (cleanupRequest, error) {
 	match := vmTargetPattern.FindStringSubmatch(target)
 	if b.Client == nil || match == nil {
@@ -125,4 +157,21 @@ func cleanupResult(r cleanupRequest, o CleanupObservation, generation int) agent
 	sum := sha256.Sum256(raw)
 	observation := contract.Observation{State: state, Generation: int64(generation), Digest: hex.EncodeToString(sum[:]), Evidence: evidence}
 	return agentexecution.BackendResult{Outcome: outcome, Result: evidence, Observation: observation}
+}
+
+func cleanupReadBackResult(r cleanupRequest, o CleanupObservation, generation int) agentexecution.BackendResult {
+	result := cleanupResult(r, o, generation)
+	if o.Present && !o.Running && cleanupIdentityMatches(r, o) {
+		result.Outcome = "SUCCEEDED"
+		result.Observation.State = "NOT_APPLIED"
+		result.Observation.Evidence["read_back_result"] = "PRESENT"
+	} else if !o.Present {
+		result.Observation.Evidence["read_back_result"] = "ABSENT"
+	} else {
+		result.Observation.Evidence["read_back_result"] = "CONFLICTING"
+	}
+	raw, _ := json.Marshal(result.Observation.Evidence)
+	sum := sha256.Sum256(raw)
+	result.Observation.Digest = hex.EncodeToString(sum[:])
+	return result
 }

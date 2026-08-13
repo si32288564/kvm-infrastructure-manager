@@ -12,11 +12,14 @@ accepted terminal/source retirement
   -> immutable cleanup Observation / Terminal
 ```
 
-Recovery is one producer of obsolete materializations. Failed materialization,
-explicit delete, aborted move, and future EVACUATE flows may use the same exact
-artifact aggregate. Callers cannot provide libvirt XML, paths, flags, LVM names,
-OVS commands, PCI BDF replacements, or arbitrary argv. Backend identity is
-derived from immutable PostgreSQL authority.
+Recovery is the currently implemented producer of obsolete materializations.
+Failed materialization, explicit delete, aborted move, and future EVACUATE
+flows may use the same exact artifact aggregate only after their own closed
+producer validates current authority and emits an immutable generic origin
+eligibility adapter. Merely selecting a schema enum does not grant cleanup.
+Callers cannot provide libvirt XML, paths, flags, LVM names, OVS commands, PCI
+BDF replacements, or arbitrary argv. Backend identity is derived from immutable
+PostgreSQL authority.
 
 ## Resource profiles
 
@@ -32,7 +35,16 @@ projection are separate. Repeated A->B->C recovery therefore cannot replace an
 older source incarnation with a Port-wide or VM-wide current key.
 
 `DISPATCH_UNKNOWN` does not mean deletion failed or did not happen. A successor
-claim is `READ_BACK_FIRST`; physical absence is the only positive terminal fact.
+claim is `READ_BACK_FIRST` and PostgreSQL permits only the observation-only
+`VIRTUAL_MACHINE_CLEANUP_READ_BACK/v1` Command first. Physical absence is the
+only positive terminal fact. If that read-back instead proves the exact inactive
+Domain remains present, its immutable evidence permits a separate explicit
+`VIRTUAL_MACHINE_UNDEFINE/v1` authorization in the same current Claim. UNKNOWN,
+running, or foreign identity never permits apply.
 Cleanup `BLOCKED`, `UNKNOWN`, or `CONFLICTING` leaves Recovery Operation
 `VERIFIED`, Failure Epoch `RECOVERED`, and the released Recovery Budget intact.
 
+Network cleanup binds the immutable exact A→B Handoff, source quiescence, and
+Port/Binding retirement evidence. It does not require A→B to remain the
+Port-wide current Handoff after a later B→C move; current logical Port/IP/MAC and
+the destination dataplane are still required and preserved.

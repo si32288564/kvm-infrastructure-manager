@@ -243,10 +243,11 @@
 | CMP-015 | typed power-on の成功は標準 libvirt read-back の immutable evidence と current VM/runtime generation が一致した場合だけ current power projection を `MATCHED` へ進め、`RUNNING` を dataplane/guest readiness と同一視しない | Must |
 | CMP-016 | backend cleanupをRecovery Terminalから分離したgeneric exact-incarnation authorityとし、Recovery由来ではaccepted Terminal、RECOVERED Epoch、VERIFIED Operation、logical source retirementを全て要求する | Must |
 | CMP-017 | destructive Domain cleanupはexact source Host/VM/plan/materialization generationへbindしたclosed typed `VIRTUAL_MACHINE_UNDEFINE/v1`だけを許し、SHUTOFFとKIM metadata identityを確認後に標準libvirt APIで実行する | Must |
-| CMP-018 | cleanup timeout、response loss、Agent loss、Lease expiryをabsenceへ縮退させず、`DISPATCH_UNKNOWN`からsuccessor `READ_BACK_FIRST`でexact physical absenceを観測した場合だけVERIFIEDへ進める | Must |
+| CMP-018 | cleanup timeout、response loss、Agent loss、Lease expiryをabsenceへ縮退させず、`DISPATCH_UNKNOWN`からsuccessor `READ_BACK_FIRST`をobservation-only typed Commandへ限定する。exact physical absenceならVERIFIED、exact inactive presentなら同じClaimのimmutable read-back後にだけ別apply authorityを発行する | Must |
 | CMP-019 | immutable cleanup eligibility/Attempt/Observation/Terminal evidenceとper-artifact current projectionを分離し、cleanup BLOCKED/UNKNOWN/CONFLICTINGでRecovery VERIFIED/Epoch RECOVEREDを巻き戻さない | Must |
 | CMP-020 | Local LVM capacityはexact LV physical absenceとdata-independence policyが証明されるまで再利用せず、logical Port/MAC/IPおよびhistorical PCI Claim/retirement evidenceをsource cleanupで削除しない | Must |
-| CMP-021 | Network source retirementのcurrent NB/SB/source-OVS absence evidenceは追加mutationなしの`ALREADY_ABSENT` cleanupとして利用できるが、logical LSPまたはdestination dataplaneの削除authorityへ昇格させない | Must |
+| CMP-021 | Network source retirementのexact immutable NB/SB/source-OVS absence evidenceは、後続HandoffでPort-wide current projectionが進んだ後も追加mutationなしの`ALREADY_ABSENT` cleanupとして利用できるが、logical LSPまたはdestination dataplaneの削除authorityへ昇格させない | Must |
+| CMP-022 | generic cleanupはorigin-specific current projectionを直接hard-codeせず、各Recovery/Materialization/Delete producerが自身のclosed authorityを検証してimmutable origin eligibility adapterを発行する。未実装producerはadapterを発行せずfail closedにする | Must |
 
 ### 2.11 Scheduler
 

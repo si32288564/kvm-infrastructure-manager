@@ -1,5 +1,10 @@
 # Generic Source / Backend Cleanup Authority Qualification — 2026-08-13
 
+> Qualification note: the committed persistence lifecycle evidence for the
+> UNKNOWN/read-back and repeated-Recovery cases was added by the subsequent
+> `p1-cleanup-authority-qualification-hardening-20260813.md` report. Read the
+> result matrix below together with that successor evidence.
+
 ## Result matrix
 
 ```text
@@ -90,4 +95,3 @@ This `BLOCKED` result is a safety result, not a failed cleanup. A future PASS
 requires a new explicitly disposable Recovery campaign whose source Domain
 still exists after Terminal. Physical Local LVM deletion additionally requires
 new data-independence authority; PCI requires real disposable VFs.
-

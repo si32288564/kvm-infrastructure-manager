@@ -110,6 +110,7 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"pci_vf_handoff_evidence",
 		"pci_vf_handoffs_current",
 		"backend_cleanup_operation_evidence",
+		"backend_cleanup_origin_eligibility_evidence",
 		"backend_cleanup_operations_current",
 		"backend_cleanup_attempt_evidence",
 		"backend_cleanup_observation_evidence",

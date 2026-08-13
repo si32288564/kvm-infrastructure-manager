@@ -27,14 +27,20 @@ func New(uri string, resolver libvirtvolume.VolumeResolver) (*Backend, func() er
 }
 
 func NewCleanup(uri string) (*CleanupBackend, func() error, error) {
+	mutation, _, closeCleanup, err := NewCleanupBackends(uri)
+	return mutation, closeCleanup, err
+}
+
+func NewCleanupBackends(uri string) (*CleanupBackend, *CleanupReadBackBackend, func() error, error) {
 	if uri == "" {
-		return nil, nil, errors.New("libvirt URI is required")
+		return nil, nil, nil, errors.New("libvirt URI is required")
 	}
 	connection, err := libvirt.NewConnect(uri)
 	if err != nil {
-		return nil, nil, errors.New("connect to libvirt failed")
+		return nil, nil, nil, errors.New("connect to libvirt failed")
 	}
-	return &CleanupBackend{Client: &libvirtClient{connection: connection}}, func() error { _, err := connection.Close(); return err }, nil
+	client := &libvirtClient{connection: connection}
+	return &CleanupBackend{Client: client}, &CleanupReadBackBackend{Client: client}, func() error { _, err := connection.Close(); return err }, nil
 }
 
 func (client *libvirtClient) DomainCleanupState(ctx context.Context, uuid string) (CleanupObservation, error) {

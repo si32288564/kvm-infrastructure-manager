@@ -1590,6 +1590,20 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.network_identity_claims WHERE port_id=$1 AND claim_state IN ('RESERVED','ACTIVE')`, ovsPortID).Scan(&identityCount); err != nil || identityCount != 2 {
 		t.Fatalf("repeated Handoff changed Port MAC/IP identity count=%d err=%v", identityCount, err)
 	}
+	// Cleanup is delayed housekeeping.  After A->B has advanced to B->C, the
+	// old A cleanup must consume the immutable A->B Handoff and exact A binding
+	// retirement instead of requiring that A->B remain the Port-wide current
+	// Handoff projection.
+	var delayedRequired, delayedMatched int
+	var delayedEvidenceSet string
+	if err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		var err error
+		delayedRequired, delayedMatched, delayedEvidenceSet, err = recoverySourceNetworkCleanupEvidenceTx(ctx, tx, destinationAdmissionID, hostID)
+		return err
+	}); err != nil || delayedRequired != 1 || delayedMatched != delayedRequired || delayedEvidenceSet == "" {
+		t.Fatalf("delayed A->B cleanup after B->C required=%d matched=%d evidence=%q err=%v", delayedRequired, delayedMatched, delayedEvidenceSet, err)
+	}
+	qualifyBackendCleanupUnknownReadBackLifecycle(t, ctx, pool, vmMaterialization.VMID, vmMaterialization.PlanID, hostID, destinationAdmissionID, destinationHostID, suffix)
 	if _, err := pool.Exec(ctx, `UPDATE kim.vm_power_observation_evidence SET observed_power_state='SHUTOFF' WHERE verification_id=$1`, powerVerificationID); err == nil {
 		t.Fatal("immutable VM power observation evidence accepted UPDATE")
 	}

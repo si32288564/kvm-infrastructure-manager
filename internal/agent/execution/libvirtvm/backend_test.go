@@ -95,6 +95,20 @@ func TestCleanupUndefinesExactInactiveIncarnationAndReadsBack(t *testing.T) {
 	}
 }
 
+func TestCleanupReadBackNeverMutatesExactPresentDomain(t *testing.T) {
+	client := &fakeCleanupDomains{current: CleanupObservation{Present: true, UUID: "11111111-1111-4111-8111-111111111111", PlanDigest: testDigest("source-plan"), MaterializationGeneration: 1}}
+	backend := CleanupReadBackBackend{Client: client}
+	result, err := backend.Execute(t.Context(), cleanupLease(t, cleanupPayload()))
+	if err != nil || result.Outcome != "SUCCEEDED" || result.Observation.State != "NOT_APPLIED" || client.undefines != 0 || result.Observation.Evidence["read_back_result"] != "PRESENT" {
+		t.Fatalf("read-back result=%#v err=%v undefines=%d", result, err, client.undefines)
+	}
+	client.current = CleanupObservation{UUID: client.current.UUID}
+	result, err = backend.Execute(t.Context(), cleanupLease(t, cleanupPayload()))
+	if err != nil || result.Observation.State != "MATCHED" || client.undefines != 0 || result.Observation.Evidence["read_back_result"] != "ABSENT" {
+		t.Fatalf("absent read-back result=%#v err=%v undefines=%d", result, err, client.undefines)
+	}
+}
+
 func TestCleanupRefusesRunningForeignAndOpenEndedInput(t *testing.T) {
 	for name, current := range map[string]CleanupObservation{
 		"running": {Present: true, Running: true, UUID: "11111111-1111-4111-8111-111111111111", PlanDigest: testDigest("source-plan"), MaterializationGeneration: 1},

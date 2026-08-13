@@ -86,10 +86,12 @@
 | INV-CMP-005 | power Command の Result、process liveness、transport ACK だけで VM runtime state を確定せず、current VM generation と READY authority に結び付く standard libvirt read-back evidence だけを current power projection へ昇格する | AT-CMP-013, FI-LIBVIRT-004 |
 | INV-CMP-006 | Recovery successとsource cleanup successを同一視せず、cleanup mutation/terminalはRecovery Operation/Epoch/Budget transitionを更新しない | AT-CMP-014, FI-LIBVIRT-005 |
 | INV-CMP-007 | caller supplied path/XML/flags/backend nameでcleanupせず、immutable authorityから導出したexact Host/plan/materialization/backend identityだけをtyped Commandへ投入する | AT-CMP-014, FI-LIBVIRT-006 |
-| INV-CMP-008 | undefine response loss、Lease expiry、Agent lossをDomain absence証明にせず、successor READ_BACK_FIRSTとstandard libvirt absence observationだけをcleanup VERIFIEDにする | AT-CMP-015, FI-LIBVIRT-005 |
+| INV-CMP-008 | undefine response loss、Lease expiry、Agent lossをDomain absence証明にせず、successor READ_BACK_FIRSTはobservation-only typed Commandを先行する。absenceだけをcleanup VERIFIEDにし、exact inactive presentはimmutable read-back evidence後の別apply authorizationだけを許す | AT-CMP-015, AT-CMP-018, FI-LIBVIRT-005, FI-LIBVIRT-007 |
 | INV-CMP-009 | old materialization cleanup authorityを同じVM UUID/nameのnew incarnationへ適用せず、plan digest/materialization/resource/cleanup generationでABAをfenceする | AT-CMP-015, FI-LIBVIRT-006 |
 | INV-CMP-010 | source LVのdata independence、holder/attachment absence、exact VG/LV UUID、explicit cleanup policyが未証明ならphysical deleteとcapacity reclaimをBLOCKEDにする | AT-CMP-016, FI-STORAGE-020 |
 | INV-CMP-011 | Network/PCI cleanupはlogical Port/MAC/IP、destination binding/VF Claim、immutable historical evidenceを削除せず、existing exact retirement absenceだけをNO_MUTATION_REQUIREDとして消費する | AT-CMP-017, FI-NET-027, FI-PCI-009 |
+| INV-CMP-012 | cleanup origin eligibilityはproducer-specific authority検証とgeneric consumerをimmutable adapterで分離し、Recovery以外の未実装producerをschema上のenumだけから実行可能にしない | AT-CMP-018 |
+| INV-CMP-013 | repeated A→B→C後のA cleanupはPort-wide current Handoffではなくexact A→B Handoff/quiescence/retirement historyを消費し、current logical Port/IP/MACとC dataplaneを保持する | AT-CMP-019, FI-NET-028 |
 
 ## 6. Execution
 

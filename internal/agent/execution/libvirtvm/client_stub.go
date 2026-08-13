@@ -15,3 +15,7 @@ func New(string, libvirtvolume.VolumeResolver) (*Backend, func() error, error) {
 func NewCleanup(string) (*CleanupBackend, func() error, error) {
 	return nil, nil, errors.New("Host Agent was built without standard libvirt support")
 }
+
+func NewCleanupBackends(string) (*CleanupBackend, *CleanupReadBackBackend, func() error, error) {
+	return nil, nil, nil, errors.New("Host Agent was built without standard libvirt support")
+}

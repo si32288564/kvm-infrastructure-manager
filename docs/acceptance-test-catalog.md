@@ -268,6 +268,8 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-CMP-015 | typed inactive Domain undefineのmutation response lossをAttempt 1 `DISPATCH_UNKNOWN`へ固定し、Attempt 2 `READ_BACK_FIRST`がabsenceを観測してduplicate undefineなしでone immutable cleanup Terminalへ収束する |
 | AT-CMP-016 | source Local LVMはdata-independence proof/policy欠損時にphysical deleteとcapacity reclaimをBLOCKEDとし、exact LV absence前にavailable capacityを戻さない |
 | AT-CMP-017 | generic OVN retirementのNB ownership preserved/SB source binding absent/source OVS iface absentを追加mutationなしでNetwork cleanup satisfiedとし、Port/MAC/IPとdestination dataplaneを維持する。PCI physical driver profileはreal VF qualificationまでBLOCKEDに保つ |
+| AT-CMP-018 | PostgreSQL上でcleanup Attempt 1のmutation outcomeをUNKNOWNへ固定し、Attempt 2 `READ_BACK_FIRST`からblind undefineを拒否する。observation-only typed read-backがABSENTならone Terminalへ収束し、exact inactive PRESENTならそのimmutable evidence後だけ別undefine Commandを発行する |
+| AT-CMP-019 | 同一PortのA→B Handoff/retirement後にB→Cへcurrent projectionを進め、遅延したA cleanupがimmutable A→B Handoff/quiescence/NB/SB/OVS evidenceを1/1で解決し、current Port/MAC/IPを保持する |
 | AT-IMG-001 | qcow2/raw image lifecycle、visibility、Project accessを検証する |
 | AT-IMG-002 | checksum/signature不一致imageをcache/boot前に拒否する |
 | AT-IMG-003 | caller supplied URI/path/argv を拒否し、digest-addressed verified RAW cache artifact を identity-verified Local LVM root Volume へ bounded copy/fsync した後、target から再計算した SHA-256、VG/LV UUID、holder absence が一致する場合だけ immutable realization evidence を受理する。QCOW2 direct-copy は拒否する |

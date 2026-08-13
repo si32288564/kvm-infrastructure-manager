@@ -344,10 +344,11 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 
 | CMP-016 | compute-and-vm-lifecycle, availability-and-recovery, data-persistence-architecture | ADR-0006, ADR-0013 | INV-CMP-006, INV-CMP-007 | AT-CMP-014, FI-LIBVIRT-005 | Implemented |
 | CMP-017 | compute-and-vm-lifecycle, agent-execution-architecture | ADR-0006, ADR-0013 | INV-CMP-007 | AT-CMP-014, AT-CMP-015, FI-LIBVIRT-006 | Implemented |
-| CMP-018 | failure-model, agent-execution-architecture | ADR-0010, ADR-0013 | INV-CMP-008, INV-CMP-009 | AT-CMP-015, FI-LIBVIRT-005 | Implemented |
+| CMP-018 | failure-model, agent-execution-architecture | ADR-0010, ADR-0013 | INV-CMP-008, INV-CMP-009 | AT-CMP-015, AT-CMP-018, FI-LIBVIRT-005, FI-LIBVIRT-007 | Implemented (migration 065: PostgreSQL-enforced observation-only READ_BACK_FIRST before any successor apply) |
 | CMP-019 | data-persistence-architecture, availability-and-recovery | ADR-0009, ADR-0013 | INV-CMP-006, INV-CMP-008 | AT-CMP-014, AT-CMP-015 | Implemented |
 | CMP-020 | storage-resource-architecture, nfv-dataplane-resource-architecture | ADR-0012, ADR-0013 | INV-CMP-010, INV-CMP-011 | AT-CMP-016, AT-CMP-017, FI-STORAGE-020, FI-PCI-009 | In Progress |
-| CMP-021 | network-resource-architecture, compute-and-vm-lifecycle | ADR-0007, ADR-0013 | INV-CMP-011 | AT-CMP-017, FI-NET-027 | Implemented |
+| CMP-021 | network-resource-architecture, compute-and-vm-lifecycle | ADR-0007, ADR-0013 | INV-CMP-011, INV-CMP-013 | AT-CMP-017, AT-CMP-019, FI-NET-027, FI-NET-028 | Implemented (exact historical A→B cleanup remains consumable after B→C) |
+| CMP-022 | data-persistence-architecture, compute-and-vm-lifecycle, availability-and-recovery | ADR-0009, ADR-0013 | INV-CMP-012 | AT-CMP-018 | Implemented for generic adapter and Recovery producer; Materialization/Delete producer APIs remain fail-closed/unimplemented |
 
 ## 19. Coverage Gate
 

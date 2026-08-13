@@ -74,13 +74,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		defer closeBackend()
 		executionBackends = append(executionBackends, backend)
-		cleanupBackend, closeCleanupBackend, cleanupErr := libvirtvm.NewCleanup(*libvirtURI)
+		cleanupBackend, cleanupReadBackBackend, closeCleanupBackend, cleanupErr := libvirtvm.NewCleanupBackends(*libvirtURI)
 		if cleanupErr != nil {
 			fmt.Fprintf(stderr, "kim-host-agent libvirt cleanup error: %v\n", cleanupErr)
 			return 2
 		}
 		defer closeCleanupBackend()
-		executionBackends = append(executionBackends, cleanupBackend)
+		executionBackends = append(executionBackends, cleanupBackend, cleanupReadBackBackend)
 	}
 	if (*localLVMVGUUID == "") != (*localLVMVGName == "") {
 		fmt.Fprintln(stderr, "kim-host-agent Local LVM error: VG UUID and VG name must be configured together")
