@@ -523,6 +523,8 @@ Project Phase 0 gate は validation report で qualification 済みです。後�
 
 ## 21. Related Documents
 
+Migration 076でImageはTerraform-safe logical resourceになりました。desiredはProject、name、architecture、format、expected digest、approved source ID、visibility、delete protectionです。verified digest/size/stateはcomputedであり、Host cacheの消失・再作成・別Host realizationはdriftではありません。ingestionのphase変更はresource replacementを起こさず、content変更は明示的new revisionとなり既存VMへretrofitしません。Phase 1 Provider実装開始判定はYesですが、Network/Volume/VM readinessを意味しません。
+
 - [KIM Northbound API / Terraform Readiness Review](reviews/kim-terraform-api-readiness-review-20260814.md)
 - [System Architecture](architecture.md)
 - [API Design Principles](api-principles.md)

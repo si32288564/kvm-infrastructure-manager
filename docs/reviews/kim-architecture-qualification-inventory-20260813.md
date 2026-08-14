@@ -14,6 +14,8 @@ Migration 074 expands the same contract to Project-owned Flavor while preserving
 
 Migration 075 exposes the existing SYSTEM Availability Policy authority only through closed non-automatic profiles, preserving exact workload bindings and runtime Recovery separation. Image remains BLOCKED because typed ingestion/read-back is absent. This cross-cutting API closure does not change the 35-row denominator or scores.
 
+Migration 076 closes the Northbound Image artifact boundary with expected-only logical intent, approved source identity, typed Agent ingestion, immutable whole-artifact read-back/verification, response-loss convergence, verified-only materialization publication, and public Operation polling. `NORTHBOUND_PHASE1_LOGICAL_RESOURCE_COMPLETION` is PASS. This remains a cross-cutting delivery surface, so the 35 infrastructure/backend rows and scores remain unchanged.
+
 ## Executive summary
 
 KIM is an authority-oriented KVM control plane, not a generic virtualization shell. PostgreSQL owns desired state, identity, allocation, admission, execution, recovery, relocation, and cleanup decisions. Agents execute a closed set of typed operations, journal before mutation, and return observations; a command response is never sufficient evidence of convergence.

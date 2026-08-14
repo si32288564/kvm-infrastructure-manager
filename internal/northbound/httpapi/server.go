@@ -17,6 +17,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/auth"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/availabilitypolicy"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/flavor"
+	imageapi "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/image"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/resource"
 )
@@ -32,6 +33,7 @@ type Server struct {
 	Projects             project.Service
 	Flavors              flavor.Service
 	AvailabilityPolicies availabilitypolicy.Service
+	Images               imageapi.Service
 	Authenticator        auth.Authenticator
 	Logger               io.Writer
 	RequestTimeout       time.Duration
@@ -66,7 +68,147 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/availability-policies/{policy_id}", s.getAvailabilityPolicy)
 	mux.HandleFunc("PATCH /api/v1/availability-policies/{policy_id}", s.patchAvailabilityPolicy)
 	mux.HandleFunc("DELETE /api/v1/availability-policies/{policy_id}", s.deleteAvailabilityPolicy)
+	mux.HandleFunc("POST /api/v1/images", s.createImage)
+	mux.HandleFunc("GET /api/v1/images", s.listImages)
+	mux.HandleFunc("GET /api/v1/images/{image_id}", s.getImage)
+	mux.HandleFunc("PATCH /api/v1/images/{image_id}", s.patchImage)
+	mux.HandleFunc("DELETE /api/v1/images/{image_id}", s.deleteImage)
+	mux.HandleFunc("POST /api/v1/images/{image_id}/ingestions", s.ingestImage)
+	mux.HandleFunc("GET /api/v1/operations/{operation_id}", s.getOperation)
 	return s.requestContext(s.recover(mux))
+}
+
+func (s Server) createImage(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "IMAGE_CREATE")
+	if !ok {
+		return
+	}
+	var body imageapi.Desired
+	if err := decodeJSON(r, &body); err != nil {
+		s.writeProblem(w, r, resource.ErrValidation)
+		return
+	}
+	out, _, err := s.Images.Create(r.Context(), p, imageapi.CreateRequest{Desired: body, IdempotencyKey: r.Header.Get("Idempotency-Key"), RequestID: requestID(r), CanonicalPath: "/api/v1/images"})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	w.Header().Set("Location", "/api/v1/images/"+out.ID)
+	writeJSON(w, 201, out)
+}
+func (s Server) getImage(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "IMAGE_READ")
+	if !ok {
+		return
+	}
+	out, err := s.Images.Get(r.Context(), p, r.PathValue("image_id"), requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) listImages(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "IMAGE_LIST")
+	if !ok {
+		return
+	}
+	limit, after, err := parsePage(r, map[string]bool{"limit": true, "cursor": true, "projectId": true})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	page, err := s.Images.List(r.Context(), p, imageapi.ListRequest{ProjectID: r.URL.Query().Get("projectId"), AfterID: after, Limit: limit}, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	response := struct {
+		Items      []imageapi.Resource `json:"items"`
+		NextCursor string              `json:"nextCursor,omitempty"`
+	}{Items: page.Items}
+	if page.NextAfter != "" {
+		response.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.NextAfter))
+	}
+	writeJSON(w, 200, response)
+}
+func (s Server) patchImage(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "IMAGE_UPDATE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	patch, err := decodeImagePatch(r)
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, err := s.Images.Patch(r.Context(), p, r.PathValue("image_id"), revision, patch, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) deleteImage(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "IMAGE_DELETE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	if err := s.Images.Delete(r.Context(), p, r.PathValue("image_id"), revision, requestID(r)); err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.WriteHeader(204)
+}
+func (s Server) ingestImage(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "IMAGE_INGEST")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	if r.Body != nil {
+		var empty struct{}
+		if err := decodeJSON(r, &empty); err != nil {
+			s.writeProblem(w, r, resource.ErrValidation)
+			return
+		}
+	}
+	out, _, err := s.Images.Ingest(r.Context(), p, r.PathValue("image_id"), revision, imageapi.IngestionRequest{IdempotencyKey: r.Header.Get("Idempotency-Key"), RequestID: requestID(r)})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/operations/"+out.ID)
+	writeJSON(w, 202, out)
+}
+func (s Server) getOperation(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "OPERATION_READ")
+	if !ok {
+		return
+	}
+	out, err := s.Images.GetOperation(r.Context(), p, r.PathValue("operation_id"), requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s Server) createAvailabilityPolicy(w http.ResponseWriter, r *http.Request) {
@@ -687,6 +829,42 @@ func decodeAvailabilityPolicyPatch(request *http.Request) (availabilitypolicy.Pa
 				return p, resource.ErrValidation
 			}
 			p.MaxAttempts = &v
+		case "deleteProtection":
+			var v bool
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.DeleteProtection = &v
+		default:
+			return p, resource.ErrValidation
+		}
+	}
+	return p, nil
+}
+
+func decodeImagePatch(request *http.Request) (imageapi.Patch, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(request, &fields); err != nil || len(fields) == 0 {
+		return imageapi.Patch{}, resource.ErrValidation
+	}
+	var p imageapi.Patch
+	for name, raw := range fields {
+		if string(raw) == "null" {
+			return p, resource.ErrValidation
+		}
+		switch name {
+		case "name":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Name = &v
+		case "lifecycleState":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.LifecycleState = &v
 		case "deleteProtection":
 			var v bool
 			if json.Unmarshal(raw, &v) != nil {

@@ -374,3 +374,13 @@ Developer Preview開始条件:
 - 対象sliceのtestがImplemented。
 - release blocker invariantがCIで常時実行される。
 - 手動検証にはowner、手順、保存evidence、期限がある。
+
+## Image Phase 1 trace
+
+| Requirement | Architecture | Invariant | Acceptance | Status |
+|---|---|---|---|---|
+| FR-IMG-001 | `image-resource-architecture.md` | INV-IMG-001 | AT-IMG-001 | Implemented |
+| FR-IMG-002 | `image-resource-architecture.md` | INV-IMG-002 | AT-IMG-002 | Implemented |
+| FR-IMG-003 | `image-resource-architecture.md` | INV-IMG-003 | AT-IMG-003 | Implemented |
+| FR-IMG-004 | `image-resource-architecture.md` | INV-IMG-002 | AT-IMG-003 | Implemented |
+| FR-IMG-005 | `image-resource-architecture.md` | INV-IMG-004, INV-IMG-005 | AT-IMG-004, AT-IMG-005 | Implemented |

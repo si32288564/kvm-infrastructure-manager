@@ -15,6 +15,7 @@ import (
 	"time"
 
 	agentexecution "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/imageartifact"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtdomain"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvm"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
@@ -52,6 +53,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	localLVMTransportListen := set.String("local-lvm-transport-listen", os.Getenv("KIM_AGENT_LOCAL_LVM_TRANSPORT_LISTEN"), "admin-configured dedicated TLS 1.3 Local LVM transport listen address; empty disables the capability")
 	localLVMTransportEndpoints := set.String("local-lvm-transport-endpoints", os.Getenv("KIM_AGENT_LOCAL_LVM_TRANSPORT_ENDPOINTS"), "comma-separated source Host ID=https://host:port origins")
 	imageCacheRoot := set.String("image-cache-root", os.Getenv("KIM_AGENT_IMAGE_CACHE_ROOT"), "admin-configured digest-addressed verified Image cache root")
+	imageSourceFiles := set.String("image-source-files", os.Getenv("KIM_AGENT_IMAGE_SOURCE_FILES"), "admin-owned source ID=absolute file mappings for typed Image ingestion")
 	ovsMappings := set.String("ovs-segment-mappings", os.Getenv("KIM_AGENT_OVS_SEGMENT_MAPPINGS"), "comma-separated Segment Claim ID=OVS bridge mappings")
 	if err := set.Parse(args); err != nil {
 		return 2
@@ -70,6 +72,26 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	var executionBackends []agentexecution.Backend
 	var runtimeComponents []hostruntime.RuntimeComponent
+	if *imageSourceFiles != "" && *imageCacheRoot == "" {
+		fmt.Fprintln(stderr, "kim-host-agent Image ingestion error: cache root is required with a source registry")
+		return 2
+	}
+	if *imageSourceFiles != "" {
+		mappings, parseErr := parseEndpointMappings(*imageSourceFiles)
+		if parseErr != nil {
+			fmt.Fprintf(stderr, "kim-host-agent Image source registry error: %v\n", parseErr)
+			return 2
+		}
+		registry := imageartifact.FileRegistry{}
+		for id, path := range mappings {
+			if !filepath.IsAbs(path) {
+				fmt.Fprintln(stderr, "kim-host-agent Image source registry paths must be absolute")
+				return 2
+			}
+			registry[id] = path
+		}
+		executionBackends = append(executionBackends, imageartifact.Backend{CacheRoot: *imageCacheRoot, Sources: registry})
+	}
 	if *libvirtURI != "" {
 		backend, closeBackend, backendErr := libvirtdomain.New(*libvirtURI)
 		if backendErr != nil {
@@ -167,10 +189,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 			defer closeRetirementBackend()
 			executionBackends = append(executionBackends, retirementBackend)
 		}
-	}
-	if *imageCacheRoot != "" && *localLVMVGUUID == "" {
-		fmt.Fprintln(stderr, "kim-host-agent Image cache error: Local LVM identity mapping is required")
-		return 2
 	}
 	if (*localLVMTransportListen != "" || *localLVMTransportEndpoints != "") && *localLVMVGUUID == "" {
 		fmt.Fprintln(stderr, "kim-host-agent Local LVM transport error: Local LVM identity mapping is required")

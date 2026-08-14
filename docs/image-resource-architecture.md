@@ -1,10 +1,10 @@
 # Image Resource Authority
 
-## Current boundary
+## Authority model (Migration 076)
 
-Migration 010の`image_revision_evidence`はlogical identity、declared digest、caller-provided observed digest、signature decision、source URIを一つのimmutable registration callで受け取ります。PlacementとVM materializationは`VERIFIED`なexact Image revisionを消費し、Host-local image realizationは別のtyped materialization evidenceです。
+Migration 010の`image_revision_evidence`は引き続きPlacement/materializationが消費するverified publicationです。Northbound producerはこのlegacy registration APIを公開しません。Migration 076は`northbound_image_revision_evidence`にlogical intentとcaller由来のexpected SHA-256だけを記録し、`image_ingestion_*`、`image_artifact_observation_evidence`、`image_artifact_verification_evidence`を別authorityにしました。independent verificationが`VERIFIED`になった時だけcontrollerがMigration 010 catalogへexact Image revisionをpublishします。
 
-このproducerはinternal qualification fixtureには有効ですが、Northbound create authorityではありません。public callerが`observed_checksum`を渡せばbackend observationを自己申告できるためです。
+`RegisterImageRevision`は既存internal fixtureとの互換producerであり、Northbound HTTPから到達不能です。public Image schemaには`observedDigest`、path、URL、Host、cache identityが存在しません。
 
 ```text
 logical Image != immutable content revision
@@ -14,8 +14,14 @@ logical Image != immutable content revision
               != local/backend path
 ```
 
-## Required closure
+## Ingestion and read-back
 
-Northbound Imageを公開する前に、expected digest/source metadataだけをcommitするlogical revision、closed ingestion Operation、constrained actuator、partial/response-loss read-back、immutable observed digest/signature evidence、exact verification decisionを分離します。same-content replayは同じOperation/evidenceへ収束し、different content、partial ingestion、digest mismatchをterminal failureにします。verified revisionだけがcurrent materialization authorityとなり、content変更はnew revisionで既存VMをretrofitしません。
+`IMAGE_ARTIFACT_INGEST/kim.command.image-artifact-ingest/v1`はsource registry ID、Image/revision、artifact generation、expected digest、policy maximumだけを受けます。source fileとcache rootはadministrator-owned Agent configurationです。actuatorはstagingへbounded write、fsync、whole-artifact SHA-256、digest-addressed atomic renameを行い、Observerはpublished bytesを再読します。arbitrary URL/path/shell/argvはcommand schemaにありません。
 
-現在repositoryにはtyped ingestion actuatorとcontroller-consumable read-back producerがありません。したがってMigration 075ではImage schema/APIを追加せず、`NORTHBOUND_IMAGE_RESOURCE`と`IMAGE_INGESTION_OPERATION`をBLOCKEDに維持します。Host cache/path/Host ID/LV UUIDは将来もTerraform desired/import projectionへ含めません。
+Operationは`PENDING/RUNNING/VERIFYING/SUCCEEDED/FAILED/UNKNOWN/CANCELLED`を公開します。`UNKNOWN`はterminalではなく、same command/artifact generationのREAD_BACK_FIRST対象です。DB consumerが受け取るのはCommand verification IDであり、observed digest/size/read-back stateはimmutable `command_verification_evidence`から導出されます。Result欠落時もMATCHED read-backでSUCCEEDEDに収束できます。
+
+## Lifecycle and consumers
+
+createはlogical metadataを201でcommitし、ingestionは202です。未検証revisionはMigration 010 catalogへpublishされないためPlacement/materializationは利用できません。content changeはnew revision/new artifact generationであり、既存Admission、VM、Volume、materializationはhistorical exact revisionを維持します。DEPRECATEDはnew placement publicationを`DELETING`へ移し、参照中revisionのdeleteはdependency conflictです。logical deleteとHost cache cleanupは独立です。
+
+Cache消失、別Hostでのcache realization、cache generation変更はTerraform driftではありません。同名別contentはdigest-addressed final identityとwhole-content read-backで拒否します。large artifactでwhole-volume hashingが高コストになる点は将来のchunk/Merkle verification最適化対象ですが、correctness条件は緩和しません。

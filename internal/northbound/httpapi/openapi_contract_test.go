@@ -20,10 +20,7 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 		t.Fatalf("OpenAPI version=%v", document["openapi"])
 	}
 	paths := document["paths"].(map[string]any)
-	if _, exposed := paths["/images"]; exposed {
-		t.Fatal("Image endpoint exposed before typed ingestion/read-back authority")
-	}
-	for path, methods := range map[string][]string{"/projects": {"post", "get"}, "/projects/{project_id}": {"get", "patch", "delete"}, "/flavors": {"post", "get"}, "/flavors/{flavor_id}": {"get", "patch", "delete"}, "/availability-policies": {"post", "get"}, "/availability-policies/{policy_id}": {"get", "patch", "delete"}} {
+	for path, methods := range map[string][]string{"/projects": {"post", "get"}, "/projects/{project_id}": {"get", "patch", "delete"}, "/flavors": {"post", "get"}, "/flavors/{flavor_id}": {"get", "patch", "delete"}, "/availability-policies": {"post", "get"}, "/availability-policies/{policy_id}": {"get", "patch", "delete"}, "/images": {"post", "get"}, "/images/{image_id}": {"get", "patch", "delete"}, "/images/{image_id}/ingestions": {"post"}, "/operations/{operation_id}": {"get"}} {
 		entry, ok := paths[path].(map[string]any)
 		if !ok {
 			t.Fatalf("path %s absent", path)
@@ -65,6 +62,13 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 	if availabilityMetadata["resourceType"] != "AVAILABILITY_POLICY" || availabilityMetadata["scope"] != "SYSTEM" || availabilityMetadata["replacementSemantics"] != "NEW_REVISION_NO_WORKLOAD_RETROFIT" {
 		t.Fatalf("Availability Policy lifecycle metadata=%v", availabilityMetadata)
 	}
+	imageMetadata := schemas["Image"].(map[string]any)["x-kim-resource"].(map[string]any)
+	if imageMetadata["resourceType"] != "IMAGE" || imageMetadata["mutationMode"] != "SYNCHRONOUS_METADATA_ASYNCHRONOUS_INGESTION" || imageMetadata["replacementSemantics"] != "CONTENT_CHANGE_NEW_REVISION_NO_EXISTING_VM_RETROFIT" {
+		t.Fatalf("Image lifecycle metadata=%v", imageMetadata)
+	}
+	if schemas["Operation"].(map[string]any)["x-kim-operation"].(map[string]any)["terminalRequiresVerifiedEvidence"] != true {
+		t.Fatal("Operation success is not fenced by verified evidence")
+	}
 	desired := schemas["FlavorDesired"].(map[string]any)["properties"].(map[string]any)
 	for _, field := range []string{"projectId", "name", "vcpus", "memoryMiB", "rootDiskGiB", "numaPolicy", "cpuAllocation", "cpuPinning"} {
 		value, ok := desired[field].(map[string]any)
@@ -84,7 +88,7 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 			}
 		}
 	}
-	publicDesired, _ := json.Marshal([]any{schemas["ProjectCreate"], schemas["FlavorDesired"], schemas["AvailabilityPolicyDesired"]})
+	publicDesired, _ := json.Marshal([]any{schemas["ProjectCreate"], schemas["FlavorDesired"], schemas["AvailabilityPolicyDesired"], schemas["ImageDesired"]})
 	text := string(publicDesired)
 	for _, forbiddenDesired := range []string{"hostId", "pcpu", "pmdCore", "rxq", "vhostSocket", "ovsUuid", "pciBdf", "lvUuid", "materializationGeneration", "recoveryGeneration", "evacuationGeneration", "failureEpochId", "fencingProofId", "recoveryOperationId"} {
 		if strings.Contains(text, `"`+forbiddenDesired+`"`) {

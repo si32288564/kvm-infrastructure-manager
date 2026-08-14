@@ -62,7 +62,14 @@ func (receiver PostgresMessageReceiver) Receive(ctx context.Context, envelope se
 				Evidence: result.Observation.Evidence,
 			}
 		}
-		return postgres.AcceptAgentCommandResult(ctx, receiver.DB, envelope, receiver.MaxMessageBytes, postgres.AgentCommandResultDecision{Start: start, Result: resultDecision, Verification: verification})
+		receipt, err := postgres.AcceptAgentCommandResult(ctx, receiver.DB, envelope, receiver.MaxMessageBytes, postgres.AgentCommandResultDecision{Start: start, Result: resultDecision, Verification: verification})
+		if err != nil || verification == nil {
+			return receipt, err
+		}
+		if err := postgres.ConvergeImageIngestionCommand(ctx, receiver.DB, result.CommandID, verification.VerificationID); err != nil {
+			return session.Receipt{}, err
+		}
+		return receipt, nil
 	}
 	if envelope.Stream == session.StreamResync && envelope.SchemaVersion == contract.VerificationObservationSchema {
 		observation, err := contract.DecodeVerificationObservation(envelope.Payload)
@@ -81,7 +88,15 @@ func (receiver PostgresMessageReceiver) Receive(ctx context.Context, envelope se
 		case "CONFLICTING":
 			state = "CONFLICTING"
 		}
-		return postgres.AcceptAgentVerificationObservation(ctx, receiver.DB, envelope, receiver.MaxMessageBytes, postgres.AgentVerificationObservationDecision{TargetResourceID: observation.TargetResourceID, CommandPayloadDigest: observation.CommandPayloadDigest, Verification: postgres.CommandVerification{VerificationID: fmt.Sprintf("%s-resync-verification-%d", observation.CommandID, observation.AttemptIndex), CommandID: observation.CommandID, AttemptIndex: observation.AttemptIndex, ObservationGeneration: observation.Observation.Generation, ObservationDigest: observation.Observation.Digest, State: state, VerifierArtifactDigest: observation.VerifierDigest, Evidence: map[string]any{"journal_digest": observation.JournalDigest, "read_back": observation.Observation.Evidence}}})
+		verificationID := fmt.Sprintf("%s-resync-verification-%d", observation.CommandID, observation.AttemptIndex)
+		receipt, err := postgres.AcceptAgentVerificationObservation(ctx, receiver.DB, envelope, receiver.MaxMessageBytes, postgres.AgentVerificationObservationDecision{TargetResourceID: observation.TargetResourceID, CommandPayloadDigest: observation.CommandPayloadDigest, Verification: postgres.CommandVerification{VerificationID: verificationID, CommandID: observation.CommandID, AttemptIndex: observation.AttemptIndex, ObservationGeneration: observation.Observation.Generation, ObservationDigest: observation.Observation.Digest, State: state, VerifierArtifactDigest: observation.VerifierDigest, Evidence: map[string]any{"journal_digest": observation.JournalDigest, "read_back": observation.Observation.Evidence}}})
+		if err != nil {
+			return receipt, err
+		}
+		if err := postgres.ConvergeImageIngestionCommand(ctx, receiver.DB, observation.CommandID, verificationID); err != nil {
+			return session.Receipt{}, err
+		}
+		return receipt, nil
 	}
 	return postgres.AcceptAgentMessage(ctx, receiver.DB, envelope, receiver.MaxMessageBytes)
 }

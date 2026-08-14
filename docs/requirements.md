@@ -685,3 +685,11 @@
 - Architecture Invariant IDとAcceptance/Fault/Conformance Test ID
 
 Must requirementに未追跡行がある場合、実装Phaseへ進めません。追跡状態は [Architecture Traceability Matrix](traceability-matrix.md) を正本とします。
+
+| ID | Image Phase 1 Must requirement |
+|---|---|
+| FR-IMG-001 | logical Image revisionはexpected digestだけをcallerから受け、observed digestを受けない |
+| FR-IMG-002 | ingestionはapproved source registryからclosed typed commandでstaging、fsync、whole-artifact read-backを行う |
+| FR-IMG-003 | expected/observed digest一致のimmutable verificationだけがImage revisionをmaterialization catalogへpublishする |
+| FR-IMG-004 | response lossはUNKNOWN/read-back firstで収束し、same artifact generationを別contentで上書きしない |
+| FR-IMG-005 | Image deletion/deprecation、Host cache cleanup、既存VM exact revisionは独立authorityとする |

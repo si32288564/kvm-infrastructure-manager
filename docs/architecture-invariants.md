@@ -535,3 +535,8 @@
 | INV-PKI-023 | PITR/DRで時間上有効なold certificate/session/Lease authorityを復活・cloneしない | FI-PKI-018 |
 | INV-PKI-024 | Secret Provider completion claimだけでcredential active/revoked/rotatedを確定しない | FI-PKI-019 |
 | INV-PKI-025 | Root/issuer distrust、emergency anchor、CA key restore、force issuanceを通常resource operator単独で実行しない | FI-PKI-020 |
+| INV-IMG-001 | caller supplied observed/verified/actual digestをImage authorityにしない | AT-IMG-001 |
+| INV-IMG-002 | partial/staging/cache path existenceまたはCommand successをpublished artifact convergenceにしない | AT-IMG-002 |
+| INV-IMG-003 | exact verified Image revision/content digestなしにPlacement/materializationを許可しない | AT-IMG-003 |
+| INV-IMG-004 | Host cache incarnationをTerraform desiredまたはlogical Image driftにしない | AT-IMG-004 |
+| INV-IMG-005 | Image revision更新でexisting VM/Volume/Admissionをsilent retrofitしない | AT-IMG-005 |

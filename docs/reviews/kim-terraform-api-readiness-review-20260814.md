@@ -5,7 +5,7 @@
 - Baseline commit: Phase 1 Project+Flavor+Availability logical-resource delivery commit
 - Primary SSOT: [Infrastructure Lifecycle and IaC Architecture](../infrastructure-lifecycle-iac-architecture.md)
 - Scope: repository-based re-review after the executable Project reference vertical slice
-- Decision: **Conditional — experimental Project/Flavor and closed SYSTEM Availability Policy resources may begin; Image and all backend resources remain blocked**
+- Decision after Migration 076: **Yes — experimental Phase 1 Provider implementation may begin for Project, Flavor, closed SYSTEM Availability Policy, and Image only**
 
 ## 1. Executive Summary
 
@@ -20,7 +20,7 @@ Migration 074は同じcontractをFlavorへ適用しました。Migration 075は�
 - subsystem-specific Recovery/EVACUATE/Cleanup state machine を Terraform CRUD として再実装する。
 - response loss、delete、stale update を Provider 側の推測や recreate で解決する。
 
-Provider scaffoldとexperimental Project/Flavor/closed Availability Policy resourceの開始条件は成立しました。Imageはartifact ingestion/observed digest authority未分離のためBLOCKEDです。infrastructure-managed Availability authoring、unified Operation、Provider import conformance、VM no-driftも未実装です。
+Provider scaffoldとPhase 1 logical resourcesの開始条件は成立しました。Migration 076はImage expected/observed digestを分離し、typed ingestion、immutable read-back verification、first unified Operation projectionを実装しました。Network/Volume/VM、Provider import conformance、VM no-driftは引き続き別gateです。
 
 ## 2. Review Methodology
 
@@ -57,7 +57,7 @@ Project と Flavor が Create/Read/List/Update/Delete endpoint を持ちます�
 | Host | stable `host_id`; identity/enrollment/authority/session generations | trust/inventory/qualification は実装・real tested | public inventory/status projection、admin mutations、ETag、scope/redaction がない。Terraform-managed resourceにするかも未決定 | `API_SEMANTIC_GAP` P1 |
 | Host Group | `host_group_id` + generation、immutable revision digest | Migrations 038–047、publish/snapshot/selectors/hierarchy synthetic pass | public CRUD/list、expected revision、delete guard、authorization、field contract がない | `API_SEMANTIC_GAP` P1 |
 | Placement Scope / Pool | stable scope/group ID + generation/digest | Scope publication/final admission、Host drain fencing synthetic pass | tenant-safe projectionは未公開。Placement/Admissionは CRUD resource ではなく internal authority | Scope: `API_SEMANTIC_GAP` P1; Admission: `OPERATION_ONLY` |
-| Image | `image_id` + immutable verified revision; current authority generation | checksum/signature validation、replay conflict、materialization integration | caller supplied observed checksumを許さないingestion Operation/source redactionがない | `BLOCKED` (artifact authority boundary) |
+| Image | UUID + immutable logical revision + immutable verified artifact generation | expected-only public intent、approved source ID、typed Agent ingestion、whole SHA-256 read-back、202 Operation、verified-only materialization publication | formal Terraform Provider acceptance/import | `TERRAFORM_READY` for experimental implementation; release blocked |
 | Flavor | UUIDv4 + immutable shape revision; Project ownership | public CRUD/list、scope auth、idempotency、ETag、dependency/protection/tombstone、Placement exact revision | formal Provider import/acceptance | `TERRAFORM_READY` for experimental implementation; release blocked |
 | Virtual Machine | UUID + `vm_generation`; logical workload ID | Placement→materialization→readiness→power、Recovery/EVACUATE qualified | public create aggregate、desired/status DTO、update/delete/tombstone、Operation、auth absent。current row contains physical Host/plan | `API_SEMANTIC_GAP` P0/P1 |
 | Volume | `volume_id` + desired generation | Local LVM allocation/binding/attachment/copy/cleanup qualified | Volume currently Admission-created and physical binding-heavy。standalone CRUD、expand/delete/import/protection public contract absent | `API_SEMANTIC_GAP` P0/P1 |
@@ -330,7 +330,7 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 | common error/retry contract | `IMPLEMENTED_MULTI_RESOURCE` | P1 closed for Project/Flavor | backend UNKNOWN/Operation errors remain |
 | Project/Site scope | Project `IMPLEMENTED`; Site `RESOURCE_MODEL_GAP` | Project P1 closed | Project experimental candidate; Site later |
 | Flavor | `TERRAFORM_READY_EXPERIMENTAL` | Phase 1 contract PASS | Provider implementation may begin; release acceptance pending |
-| Image | `BLOCKED` | artifact authority gap | separate ingestion/read-back authority first |
+| Image | `TERRAFORM_READY_EXPERIMENTAL` | Migration 076 Image/Operation contract PASS | Provider implementation may begin; release acceptance pending |
 | Availability Policy | `TERRAFORM_READY_EXPERIMENTAL` | closed SYSTEM non-automatic profiles PASS | infrastructure-managed profile remains blocked |
 | HostGroup/Placement Scope | `API_SEMANTIC_GAP` | P1/P2 | admin phase after auth/redaction |
 | Network/Subnet | `API_SEMANTIC_GAP` | P1 | separate public resources before Provider |
@@ -341,7 +341,7 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 | Security/Datapath/Router/FRR | `RESOURCE_MODEL_GAP` | P1/P2 | not MVP |
 | Recovery/EVACUATE/Cleanup | `OPERATION_ONLY` | P1 public gap | polling/status only; no managed resource |
 
-Project、Flavor、closed SYSTEM Availability Policy are qualified experimental Provider candidates, not production-ready Provider releases. Image and all backend-bearing resources remain blocked or semantic gaps.
+Project、Flavor、closed SYSTEM Availability Policy、Image are qualified experimental Phase 1 Provider candidates, not production-ready Provider releases. Network/Volume/VM and other backend-bearing resources remain blocked or semantic gaps.
 
 ## 14. P0 / P1 / P2 / P3 Findings
 
@@ -396,7 +396,7 @@ Candidate order after contract implementation:
 
 1. Project experimental Provider resource and import conformance
 2. Flavor experimental Provider resource and import conformance
-3. Image only after artifact ingestion/read-back separation
+3. Image experimental resource and Operation polling (artifact ingestion/read-back separation complete)
 4. Availability Policy only after typed public policy DTO、scope and dependency references
 
 These have stable revision/evidence patterns and fewer physical incarnation fields. Image binary upload may remain a separate Operation.
@@ -431,7 +431,7 @@ Minimum blocker set, in order:
 5. **P1 vertical slice (Project complete):** schema + producer + public Read/List/Create/Update/Delete + authorization + contract tests are qualified.
 6. **P0 no-drift slice:** before VM Provider resource, implement public `spec/status/links` projection and Recovery A→B no-drift contract test.
 
-The Project/Flavor-applicable portions of items 1–5 are complete, so Provider scaffold and experimental Project/Flavor resources may begin. Image/Availability and no Phase 2 resource are authorized. VM waits for unified Operation plus aggregate async create/delete and no-drift contracts.
+The Phase 1-applicable portions are complete, so Provider scaffold and experimental Project/Flavor/closed Availability/Image resources may begin. No Phase 2 resource is authorized. VM still waits for aggregate async create/delete and no-drift contracts.
 
 ## 17. Proposed Implementation Order
 
