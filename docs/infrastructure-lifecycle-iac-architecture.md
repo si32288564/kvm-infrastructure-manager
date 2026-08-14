@@ -8,7 +8,7 @@
 
 本書は KIM を IaC-first な KVM Infrastructure Control Plane として利用するための将来設計 SSOT です。Terraform、Ansible、管理 UI、KIM、Host Agent、各 backend の責務を分離し、同じ resource lifecycle contract から API、Terraform Provider、UI を構成します。
 
-`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073 の Project API は current reference vertical slice です。Provider、UI、他 resource API、backend Operation projection は引き続き proposed です。
+`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073/074 の Project+Flavor API は current multi-resource referenceです。Provider、UI、Image/Availability/他resource API、backend Operation projectionは引き続きproposedまたはblockedです。
 
 ## 2. 中核原則
 
@@ -103,7 +103,7 @@ flowchart TB
 
 KIM Resource Contract は JSON shape だけでなく、identity、revision、mutability、replacement、computed field、asynchronous convergence、import、delete protection、authorization を含む機械可読 contract です。OpenAPI 3.1 は HTTP contract の SSOT ですが、Provider/UI generation に不足する lifecycle metadata も OpenAPI extension または同一 versioned schema package で管理します。
 
-Project reference implementation は `api/openapi/kim-v1.json` の `x-kim-resource` と `x-kim-field-class` を SSOT として採用します。typed HTTP handler と contract test が route、schema、error code、metadata の drift を検出します。将来 generator を導入しても、この分類を独自に上書きしません。
+Project+Flavor reference implementation は `api/openapi/kim-v1.json` の `x-kim-resource` と `x-kim-field-class` をSSOTとします。共通HTTP layerはauthentication、request context、JSON bound、ETag/If-Match、cursor、Problem Detailsを提供し、resource-specific service/storeがrevision、dependency、delete、consumer semanticsを保持します。
 
 ## 4. Responsibility Boundaries
 
@@ -402,7 +402,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 | Area | Current repository state | Proposed target |
 |---|---|---|
-| Northbound API | `kim-api` runtime、OIDC bearer verification、minimal RBAC、Project CRUD/list、ETag/If-Match、Idempotency-Key、Problem Details、cursor pagination、audit、OpenAPI 3.1 が Migration 073 で実装・qualification済み | Project patternを他resourceへ拡張し、backend-convergent mutationにunified Operationを追加 |
+| Northbound API | Project+Flavor CRUD/list、OIDC/RBAC、ETag/If-Match、resource-specific idempotency FK、Problem Details、cursor、audit、OpenAPIがMigration 073/074で実装 | Image ingestion、Availability scope、backend Operationを安全に追加 |
 | Resource persistence | Image、Flavor、Network、Volume、VM、Availability 等の persistence/authority は段階的に存在 | Terraform-ready logical resource surface と public CRUD semantics |
 | Terraform | Provider/module/registry artifact は存在しない | `terraform-provider-kim` と official modules |
 | UI | product UI resource editor/runtime console は未実装 | common contract に基づく interactive、authoring、troubleshooting UI |
@@ -412,6 +412,9 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 | Network dataplane | OVN/OVS と一部 authority が存在。DPDK/FRR/Direct-I/O の target は別設計で Proposed | profile/policy resources と capability-aware realization |
 | Security Policy | API/resource architecture 上の概念はあるが、current persistence/compiler authority は確認できない | backend-independent resource と OVN compiler/read-back |
 | Project | first-class stable ID、immutable revision/current projection、owner ADMIN binding、delete protection/dependency guard、public CRUD/list contractが実装済み。quota/policy/tenant hierarchyは未実装 | quota/policy bindingと拡張scope model |
+| Flavor | Project-owned immutable shape revision、current projection、Placement exact-revision consumer、CRUD/list/dependency fenceが実装済み。exact pCPU/Host/NUMA realizationは非公開 | Provider import/conformanceとcatalog visibility拡張 |
+| Image | verified revision/current producerはあるが、artifact ingestionと実測checksum/signature authorityがmetadata CRUDから未分離 | ingestion Operationとlogical metadata lifecycle分離後にNorthbound化 |
+| Availability Policy | immutable revisionとRecovery/Placement consumersはあるが、SYSTEM catalog、opaque legacy fields、複数typed policy binding、PLACEMENT_POOL resolutionが前提 | public intent schema/scope/dependency contract確定後にNorthbound化 |
 
 ## 16. Capability Gaps Before Implementation
 
@@ -466,7 +469,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ## 17. Migration Path
 
-1. Project reference vertical slice の OpenAPI、security、revision、idempotency、audit patternを維持する（完了）。
+1. Project+Flavor multi-resource contractのOpenAPI、security、revision、idempotency、audit patternを維持する（完了）。
 2. 各 resource に本書の lifecycle contract を記入し、public logical field と internal physical field を分離する。
 3. backend convergenceを持つ最初のresourceでunified Operation contractを実装する。
 4. Project experimental Provider resource/scaffoldでCRUD/import/refresh/response-loss testsを成立させる。

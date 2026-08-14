@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/auth"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/flavor"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/resource"
 )
 
 const (
@@ -27,6 +29,7 @@ var errBodyTooLarge = errors.New("request body exceeds the maximum size")
 
 type Server struct {
 	Projects       project.Service
+	Flavors        flavor.Service
 	Authenticator  auth.Authenticator
 	Logger         io.Writer
 	RequestTimeout time.Duration
@@ -51,6 +54,11 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{project_id}", s.getProject)
 	mux.HandleFunc("PATCH /api/v1/projects/{project_id}", s.patchProject)
 	mux.HandleFunc("DELETE /api/v1/projects/{project_id}", s.deleteProject)
+	mux.HandleFunc("POST /api/v1/flavors", s.createFlavor)
+	mux.HandleFunc("GET /api/v1/flavors", s.listFlavors)
+	mux.HandleFunc("GET /api/v1/flavors/{flavor_id}", s.getFlavor)
+	mux.HandleFunc("PATCH /api/v1/flavors/{flavor_id}", s.patchFlavor)
+	mux.HandleFunc("DELETE /api/v1/flavors/{flavor_id}", s.deleteFlavor)
 	return s.requestContext(s.recover(mux))
 }
 
@@ -116,29 +124,10 @@ func (s Server) listProjects(w http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	for key := range request.URL.Query() {
-		if key != "limit" && key != "cursor" {
-			s.writeProblem(w, request, project.ErrValidation)
-			return
-		}
-	}
-	limit := 50
-	if raw := request.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			s.writeProblem(w, request, project.ErrValidation)
-			return
-		}
-		limit = parsed
-	}
-	after := ""
-	if cursor := request.URL.Query().Get("cursor"); cursor != "" {
-		raw, err := base64.RawURLEncoding.DecodeString(cursor)
-		if err != nil || len(raw) > 64 {
-			s.writeProblem(w, request, project.ErrValidation)
-			return
-		}
-		after = string(raw)
+	limit, after, err := parsePage(request, map[string]bool{"limit": true, "cursor": true})
+	if err != nil {
+		s.writeProblem(w, request, err)
+		return
 	}
 	page, err := s.Projects.List(request.Context(), principal, project.ListRequest{AfterID: after, Limit: limit}, requestID(request))
 	if err != nil {
@@ -153,6 +142,105 @@ func (s Server) listProjects(w http.ResponseWriter, request *http.Request) {
 		response.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.NextAfter))
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s Server) createFlavor(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "FLAVOR_CREATE")
+	if !ok {
+		return
+	}
+	var body flavor.Desired
+	if err := decodeJSON(r, &body); err != nil {
+		if !errors.Is(err, errBodyTooLarge) {
+			err = resource.ErrValidation
+		}
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, _, err := s.Flavors.Create(r.Context(), p, flavor.CreateRequest{Desired: body, IdempotencyKey: r.Header.Get("Idempotency-Key"), RequestID: requestID(r), CanonicalPath: "/api/v1/flavors"})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	w.Header().Set("Location", "/api/v1/flavors/"+out.ID)
+	writeJSON(w, 201, out)
+}
+func (s Server) getFlavor(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "FLAVOR_READ")
+	if !ok {
+		return
+	}
+	out, err := s.Flavors.Get(r.Context(), p, r.PathValue("flavor_id"), requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) listFlavors(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "FLAVOR_LIST")
+	if !ok {
+		return
+	}
+	limit, after, err := parsePage(r, map[string]bool{"limit": true, "cursor": true, "projectId": true})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	page, err := s.Flavors.List(r.Context(), p, flavor.ListRequest{ProjectID: r.URL.Query().Get("projectId"), AfterID: after, Limit: limit}, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	response := struct {
+		Items      []flavor.Resource `json:"items"`
+		NextCursor string            `json:"nextCursor,omitempty"`
+	}{Items: page.Items}
+	if page.NextAfter != "" {
+		response.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.NextAfter))
+	}
+	writeJSON(w, 200, response)
+}
+func (s Server) patchFlavor(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "FLAVOR_UPDATE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	patch, err := decodeFlavorPatch(r)
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, err := s.Flavors.Patch(r.Context(), p, r.PathValue("flavor_id"), revision, patch, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) deleteFlavor(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "FLAVOR_DELETE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	if err := s.Flavors.Delete(r.Context(), p, r.PathValue("flavor_id"), revision, requestID(r)); err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.WriteHeader(204)
 }
 
 func (s Server) patchProject(w http.ResponseWriter, request *http.Request) {
@@ -248,28 +336,28 @@ func (s Server) recover(next http.Handler) http.Handler {
 func (s Server) writeProblem(w http.ResponseWriter, request *http.Request, err error) {
 	status, code, title, detail, retryable := http.StatusInternalServerError, "INTERNAL_ERROR", "Internal error", "The request could not be completed.", false
 	switch {
-	case errors.Is(err, project.ErrValidation):
+	case errors.Is(err, resource.ErrValidation):
 		status, code, title, detail = 400, "VALIDATION_FAILED", "Validation failed", "The request does not satisfy the resource contract."
 	case errors.Is(err, errBodyTooLarge):
 		status, code, title, detail = 413, "REQUEST_TOO_LARGE", "Request too large", "The request body exceeds the bounded API limit."
-	case errors.Is(err, project.ErrUnauthenticated):
+	case errors.Is(err, resource.ErrUnauthenticated):
 		status, code, title, detail = 401, "UNAUTHENTICATED", "Authentication required", "A valid Northbound bearer token is required."
-	case errors.Is(err, project.ErrForbidden):
+	case errors.Is(err, resource.ErrForbidden):
 		status, code, title, detail = 403, "FORBIDDEN", "Forbidden", "The principal is not authorized for this action."
-	case errors.Is(err, project.ErrNotFound):
-		status, code, title, detail = 404, "RESOURCE_NOT_FOUND", "Resource not found", "The Project does not exist or is no longer active."
-	case errors.Is(err, project.ErrIdempotencyConflict):
+	case errors.Is(err, resource.ErrNotFound):
+		status, code, title, detail = 404, "RESOURCE_NOT_FOUND", "Resource not found", "The resource does not exist or is no longer active."
+	case errors.Is(err, resource.ErrIdempotencyConflict):
 		status, code, title, detail = 409, "IDEMPOTENCY_CONFLICT", "Idempotency conflict", "The idempotency key is already bound to another desired payload."
-	case errors.Is(err, project.ErrDependencyConflict):
-		status, code, title, detail = 409, "DEPENDENCY_CONFLICT", "Dependency conflict", "Dependent resources prevent Project deletion."
-	case errors.Is(err, project.ErrDeleteProtected):
-		status, code, title, detail = 409, "DELETE_PROTECTED", "Delete protected", "Project delete protection is enabled."
-	case errors.Is(err, project.ErrConflict):
+	case errors.Is(err, resource.ErrDependencyConflict):
+		status, code, title, detail = 409, "DEPENDENCY_CONFLICT", "Dependency conflict", "Dependent resources prevent deletion."
+	case errors.Is(err, resource.ErrDeleteProtected):
+		status, code, title, detail = 409, "DELETE_PROTECTED", "Delete protected", "Resource delete protection is enabled."
+	case errors.Is(err, resource.ErrConflict):
 		status, code, title, detail = 409, "RESOURCE_CONFLICT", "Resource conflict", "The resource authority conflicts with the request."
-	case errors.Is(err, project.ErrStaleRevision):
+	case errors.Is(err, resource.ErrStaleRevision):
 		status, code, title, detail = 412, "STALE_REVISION", "Stale revision", "If-Match does not identify the current resource revision."
-	case errors.Is(err, project.ErrServiceUnavailable):
-		status, code, title, detail, retryable = 503, "SERVICE_UNAVAILABLE", "Service unavailable", "The Project authority is not ready.", true
+	case errors.Is(err, resource.ErrServiceUnavailable):
+		status, code, title, detail, retryable = 503, "SERVICE_UNAVAILABLE", "Service unavailable", "The resource authority is not ready.", true
 	}
 	if code == "UNAUTHENTICATED" {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="kim-api"`)
@@ -327,13 +415,144 @@ func decodePatch(request *http.Request) (project.Patch, error) {
 	return patch, nil
 }
 
+func parsePage(request *http.Request, allowed map[string]bool) (int, string, error) {
+	for key := range request.URL.Query() {
+		if !allowed[key] {
+			return 0, "", resource.ErrValidation
+		}
+	}
+	limit := 50
+	if raw := request.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, "", resource.ErrValidation
+		}
+		limit = parsed
+	}
+	after := ""
+	if cursor := request.URL.Query().Get("cursor"); cursor != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil || len(raw) > 64 {
+			return 0, "", resource.ErrValidation
+		}
+		after = string(raw)
+	}
+	return limit, after, nil
+}
+
+func decodeFlavorPatch(request *http.Request) (flavor.Patch, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(request, &fields); err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			return flavor.Patch{}, err
+		}
+		return flavor.Patch{}, resource.ErrValidation
+	}
+	if len(fields) == 0 {
+		return flavor.Patch{}, resource.ErrValidation
+	}
+	var p flavor.Patch
+	for name, raw := range fields {
+		null := string(raw) == "null"
+		switch name {
+		case "name":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Name = &v
+		case "vcpus":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v uint64
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.VCPUs = &v
+		case "memoryMiB":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v uint64
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.MemoryMiB = &v
+		case "rootDiskGiB":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v uint64
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.RootDiskGiB = &v
+		case "numaPolicy":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.NUMAPolicy = &v
+		case "numaNodes":
+			var v *uint32
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.NUMANodes = &v
+		case "hugePageSizeKiB":
+			var v *uint64
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.HugePageSizeKiB = &v
+		case "cpuAllocation":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.CPUAllocation = &v
+		case "cpuPinning":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v bool
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.CPUPinning = &v
+		case "deleteProtection":
+			if null {
+				return p, resource.ErrValidation
+			}
+			var v bool
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.DeleteProtection = &v
+		default:
+			return p, resource.ErrValidation
+		}
+	}
+	return p, nil
+}
+
 func parseIfMatch(raw string) (uint64, error) {
 	if len(raw) < 3 || raw[0] != '"' || raw[len(raw)-1] != '"' || strings.Contains(raw[1:len(raw)-1], ",") {
-		return 0, project.ErrValidation
+		return 0, resource.ErrValidation
 	}
 	revision, err := strconv.ParseUint(raw[1:len(raw)-1], 10, 64)
 	if err != nil || revision == 0 {
-		return 0, project.ErrValidation
+		return 0, resource.ErrValidation
 	}
 	return revision, nil
 }

@@ -4,37 +4,33 @@ package project
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/resource"
 )
 
 var (
-	ErrValidation          = errors.New("Project validation failed")
-	ErrUnauthenticated     = errors.New("Northbound principal is unauthenticated")
-	ErrForbidden           = errors.New("Project action is forbidden")
-	ErrNotFound            = errors.New("Project was not found")
-	ErrConflict            = errors.New("Project resource conflict")
-	ErrStaleRevision       = errors.New("Project revision is stale")
-	ErrIdempotencyConflict = errors.New("Project idempotency conflict")
-	ErrDependencyConflict  = errors.New("Project has dependent resources")
-	ErrDeleteProtected     = errors.New("Project deletion is protected")
-	ErrServiceUnavailable  = errors.New("Project authority is unavailable")
+	ErrValidation          = resource.ErrValidation
+	ErrUnauthenticated     = resource.ErrUnauthenticated
+	ErrForbidden           = resource.ErrForbidden
+	ErrNotFound            = resource.ErrNotFound
+	ErrConflict            = resource.ErrConflict
+	ErrStaleRevision       = resource.ErrStaleRevision
+	ErrIdempotencyConflict = resource.ErrIdempotencyConflict
+	ErrDependencyConflict  = resource.ErrDependencyConflict
+	ErrDeleteProtected     = resource.ErrDeleteProtected
+	ErrServiceUnavailable  = resource.ErrServiceUnavailable
 )
 
 var projectIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-type Principal struct{ Issuer, Subject, Type string }
-
-func (p Principal) Valid() bool {
-	return p.Issuer != "" && p.Subject != "" && (p.Type == "HUMAN" || p.Type == "AUTOMATION")
-}
+type Principal = resource.Principal
 
 type Resource struct {
 	ID               string    `json:"id"`
@@ -69,12 +65,7 @@ type Page struct {
 	NextAfter string
 }
 
-type AuditEvent struct {
-	AuditID, RequestID, Action, ResourceType, ResourceID, ScopeType, ScopeID string
-	Principal                                                                Principal
-	ResourceRevision                                                         uint64
-	Result, ReasonCode, IdempotencyDigest                                    string
-}
+type AuditEvent = resource.AuditEvent
 
 type Store interface {
 	Create(context.Context, Principal, CreateRequest, string, string) (Resource, bool, error)
@@ -99,7 +90,7 @@ func (s Service) Create(ctx context.Context, principal Principal, request Create
 	if request.Name == "" || len(request.Name) > 255 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 255 || request.RequestID == "" || request.CanonicalPath != "/api/v1/projects" {
 		return Resource{}, false, ErrValidation
 	}
-	id, err := NewID()
+	id, err := resource.NewID()
 	if err != nil {
 		return Resource{}, false, fmt.Errorf("generate Project ID: %w", err)
 	}
@@ -180,12 +171,4 @@ func DesiredDigest(name string, protection bool) (string, error) {
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func NewID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6] = (value[6] & 0x0f) | 0x40
-	value[8] = (value[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
-}
+var NewID = resource.NewID

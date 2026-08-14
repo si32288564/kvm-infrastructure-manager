@@ -17,7 +17,7 @@ func (s NorthboundProjectStore) Ready(ctx context.Context) error {
 	}
 	var active bool
 	err := pgx.BeginTxFunc(ctx, s.DB, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.database_authority WHERE singleton AND mode='ACTIVE') AND to_regclass('kim.projects_current') IS NOT NULL`).Scan(&active)
+		return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.database_authority WHERE singleton AND mode='ACTIVE') AND to_regclass('kim.projects_current') IS NOT NULL AND to_regclass('kim.northbound_flavor_idempotency_evidence') IS NOT NULL`).Scan(&active)
 	})
 	if err != nil || !active {
 		return project.ErrServiceUnavailable
@@ -37,7 +37,7 @@ func (s NorthboundProjectStore) Create(ctx context.Context, principal project.Pr
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
 			return err
 		}
-		allowed, err := authorizeProjectTx(ctx, tx, principal, "CREATE", "")
+		allowed, err := authorizeNorthboundTx(ctx, tx, principal, "CREATE", "")
 		if err != nil {
 			return err
 		}
@@ -107,7 +107,7 @@ func (s NorthboundProjectStore) Create(ctx context.Context, principal project.Pr
 
 func (s NorthboundProjectStore) Get(ctx context.Context, principal project.Principal, projectID, requestID string) (resource project.Resource, returnedErr error) {
 	err := pgx.BeginTxFunc(ctx, s.DB, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		allowed, err := authorizeProjectTx(ctx, tx, principal, "READ", projectID)
+		allowed, err := authorizeNorthboundTx(ctx, tx, principal, "READ", projectID)
 		if err != nil {
 			return err
 		}
@@ -172,7 +172,7 @@ func (s NorthboundProjectStore) Patch(ctx context.Context, principal project.Pri
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "project/"+projectID); err != nil {
 			return err
 		}
-		allowed, err := authorizeProjectTx(ctx, tx, principal, "UPDATE", projectID)
+		allowed, err := authorizeNorthboundTx(ctx, tx, principal, "UPDATE", projectID)
 		if err != nil {
 			return err
 		}
@@ -240,7 +240,7 @@ func (s NorthboundProjectStore) Delete(ctx context.Context, principal project.Pr
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "project/"+projectID); err != nil {
 			return err
 		}
-		allowed, err := authorizeProjectTx(ctx, tx, principal, "DELETE", projectID)
+		allowed, err := authorizeNorthboundTx(ctx, tx, principal, "DELETE", projectID)
 		if err != nil {
 			return err
 		}
@@ -332,18 +332,6 @@ func (s NorthboundProjectStore) RecordAudit(ctx context.Context, event project.A
 	})
 }
 
-func authorizeProjectTx(ctx context.Context, tx pgx.Tx, principal project.Principal, action, projectID string) (bool, error) {
-	roles := []string{"ADMIN"}
-	if action == "READ" || action == "LIST" {
-		roles = []string{"READER", "WRITER", "ADMIN"}
-	} else if action == "UPDATE" {
-		roles = []string{"WRITER", "ADMIN"}
-	}
-	var allowed bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.northbound_role_bindings_current WHERE principal_issuer=$1 AND principal_subject=$2 AND principal_type=$3 AND lifecycle_state='ACTIVE' AND role=ANY($4) AND ((scope_type='SYSTEM' AND scope_id='') OR (scope_type='PROJECT' AND scope_id=$5)))`, principal.Issuer, principal.Subject, principal.Type, roles, projectID).Scan(&allowed)
-	return allowed, err
-}
-
 func loadProjectTx(ctx context.Context, tx pgx.Tx, projectID string, lock bool) (resource project.Resource, err error) {
 	query := `SELECT project_id,project_name,delete_protection,project_revision,created_at,updated_at FROM kim.projects_current WHERE project_id=$1 AND lifecycle_state='ACTIVE'`
 	if lock {
@@ -354,13 +342,7 @@ func loadProjectTx(ctx context.Context, tx pgx.Tx, projectID string, lock bool) 
 }
 
 func insertProjectAuditTx(ctx context.Context, tx pgx.Tx, principal project.Principal, requestID, action, resourceID string, revision uint64, scopeType, scopeID, result, reason, idempotencyDigest string) error {
-	auditID, err := project.NewID()
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(ctx, `INSERT INTO kim.northbound_audit_evidence(audit_id,request_id,principal_issuer,principal_subject,principal_type,action,resource_type,resource_id,scope_type,scope_id,resource_revision,result,reason_code,idempotency_digest)
-		VALUES($1,$2,$3,$4,$5,$6,'PROJECT',$7,$8,$9,NULLIF($10,0),$11,$12,NULLIF($13,''))`, auditID, requestID, principal.Issuer, principal.Subject, principal.Type, action, resourceID, scopeType, scopeID, revision, result, reason, idempotencyDigest)
-	return err
+	return auditTx(ctx, tx, principal, requestID, action, "PROJECT", resourceID, revision, scopeType, scopeID, result, reason, idempotencyDigest)
 }
 
 func projectDependenciesExistTx(ctx context.Context, tx pgx.Tx, projectID string) (bool, error) {

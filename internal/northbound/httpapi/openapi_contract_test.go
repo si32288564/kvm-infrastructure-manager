@@ -20,7 +20,7 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 		t.Fatalf("OpenAPI version=%v", document["openapi"])
 	}
 	paths := document["paths"].(map[string]any)
-	for path, methods := range map[string][]string{"/projects": {"post", "get"}, "/projects/{project_id}": {"get", "patch", "delete"}} {
+	for path, methods := range map[string][]string{"/projects": {"post", "get"}, "/projects/{project_id}": {"get", "patch", "delete"}, "/flavors": {"post", "get"}, "/flavors/{flavor_id}": {"get", "patch", "delete"}} {
 		entry, ok := paths[path].(map[string]any)
 		if !ok {
 			t.Fatalf("path %s absent", path)
@@ -52,6 +52,18 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 	if resourceMetadata["resourceType"] != "PROJECT" || resourceMetadata["identityField"] != "id" || resourceMetadata["revisionField"] != "revision" || resourceMetadata["mutationMode"] != "SYNCHRONOUS_AUTHORITY_COMMIT" {
 		t.Fatalf("Project lifecycle metadata=%v", resourceMetadata)
 	}
+	flavorSchema := schemas["Flavor"].(map[string]any)
+	flavorMetadata := flavorSchema["x-kim-resource"].(map[string]any)
+	if flavorMetadata["resourceType"] != "FLAVOR" || flavorMetadata["scope"] != "PROJECT" || flavorMetadata["mutationMode"] != "SYNCHRONOUS_AUTHORITY_COMMIT" || flavorMetadata["replacementSemantics"] != "NEW_REVISION_NO_EXISTING_VM_RETROFIT" {
+		t.Fatalf("Flavor lifecycle metadata=%v", flavorMetadata)
+	}
+	desired := schemas["FlavorDesired"].(map[string]any)["properties"].(map[string]any)
+	for _, field := range []string{"projectId", "name", "vcpus", "memoryMiB", "rootDiskGiB", "numaPolicy", "cpuAllocation", "cpuPinning"} {
+		value, ok := desired[field].(map[string]any)
+		if !ok || value["x-kim-field-class"] == nil {
+			t.Fatalf("Flavor desired field %s unclassified", field)
+		}
+	}
 	properties := projectSchema["properties"].(map[string]any)
 	for _, field := range []string{"id", "name", "deleteProtection", "revision", "createdAt", "updatedAt"} {
 		value, ok := properties[field].(map[string]any)
@@ -65,7 +77,7 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 		}
 	}
 	text := string(raw)
-	for _, forbiddenDesired := range []string{"hostId", "pcpu", "pmdCore", "rxq", "vhostSocket", "ovsUuid", "pciBdf", "lvUuid", "materializationGeneration", "recoveryGeneration", "evacuationGeneration"} {
+	for _, forbiddenDesired := range []string{"hostId", "pcpu", "pmdCore", "rxq", "vhostSocket", "ovsUuid", "pciBdf", "lvUuid", "materializationGeneration", "recoveryGeneration", "evacuationGeneration", "failureEpochId", "fencingProofId", "recoveryOperationId"} {
 		if strings.Contains(text, `"`+forbiddenDesired+`"`) {
 			t.Fatalf("physical/internal field %s leaked into Phase 0 contract", forbiddenDesired)
 		}

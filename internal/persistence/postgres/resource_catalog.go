@@ -170,6 +170,7 @@ func RegisterFlavorRevision(ctx context.Context, db TxBeginner, flavor FlavorRev
 				flavor_revision=EXCLUDED.flavor_revision,
 				owner_project_id=EXCLUDED.owner_project_id,
 				lifecycle_state='ACTIVE',
+				deleted_from_revision=NULL,
 				authority_generation=kim.flavors_current.authority_generation+1,
 				updated_at=statement_timestamp()
 			WHERE kim.flavors_current.flavor_revision < EXCLUDED.flavor_revision

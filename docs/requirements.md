@@ -445,6 +445,7 @@
 | IAC-013 | Northbound automation principal は外部 IdP の machine identity を使用し、Project/Site/resource/action scope、read/write/admin separation、credential rotation、audit actor、destructive protectionを評価する。backend/Host Agent credentialを取得しない | Must |
 | IAC-014 | backend-independent Security Policy desired model を selector、direction、protocol/service/port、statefulness、action、priority、logging policy として定義し、raw OVN ACL syntaxを通常の public desired fieldにしない | Must |
 | IAC-015 | PostgreSQL resource authority commitだけで完了するmutationは201/200/204の同期応答を許容し、backend realizationを伴うmutationは202+Operationとする。形式上だけのOperationを作らない | Must |
+| IAC-016 | 複数Northbound resourceはprincipal、error、request ID、ETag/If-Match、cursor、audit、lifecycle metadata規約を共有しつつ、resource固有revision、dependency、delete、consumer semanticsをgeneric handlerへ隠さない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

@@ -10,6 +10,8 @@
 
 Migration 073 adds the qualified Northbound Project reference vertical slice: executable HTTP runtime, OIDC/RBAC, Project revision/current authority, idempotency, audit, CRUD/list, cursor pagination, ETag/If-Match, Problem Details, and OpenAPI lifecycle metadata. This is a cross-cutting delivery surface, not one of the 35 infrastructure/backend capability rows below. Therefore the denominator and scores remain unchanged: Architecture `31.5/35 = 90.0%`、Functional `30/35 = 85.7%`、Production `17.5/35 = 50.0%`. Project does not qualify Provider/UI or any VM/Network/Storage API.
 
+Migration 074 expands the same contract to Project-owned Flavor while preserving Migration 010 shape authority and exact historical revision consumers. Image and Availability Policy were reviewed but remain BLOCKED at their Northbound authority boundaries. This multi-resource expansion is also cross-cutting; the 35-row denominator and all three scores remain unchanged.
+
 ## Executive summary
 
 KIM is an authority-oriented KVM control plane, not a generic virtualization shell. PostgreSQL owns desired state, identity, allocation, admission, execution, recovery, relocation, and cleanup decisions. Agents execute a closed set of typed operations, journal before mutation, and return observations; a command response is never sufficient evidence of convergence.

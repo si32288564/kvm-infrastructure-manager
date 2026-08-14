@@ -54,6 +54,7 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"northbound_role_bindings_current",
 		"northbound_idempotency_evidence",
 		"northbound_audit_evidence",
+		"northbound_flavor_idempotency_evidence",
 		"agent_message_receipts",
 		"agent_resync_checkpoints",
 		"host_inventory_snapshots",

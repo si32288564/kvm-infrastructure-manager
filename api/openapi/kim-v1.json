@@ -60,6 +60,25 @@
           "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "404": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "412": {"$ref": "#/components/responses/Problem"}, "503": {"$ref": "#/components/responses/Problem"}
         }
       }
+    },
+    "/flavors": {
+      "post": {
+        "operationId": "createFlavor",
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}, {"$ref": "#/components/parameters/RequestID"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FlavorDesired"}}}},
+        "responses": {"201": {"description": "Flavor revision committed synchronously", "headers": {"ETag": {"$ref": "#/components/headers/ETag"}, "Location": {"schema": {"type": "string"}}, "X-Request-ID": {"$ref": "#/components/headers/RequestID"}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Flavor"}}}}, "400": {"$ref": "#/components/responses/Problem"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}, "409": {"$ref": "#/components/responses/Problem"}, "413": {"$ref": "#/components/responses/Problem"}}
+      },
+      "get": {
+        "operationId": "listFlavors",
+        "parameters": [{"name":"projectId","in":"query","schema":{"$ref":"#/components/schemas/ProjectID"}}, {"name":"limit","in":"query","schema":{"type":"integer","minimum":1,"maximum":100,"default":50}}, {"name":"cursor","in":"query","schema":{"type":"string","maxLength":128}}, {"$ref":"#/components/parameters/RequestID"}],
+        "responses": {"200":{"description":"Authorized stable Flavor page","content":{"application/json":{"schema":{"$ref":"#/components/schemas/FlavorPage"}}}},"400":{"$ref":"#/components/responses/Problem"},"401":{"$ref":"#/components/responses/Problem"}}
+      }
+    },
+    "/flavors/{flavor_id}": {
+      "parameters": [{"name":"flavor_id","in":"path","required":true,"schema":{"$ref":"#/components/schemas/FlavorID"}}, {"$ref":"#/components/parameters/RequestID"}],
+      "get": {"operationId":"getFlavor","responses":{"200":{"description":"Current Flavor desired projection","headers":{"ETag":{"$ref":"#/components/headers/ETag"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Flavor"}}}},"401":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"}}},
+      "patch": {"operationId":"updateFlavor","parameters":[{"$ref":"#/components/parameters/IfMatch"}],"requestBody":{"required":true,"content":{"application/merge-patch+json":{"schema":{"$ref":"#/components/schemas/FlavorPatch"}},"application/json":{"schema":{"$ref":"#/components/schemas/FlavorPatch"}}}},"responses":{"200":{"description":"New immutable Flavor revision committed","headers":{"ETag":{"$ref":"#/components/headers/ETag"}},"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Flavor"}}}},"400":{"$ref":"#/components/responses/Problem"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/Problem"}}},
+      "delete": {"operationId":"deleteFlavor","parameters":[{"$ref":"#/components/parameters/IfMatch"}],"responses":{"204":{"description":"Unreferenced Flavor tombstoned synchronously"},"403":{"$ref":"#/components/responses/Problem"},"404":{"$ref":"#/components/responses/Problem"},"409":{"$ref":"#/components/responses/Problem"},"412":{"$ref":"#/components/responses/Problem"}}}
     }
   },
   "components": {
@@ -88,6 +107,7 @@
     },
     "schemas": {
       "ProjectID": {"type": "string", "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", "x-kim-field-class": ["COMPUTED", "IMMUTABLE"]},
+      "FlavorID": {"type":"string","format":"uuid","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$","x-kim-field-class":["COMPUTED","IMMUTABLE"]},
       "Project": {
         "type": "object",
         "additionalProperties": false,
@@ -100,7 +120,7 @@
           "createdAt": {"type": "string", "format": "date-time", "readOnly": true, "x-kim-field-class": ["COMPUTED"]},
           "updatedAt": {"type": "string", "format": "date-time", "readOnly": true, "x-kim-field-class": ["COMPUTED"]}
         },
-        "x-kim-resource": {"resourceType": "PROJECT", "identityField": "id", "revisionField": "revision", "scope": "SYSTEM", "importIdentifierFormat": "project/<uuid>", "mutationMode": "SYNCHRONOUS_AUTHORITY_COMMIT", "deleteProtection": true, "physicalIncarnationFields": []}
+        "x-kim-resource": {"resourceType": "PROJECT", "identityField": "id", "revisionField": "revision", "scope": "SYSTEM", "importIdentifierFormat": "project/<uuid>", "mutationMode": "SYNCHRONOUS_AUTHORITY_COMMIT", "deleteSemantics":"PROTECTED_DEPENDENCY_FENCED_TOMBSTONE", "replacementSemantics":"IN_PLACE_NEW_REVISION", "sensitiveFields":[], "internalOnlyFields":[], "physicalIncarnationFields": []}
       },
       "ProjectCreate": {
         "type": "object", "additionalProperties": false, "required": ["name"],
@@ -114,6 +134,45 @@
         "type": "object", "additionalProperties": false, "required": ["items"],
         "properties": {"items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/Project"}}, "nextCursor": {"type": "string"}}
       },
+      "FlavorDesired": {
+        "type":"object","additionalProperties":false,"required":["projectId","name","vcpus","memoryMiB","rootDiskGiB","numaPolicy","cpuAllocation","cpuPinning"],
+        "properties": {
+          "projectId":{"$ref":"#/components/schemas/ProjectID","x-kim-field-class":["REQUIRED_DESIRED","IMMUTABLE"]},
+          "name":{"type":"string","minLength":1,"maxLength":255,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "vcpus":{"type":"integer","minimum":1,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "memoryMiB":{"type":"integer","minimum":1,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "rootDiskGiB":{"type":"integer","minimum":1,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "numaPolicy":{"type":"string","enum":["NONE","REQUIRED"],"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "numaNodes":{"type":["integer","null"],"minimum":1,"x-kim-field-class":["OPTIONAL_DESIRED"]},
+          "hugePageSizeKiB":{"type":["integer","null"],"minimum":1,"x-kim-field-class":["OPTIONAL_DESIRED"]},
+          "cpuAllocation":{"type":"string","enum":["SHARED","DEDICATED"],"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "cpuPinning":{"type":"boolean","x-kim-field-class":["REQUIRED_DESIRED"]},
+          "deleteProtection":{"type":"boolean","default":false,"x-kim-field-class":["OPTIONAL_DESIRED"]}
+        }
+      },
+      "FlavorPatch": {"type":"object","additionalProperties":false,"minProperties":1,"properties":{"name":{"type":"string","minLength":1,"maxLength":255},"vcpus":{"type":"integer","minimum":1},"memoryMiB":{"type":"integer","minimum":1},"rootDiskGiB":{"type":"integer","minimum":1},"numaPolicy":{"type":"string","enum":["NONE","REQUIRED"]},"numaNodes":{"type":["integer","null"],"minimum":1},"hugePageSizeKiB":{"type":["integer","null"],"minimum":1},"cpuAllocation":{"type":"string","enum":["SHARED","DEDICATED"]},"cpuPinning":{"type":"boolean"},"deleteProtection":{"type":"boolean"}},"x-kim-patch-semantics":"TYPED_PARTIAL_ABSENT_UNCHANGED_NULL_ONLY_FOR_OPTIONAL"},
+      "Flavor": {
+        "type":"object","additionalProperties":false,"required":["id","projectId","name","vcpus","memoryMiB","rootDiskGiB","numaPolicy","cpuAllocation","cpuPinning","deleteProtection","revision","createdAt","updatedAt"],
+        "properties": {
+          "id":{"$ref":"#/components/schemas/FlavorID"},
+          "projectId":{"$ref":"#/components/schemas/ProjectID","x-kim-field-class":["REQUIRED_DESIRED","IMMUTABLE"]},
+          "name":{"type":"string","minLength":1,"maxLength":255,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "vcpus":{"type":"integer","minimum":1,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "memoryMiB":{"type":"integer","minimum":1,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "rootDiskGiB":{"type":"integer","minimum":1,"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "numaPolicy":{"type":"string","enum":["NONE","REQUIRED"],"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "numaNodes":{"type":["integer","null"],"minimum":1,"x-kim-field-class":["OPTIONAL_DESIRED"]},
+          "hugePageSizeKiB":{"type":["integer","null"],"minimum":1,"x-kim-field-class":["OPTIONAL_DESIRED"]},
+          "cpuAllocation":{"type":"string","enum":["SHARED","DEDICATED"],"x-kim-field-class":["REQUIRED_DESIRED"]},
+          "cpuPinning":{"type":"boolean","x-kim-field-class":["REQUIRED_DESIRED"]},
+          "deleteProtection":{"type":"boolean","x-kim-field-class":["OPTIONAL_DESIRED"]},
+          "revision":{"type":"integer","minimum":1,"readOnly":true,"x-kim-field-class":["COMPUTED"]},
+          "createdAt":{"type":"string","format":"date-time","readOnly":true,"x-kim-field-class":["COMPUTED"]},
+          "updatedAt":{"type":"string","format":"date-time","readOnly":true,"x-kim-field-class":["COMPUTED"]}
+        },
+        "x-kim-resource":{"resourceType":"FLAVOR","identityField":"id","revisionField":"revision","scope":"PROJECT","importIdentifierFormat":"flavor/<uuid>","mutationMode":"SYNCHRONOUS_AUTHORITY_COMMIT","deleteSemantics":"PROTECTED_DEPENDENCY_FENCED_TOMBSTONE","replacementSemantics":"NEW_REVISION_NO_EXISTING_VM_RETROFIT","sensitiveFields":[],"internalOnlyFields":["shapeDigest","authorityGeneration","extraSpecs"],"physicalIncarnationFields":[]}
+      },
+      "FlavorPage":{"type":"object","additionalProperties":false,"required":["items"],"properties":{"items":{"type":"array","maxItems":100,"items":{"$ref":"#/components/schemas/Flavor"}},"nextCursor":{"type":"string"}}},
       "Problem": {
         "type": "object", "additionalProperties": false, "required": ["type", "title", "status", "code", "detail", "requestId", "retryable"],
         "properties": {
