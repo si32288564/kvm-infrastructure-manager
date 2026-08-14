@@ -529,6 +529,11 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-046 | non-empty Network Recovery が同一Port/MAC/IP、source quiescence、PortBindingHandoff、destination NB/SB/OVS evidenceを同一PostgreSQL historyへ固定し、TerminalだけがRecovery成功を確定する |
 | AT-NET-047 | exact Port generation/Binding generation/source Hostからgeneric OVN `UNBIND` workを発行し、typed adapterがlogical PortとKIM ownership markerを保持したままrequested chassisだけを解除する。mutation response lossをgeneration 1 `DISPATCH_UNKNOWN`へ固定し、generation 2 `READ_BACK_FIRST`がNB/SB/source OVSを観測して一つの`VERIFIED` retirementへ収束する |
 | AT-NET-048 | 同一Port/MAC/IPを保った通常`PortBindingHandoff`で`1/1 → 2/2 → 3/3`を進め、`1/1`と`2/2`のretirement evidence/current projectionを独立保持する。R1 replayは元workへ収束し、R1 quiescenceはR2 handoffをauthorizeせず、latest retirement/Handoff projectionだけが後続generationを指す |
+| AT-NET-049 | logical Networkを作成/replay/updateし、stable ID、新immutable revision、Project ownership、MTU/name変更、backend UUID非desired性、evidence UPDATE拒否を検証する |
+| AT-NET-050 | AUTO VNIのserializable concurrent allocation、EXPLICIT collision、release pending中のreuse拒否、absence terminal後のABA reuse、old release replay fencingを検証する |
+| AT-NET-051 | standalone typed Logical Switch create/update/retireでexact ownership marker、response-loss後read-back、partial/foreign object拒否、backend incarnation replacement、absence terminalを検証する |
+| AT-NET-052 | new-authority NetworkがPENDING中はPlacement eligibilityを持たず、exact VERIFIED terminal後だけconsumer条件を満たす |
+| AT-NET-053 | legacy foundation adapterがexact new NetworkへSubnet projectionを追加してもNetwork/segment sourceを変更せず、Port planが同じLogical Switch identity/Network markerを再利用する |
 
 ## 18. Performance Tests
 

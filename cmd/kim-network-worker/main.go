@@ -136,7 +136,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}()
 	worker := ovnruntime.Worker{
-		Store: ovnruntime.PostgresWorkStore{DB: pool, ReleaseBindingGeneration: releaseBinding.BindingGeneration},
+		Store:        ovnruntime.PostgresWorkStore{DB: pool, ReleaseBindingGeneration: releaseBinding.BindingGeneration},
+		NetworkStore: ovnruntime.PostgresNetworkWorkStore{DB: pool},
 		Adapter: ovnadapter.Runtime{Config: ovnadapter.RuntimeConfig{
 			NBDatabase: *nbDatabase, SBDatabase: *sbDatabase, NBCTL: *nbctl, SBCTL: *sbctl, OVSCTL: *ovsctl,
 			PrivateKeyPath: *privateKey, CertificatePath: *certificate, CACertPath: *caCert,

@@ -37,6 +37,10 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 			 mac.mac_address::text,host(ip.ip_address)::text
 			FROM kim.network_ports_current port
 			JOIN kim.networks_current network ON network.network_id=port.network_id AND network.lifecycle_state='ACTIVE'
+			 AND (network.authority_source='LEGACY_FOUNDATION' OR EXISTS(
+			   SELECT 1 FROM kim.network_realizations_current realization
+			   WHERE realization.network_id=network.network_id AND realization.network_revision=network.network_revision
+			     AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
 			JOIN kim.port_bindings_current binding ON binding.port_id=port.port_id
 			 AND binding.binding_type='OVS' AND binding.binding_state IN ('RESERVED','BINDING','VERIFYING','ACTIVE')
 			JOIN kim.network_segment_claims_current segment ON segment.segment_claim_id=binding.segment_claim_id AND segment.claim_state='ACTIVE'

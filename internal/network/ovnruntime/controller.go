@@ -108,6 +108,7 @@ func (store PostgresWorkStore) CompleteRetirement(ctx context.Context, claim pos
 // assignment; the process and its transport are not authority.
 type Worker struct {
 	Store                 WorkStore
+	NetworkStore          NetworkWorkStore
 	Adapter               WorkAdapter
 	Owner                 string
 	BatchLimit            int
@@ -128,11 +129,18 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 	if worker.Store == nil || worker.Adapter == nil || worker.Owner == "" || worker.BatchLimit < 1 || worker.BatchLimit > 100 || worker.ClaimLease <= 0 || maximumLifetime < worker.ClaimLease || maximumLifetime > postgres.MaxOVNRuntimeClaimLifetime || worker.ClaimRenewInterval < 0 || (worker.ClaimRenewInterval > 0 && (worker.ClaimRenewInterval >= worker.ClaimLease || maximumLifetime <= worker.ClaimLease)) || len(worker.AdapterArtifactDigest) != 64 || digestErr != nil {
 		return 0, errors.New("complete bounded OVN runtime worker configuration is required")
 	}
+	networkCompleted, networkErr := worker.runNetworkOnce(ctx)
+	if networkErr != nil {
+		var itemFailure *itemLocalError
+		if !errors.As(networkErr, &itemFailure) {
+			return boolToInt(networkCompleted), networkErr
+		}
+	}
 	claimStarted := time.Now()
 	work, err := worker.Store.Claim(ctx, postgres.OVNRuntimeClaimRequest{Owner: worker.Owner, Limit: worker.BatchLimit, Lease: worker.ClaimLease, MaximumLifetime: maximumLifetime})
 	worker.Metrics.recordClaim(work, time.Since(claimStarted), err)
 	if err != nil {
-		return 0, err
+		return boolToInt(networkCompleted), errors.Join(networkErr, err)
 	}
 	// A claimed batch is also the local concurrency bound. Starting every item
 	// immediately prevents a serial local queue from consuming claim lifetime
@@ -150,8 +158,16 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 			outcomes <- itemOutcome{completed: completed, err: err}
 		}()
 	}
-	completed := 0
+	completed := boolToInt(networkCompleted)
 	var itemErrors, fatalErrors error
+	if networkErr != nil {
+		var itemFailure *itemLocalError
+		if errors.As(networkErr, &itemFailure) {
+			itemErrors = errors.Join(itemErrors, networkErr)
+		} else {
+			fatalErrors = errors.Join(fatalErrors, networkErr)
+		}
+	}
 	for range work {
 		outcome := <-outcomes
 		if outcome.completed {
@@ -171,6 +187,13 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 		return completed, nil
 	}
 	return completed, &RunOnceError{ItemErrors: itemErrors, FatalError: fatalErrors}
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (worker Worker) processWork(ctx context.Context, item postgres.OVNRuntimeWork) (bool, error) {

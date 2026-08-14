@@ -763,6 +763,10 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		JOIN kim.host_network_mappings_current mapping
 		  ON mapping.host_id=$2 AND mapping.segment_claim_id=segment.segment_claim_id
 		WHERE network.network_id=$5 AND network.project_id=$1
+		  AND (network.authority_source='LEGACY_FOUNDATION' OR EXISTS(
+		    SELECT 1 FROM kim.network_realizations_current realization
+		    WHERE realization.network_id=network.network_id AND realization.network_revision=network.network_revision
+		      AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
 	`, projectID, hostID, required.PortID, workloadID, required.NetworkID, required.SubnetID,
 		required.SegmentClaimID, required.IPAddress, required.MACAddress,
 		required.BindingType, allocationSource, maximumAutomaticIPv4PoolSize, required.HandoffID,
@@ -824,6 +828,10 @@ func lockNetworkAuthorityRows(ctx context.Context, tx pgx.Tx, hostID string, req
 			JOIN kim.host_network_mappings_current mapping
 			  ON mapping.host_id=$4 AND mapping.segment_claim_id=segment.segment_claim_id
 			WHERE network.network_id=$1
+			  AND (network.authority_source='LEGACY_FOUNDATION' OR EXISTS(
+			    SELECT 1 FROM kim.network_realizations_current realization
+			    WHERE realization.network_id=network.network_id AND realization.network_revision=network.network_revision
+			      AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
 			FOR SHARE OF network, subnet, segment, mapping
 		`, required.NetworkID, required.SubnetID, required.SegmentClaimID, hostID).Scan(&networkID); err != nil {
 			return err

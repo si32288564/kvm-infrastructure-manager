@@ -207,7 +207,7 @@ func TestNorthboundProjectHTTPPostgreSQLIntegration(t *testing.T) {
 	response, _ = integrationRequest(client, "DELETE", server.URL+"/api/v1/projects/"+protected.ID, "", map[string]string{"X-Test-Principal": "human", "If-Match": `"1"`})
 	assertIntegrationProblem(t, response, 409, "DELETE_PROTECTED")
 	dependent := createIntegrationProject(t, client, server.URL, "human", "dependent-"+suffix, "dependent-key-"+suffix, false)
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.networks_current(network_id,project_id,network_generation,lifecycle_state,mtu) VALUES($1,$2,1,'ACTIVE',1500)`, `dependent-network-`+suffix, dependent.ID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.networks_current(network_id,project_id,network_generation,lifecycle_state,mtu,network_revision,network_name,network_profile,segment_policy,delete_protection,desired_digest,authority_source,created_at) VALUES($1,$2,1,'ACTIVE',1500,1,$1,'LEGACY_FOUNDATION','LEGACY_EXPLICIT',false,$3,'LEGACY_FOUNDATION',statement_timestamp())`, `dependent-network-`+suffix, dependent.ID, digestBytes([]byte("dependent-network-"+suffix))); err != nil {
 		t.Fatal(err)
 	}
 	response, _ = integrationRequest(client, "DELETE", server.URL+"/api/v1/projects/"+dependent.ID, "", map[string]string{"X-Test-Principal": "human", "If-Match": `"1"`})

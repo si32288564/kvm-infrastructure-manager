@@ -330,6 +330,11 @@
 | NET-054 | hard drain は process の非正常終了として観測可能にし、current claim の side effect 有無を終了コードから推測しない。deadline 超過または 2 回目の signal 後も current claim を即時再利用せず、DB expiry、immutable `DISPATCH_UNKNOWN`、successor generation の `READ_BACK_FIRST` を経て収束する | Must |
 | NET-055 | logical Port/MAC/IP ownershipを保持したHost binding retirementをclosed typed `UNBIND` workとして実行し、exact Port/Binding/Host generationとKIM ownership markerを再検証する。NB LSP ownership維持、source SB binding inactive、source OVS iface-id absentのimmutable evidenceが揃うまで`VERIFIED`にせず、response lossは`DISPATCH_UNKNOWN → READ_BACK_FIRST`で解決する | Must |
 | NET-056 | 同一logical PortはHandoffごとのexact `(Port generation, Binding generation)` retirement projectionを独立して保持し、strictly-later incarnationの`UNBIND`を許可する。historical operation replayは元のwork/evidenceへ収束し、旧retirement/quiescenceを新incarnationへ流用せず、latest projectionをhistorical authorityの代用にしない | Must |
+| NET-057 | logical Network desiredをstable IDとimmutable revision/current projectionで管理し、OVN UUID、Host、Chassis、backend generationをdesired fieldにしない | Must |
+| NET-058 | VNI/VLANをclosed KIM poolからallocateし、current `(pool, segment)` uniqueness、immutable decision、replay、release historyを保持する | Must |
+| NET-059 | standalone OVN Network realizationをtyped Operation/claim/attempt/observation/terminalとして管理し、apply responseをVERIFIEDの根拠にしない | Must |
+| NET-060 | Network retirementはdelete protectionとSubnet/Port dependencyを検証し、exact owned Logical Switch absence terminal後だけsegmentをreleaseする | Must |
+| NET-061 | PlacementとPort intentはnew-authority Networkのexact current VERIFIED realizationを要求し、legacy adapterによるNetwork/segment authority上書きを拒否する | Must |
 
 ### 2.13 NFV Dataplane
 

@@ -30,7 +30,7 @@
 
 | 領域 | Current repository | Proposed target | 移行時の扱い |
 |---|---|---|---|
-| logical Network authority | Network/Subnet/Port、IP/MAC、Segment、Binding generation を PostgreSQL で管理 | 全 profile で同じ authority を継続 | 維持 |
+| logical Network authority | Migration 077でNetwork desired revision、KIM VNI/VLAN allocation、standalone OVN Logical Switch terminalを独立実装。Subnet/Portは既存foundation/Admission consumer | 全 profile で同じlogical authorityを継続しSubnet/Portを順に分離 | Network internal contract-ready、public APIは未実装 |
 | OVN | Logical Switch/Port、NB/SB、Chassis/Encap、logical flow、Geneve の typed realization/observation が存在 | Logical Router、distributed L2/L3、ACL、DHCP、route exchange まで拡張 | additive |
 | standard datapath | `OVS` Binding、kernel OVS、libvirt NIC、post-boot OVS observation | `STANDARD` profile として formalize | current path を profile 化 |
 | high-performance datapath | ADR/Requirements のみ。active schema/backend に PMD、DPDK socket memory、RxQ、vhost-user claim はない | `HIGH_PERFORMANCE` profile、OVS-DPDK、vhost-user、exact CPU/NUMA/HugePage/PMD claims | 未実装。fail closed |

@@ -217,6 +217,11 @@
 | INV-NET-040 | Recovery は logical Port、MAC、IP Claimを再作成せず、exact source quiescence evidence と immutable PortBindingHandoff により Port/Binding generationだけを進める。destination power/terminalはcurrent Handoff、NB/SB、exact OVS iface-id/dataplane evidence setを再検証し、source/destination dual-activeまたはstale/ABA evidenceを拒否する | AT-NET-046, FI-NET-032 |
 | INV-NET-041 | generic Port binding retirementはlogical Portをdeleteせず、current exact binding incarnationとstable KIM ownershipを持つPostgreSQL workだけがrequested chassisを解除できる。Command/adapter successだけをUnbound Proofにせず、NB ownership、source SB inactivity、source OVS absenceの全read-backを要求し、同一generationのbinding revivalは旧Proofを`STALE`にする | AT-NET-047, FI-NET-033 |
 | INV-NET-042 | retirement current authorityはlogical Port単位で上書きせずexact `(port_id, port_generation, binding_generation)` incarnation単位に保持する。Handoffだけがgenerationを単調増加させ、旧operation replayは元incarnationへ収束し、旧Unbound/Quiescence Proofは後続incarnationをauthorizeしない。同一incarnationのABAだけを`STALE`にし、他incarnationのhistoryを変更しない | AT-NET-048, FI-NET-034 |
+| INV-NET-043 | Network logical ID/revision、Segment allocation、OVN realization identity/generationを分離し、backend UUID変更をdesired driftにしない | AT-NET-049 |
+| INV-NET-044 | Network desired mutationはimmutable revisionを追記しcurrent projectionだけを進め、history UPDATEを拒否する | AT-NET-049 |
+| INV-NET-045 | current Segment allocationはpool/valueを一意にし、`RELEASE_PENDING`を再利用せずexact absence terminalだけがreleaseする | AT-NET-050, FI-NET-035 |
+| INV-NET-046 | standalone Network Operationはclosed OVN Logical Switch planとexact marker read-backだけをVERIFIED/ABSENTへ昇格し、response loss/expiryをside effect不在にしない | AT-NET-051, FI-NET-036 |
+| INV-NET-047 | new-authority NetworkをconsumeするPlacement/Portはcurrent VERIFIED realizationを要求し、legacy producerはNetwork/Segment authorityを上書きしない | AT-NET-052, AT-NET-053 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

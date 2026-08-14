@@ -2,9 +2,9 @@
 
 ## Northbound Phase 2 authority boundary (2026-08-14)
 
-Current Network/Subnet tables are Placement foundation, not standalone Northbound resources. `UpsertNetworkFoundation` commits Network, Subnet and Segment Claim together and performs no backend mutation. Current typed OVN convergence is Port-scoped and requires exact Admission, Host/Chassis, Segment, Mapping and Binding generations. Therefore Network/Subnet public CRUD and Terraform resources remain BLOCKED until independent immutable revision/delete/allocation producers and standalone typed backend verification exist. Port remains logical-identity-safe across Recovery/EVACUATE, but creation is Final-Admission/VM-binding dependent; Host/binding/OVN/BDF incarnations must never become desired state. See [Phase 2 Resource Contract Review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md).
+Migration 077 closes the internal Network authority gap. `networks_current` is the single current projection over immutable desired revisions; KIM owns VNI/VLAN allocation and release evidence; standalone typed OVN Logical Switch Operations converge through read-back to `VERIFIED` or `ABSENT`. `UpsertNetworkFoundation` is now an explicit legacy adapter and cannot overwrite a `NETWORK_RESOURCE` row. New-authority Networks are usable by Placement and Port intent only while their exact current realization is verified. Public Network CRUD and Terraform remain intentionally absent, so `NORTHBOUND_NETWORK_RESOURCE_READINESS = CONTRACT_READY`, not endpoint PASS. Subnet, Port, and Volume remain blocked on their independent resource boundaries. See [Phase 2 Resource Contract Review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md) and [ADR-0031](adr/0031-independent-network-resource-segment-and-realization-authority.md).
 
-- 状態: Baseline
+- 状態: Network internal authority implemented; public contract pending
 - 更新日: 2026-08-09
 
 標準 OVN/kernel OVS、高性能 OVS-DPDK/vhost-user、Direct-I/O、Host FRR/Kubernetes routing integration の統合 target と current/proposed 差分は [Network and Dataplane Target Architecture](network-dataplane-target-architecture.md) を参照します。本書の current Network authority と layered realization を置き換えません。
@@ -135,6 +135,8 @@ SegmentClaim
 - Segment ClaimはNetwork lifecycleと同じtransactionで確定し、unknown/stale external mappingやHost reachabilityをeligibleとみなしません。
 - Network delete後もPort/Router/Gateway/NAT/DHCP referenceとOVN/dataplane absenceを確認するまでVLAN/VNIを再利用しません。
 
+Migration 077 の current implementation は `STANDARD_OVERLAY/AUTO` を administrator-owned `standard-overlay` VNI pool、`PROVIDER_VLAN/EXPLICIT` を closed `provider-vlan` poolへ割り当てます。current allocation の `(pool, segment)` uniqueness が同時利用を拒否し、immutable decision historyはrelease後も保持します。retirement request は allocation を `RELEASE_PENDING` にしますが削除せず、exact standalone OVN absence terminalだけがrelease evidenceを作りcurrent allocationを外します。したがってAのdelayed cleanupは、同じ値を後に得たBの別Network/allocation identityを変更できません。
+
 ## 6. Port Binding and Placement
 
 Port BindingはPort identity/allocationと実Host接続を分離します。
@@ -223,6 +225,12 @@ renewal failure または response loss を観測した worker は adapter opera
 Port intent、NB observation、SB observation はそれぞれ immutable evidence として保持し、current OVN projection は current Network/Port/Segment/Host mapping/Binding generation との一致から再構築します。apply response を失っても stable KIM ownership marker、intent generation、object digest を使って同じ NB object を read-back し、反対 operation を発行しません。NB/SB 収束は Host-side OVS dataplane、end-to-end reachability、Guest readiness を暗黙に進めません。
 
 KIM所有markerのないobject、unknown generation、外部管理objectを自動adopt/deleteしません。intent driftはowned objectだけをtyped reconcileし、ownership conflictは`CONFLICTING/QUARANTINED`にします。
+
+### 7.1 Standalone Network realization
+
+Network Operation はPort planから独立した `kim.network-intent.ovn-network/v1` closed planです。payloadはNetwork/Project revision、allocation identity/generation、VNI/VLAN、realization generation、`PRESENT | ABSENT`のみを authority から生成し、caller supplied OVN command、external ID、UUID、DB endpoint、Host、Chassisを受けません。Logical Switch名はNetwork IDから決定的に生成します。
+
+同じNetwork/allocationのdesired revision更新はowned Logical Switchを新markerへ進め、read-backにより新backend incarnationを記録します。backend UUIDが変わってもlogical ID、segment allocation、desired stateは変わりません。Port planは同じNetwork markerを期待するためLogical Switchを複製せず、Port固有digestはLogical Switch Portだけに保持します。
 
 ## 8. Connectivity Status and UNKNOWN Semantics
 

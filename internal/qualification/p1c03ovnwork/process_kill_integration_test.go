@@ -162,8 +162,8 @@ func seedOVNAuthority(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suf
 		storage_requirements,storage_requirements_digest,decision_state,explanation
 	) VALUES($1,$2,$3,$4,'project',$5,$6,$7,1,'fixture-policy',1,1,1,$8,1,$9,1,$10,1,1,1,1,
 		'[]',$11,'[]',$11,'[]',$11,'ACCEPTED','{}')`, admissionID, requestID, digest("request"), digest("evaluation"), "workload-"+suffix, hostID, poolID, imageID, flavorID, digest("shape"), emptyDigest)
-	batch.Queue(`INSERT INTO kim.networks_current(network_id,project_id,network_generation,lifecycle_state,mtu)
-		VALUES($1,'project',1,'ACTIVE',1500)`, networkID)
+	batch.Queue(`INSERT INTO kim.networks_current(network_id,project_id,network_generation,lifecycle_state,mtu,network_revision,network_name,network_profile,segment_policy,delete_protection,desired_digest,authority_source,created_at)
+		VALUES($1,'project',1,'ACTIVE',1500,1,$1,'LEGACY_FOUNDATION','LEGACY_EXPLICIT',false,$2,'LEGACY_FOUNDATION',statement_timestamp())`, networkID, digest("legacy-network-"+networkID))
 	batch.Queue(`INSERT INTO kim.network_subnets_current(
 		subnet_id,network_id,subnet_generation,lifecycle_state,cidr,allocation_start,allocation_end
 	) VALUES($1,$2,1,'ACTIVE','192.0.2.0/24','192.0.2.10','192.0.2.200')`, subnetID, networkID)

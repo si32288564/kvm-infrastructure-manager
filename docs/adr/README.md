@@ -46,3 +46,5 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0027: Generic CleanupからLocal LVM source capacityを安全にreclaimする](0027-generic-local-lvm-source-cleanup-authority.md)
 - [ADR-0028: Local LVM transportを通常Host Agent sessionへbindする](0028-local-lvm-transport-agent-runtime.md)
 - [ADR-0029: Northbound resource mutation の完了境界を authority で分ける](0029-northbound-resource-mutation-completion-boundary.md)
+- [ADR-0030: Image logical revision と artifact ingestion Operation を分離する](0030-image-logical-resource-and-artifact-operation-boundary.md)
+- [ADR-0031: Network desired、segment allocation、backend realization authority を分離する](0031-independent-network-resource-segment-and-realization-authority.md)

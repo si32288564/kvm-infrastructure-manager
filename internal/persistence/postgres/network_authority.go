@@ -47,21 +47,30 @@ func UpsertNetworkFoundation(ctx context.Context, db TxBeginner, foundation Netw
 		}
 		networkTag, err := tx.Exec(ctx, `
 			INSERT INTO kim.networks_current (
-				network_id, project_id, network_generation, lifecycle_state, mtu
-			) VALUES ($1,$2,$3,$4,$5)
+				network_id, project_id, network_generation, lifecycle_state, mtu,
+				network_revision,network_name,network_profile,segment_policy,delete_protection,
+				desired_digest,authority_source,created_at
+			) VALUES ($1,$2,$3,$4,$5,$3,$1,'LEGACY_FOUNDATION','LEGACY_EXPLICIT',false,
+				 encode(sha256(convert_to($1||':'||($3::bigint)::text||':'||($5::integer)::text,'UTF8')),'hex'),'LEGACY_FOUNDATION',statement_timestamp())
 			ON CONFLICT (network_id) DO UPDATE SET
 				project_id=EXCLUDED.project_id,
 				network_generation=EXCLUDED.network_generation,
 				lifecycle_state=EXCLUDED.lifecycle_state,
 				mtu=EXCLUDED.mtu,
 				updated_at=statement_timestamp()
-			WHERE kim.networks_current.network_generation < EXCLUDED.network_generation
+			WHERE kim.networks_current.authority_source='LEGACY_FOUNDATION'
+			  AND kim.networks_current.network_generation < EXCLUDED.network_generation
 		`, foundation.NetworkID, foundation.ProjectID, foundation.NetworkGeneration, foundation.NetworkState, foundation.MTU)
 		if err != nil {
 			return err
 		}
 		if networkTag.RowsAffected() != 1 {
-			return ErrPlacementConflict
+			var compatible bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.networks_current
+			 WHERE network_id=$1 AND project_id=$2 AND network_generation=$3 AND lifecycle_state=$4 AND mtu=$5)`,
+				foundation.NetworkID, foundation.ProjectID, foundation.NetworkGeneration, foundation.NetworkState, foundation.MTU).Scan(&compatible); err != nil || !compatible {
+				return ErrPlacementConflict
+			}
 		}
 		subnetTag, err := tx.Exec(ctx, `
 			INSERT INTO kim.network_subnets_current (
@@ -109,7 +118,10 @@ func UpsertNetworkFoundation(ctx context.Context, db TxBeginner, foundation Netw
 			return err
 		}
 		if tag.RowsAffected() != 1 {
-			return ErrPlacementConflict
+			var compatible bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_segment_claims_current WHERE segment_claim_id=$1 AND network_id=$2 AND segment_generation=$3 AND segment_type=$4 AND scope_id=$5 AND segment_id=$6 AND provider_mapping_revision=$7 AND claim_state=$8)`, foundation.SegmentClaimID, foundation.NetworkID, foundation.SegmentGeneration, foundation.SegmentType, foundation.ScopeID, foundation.SegmentID, foundation.ProviderMappingRevision, foundation.SegmentState).Scan(&compatible); err != nil || !compatible {
+				return ErrPlacementConflict
+			}
 		}
 		return nil
 	})
