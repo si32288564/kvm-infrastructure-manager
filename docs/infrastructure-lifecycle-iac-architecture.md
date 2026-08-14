@@ -177,7 +177,7 @@ KIM-owned runtime の例は exact pCPU/NUMA/HugePages/PMD/RxQ claim、vhost-user
 
 ### 6.1 Provider と module の分離
 
-将来の `terraform-provider-kim` は versioned KIM Resource API の thin lifecycle client とします。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。
+`terraform-provider-kim/` Phase 1 は versioned KIM Resource API の thin lifecycle clientとして実装済みです。Project、Flavor、closed SYSTEM Availability Policy、Imageだけをexperimental resourceとして公開します。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。Network、Volume、VM等はResource Contract未完了のため未実装です。
 
 Terraform module は organization の標準 VM、network、storage、availability、datapath profile の組み合わせを提供できます。module は physical Host identity、LV UUID、PCI BDF 等を入力に要求せず、Provider の lifecycle rule を上書きしません。
 
@@ -213,6 +213,12 @@ UI または別 client が desired fields を変更した場合は実 drift で�
 Import は KIM stable resource ID を受け、Read API から desired/computed fields を再構築します。backend-only object を KIM resource として暗黙 adopt しません。
 
 immutable field の変更が replacement を必要とするか、in-place asynchronous transition を許すかは KIM contract が宣言します。Provider の `ForceNew` 相当 rule を手書きで発明しません。replacement は create-before-destroy、delete protection、dependent resource、capacity double-booking の可否を resource ごとに contract 化します。
+
+### 6.6 Phase 1 runtime profile
+
+Phase 1 ProviderはTerraform Plugin Framework v1.19.0を使用し、Bearer automation token、TLS trust、request timeout、Problem Details、ETag/If-Match、Create invocation-scoped idempotency、authorized refresh、contract importを共通clientへ集約します。Imageだけはmetadata commit後にseparate ingestion Operationを作り、`UNKNOWN`をnon-terminalとしてverified `SUCCEEDED`までbounded pollします。Operation/Attempt/evidence identityはresource stateへ保存しません。
+
+Terraform CLI acceptanceはlocal filesystem mirrorからprovider binaryをロードし、実HTTP KIM handlerとPostgreSQL 17へ接続します。Project/Flavor/Availability/Imageのcreate、no-op、new revision update、remote drift、stale ETag fail-closed、import no-op、destroy、Image再ingestion、physical-state非漏洩を検証します。これはPhase 1 logical resource acceptanceであり、Network/Volume/VMまたはproduction Registry releaseをqualifyしません。
 
 ## 7. Persistent Resource and Operation Separation
 

@@ -859,6 +859,36 @@ func decodeImagePatch(request *http.Request) (imageapi.Patch, error) {
 				return p, resource.ErrValidation
 			}
 			p.Name = &v
+		case "architecture":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Architecture = &v
+		case "format":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Format = &v
+		case "expectedDigest":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.ExpectedDigest = &v
+		case "sourceId":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.SourceID = &v
+		case "visibility":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Visibility = &v
 		case "lifecycleState":
 			var v string
 			if json.Unmarshal(raw, &v) != nil {

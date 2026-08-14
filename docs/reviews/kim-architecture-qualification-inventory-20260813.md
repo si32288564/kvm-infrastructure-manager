@@ -16,6 +16,8 @@ Migration 075 exposes the existing SYSTEM Availability Policy authority only thr
 
 Migration 076 closes the Northbound Image artifact boundary with expected-only logical intent, approved source identity, typed Agent ingestion, immutable whole-artifact read-back/verification, response-loss convergence, verified-only materialization publication, and public Operation polling. `NORTHBOUND_PHASE1_LOGICAL_RESOURCE_COMPLETION` is PASS. This remains a cross-cutting delivery surface, so the 35 infrastructure/backend rows and scores remain unchanged.
 
+`terraform-provider-kim` Phase 1 now maps those four contracts with Terraform Plugin Framework v1.19.0. Terraform CLI 1.14.9 passed a local-provider → real HTTP handler → PostgreSQL 17 campaign covering create/no-op/update/refresh/import/destroy, Image Operation polling and content re-ingestion, remote drift, stale ETag failure, closed Availability enum, logical ID continuity, and physical/internal state non-leakage. This closes the experimental Provider delivery gate only. The 35 infrastructure/backend rows remain Architecture `31.5/35 = 90.0%`、Functional `30/35 = 85.7%`、Production `17.5/35 = 50.0%`; Network/Volume/VM Provider readiness remains blocked.
+
 ## Executive summary
 
 KIM is an authority-oriented KVM control plane, not a generic virtualization shell. PostgreSQL owns desired state, identity, allocation, admission, execution, recovery, relocation, and cleanup decisions. Agents execute a closed set of typed operations, journal before mutation, and return observations; a command response is never sufficient evidence of convergence.

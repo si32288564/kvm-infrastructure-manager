@@ -1,6 +1,6 @@
 GO ?= go
 
-.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol scale-agent-transport test test-agent-grpc-reconnect-storm test-agent-reconnect-storm test-agent-transport test-linux-host-inventory test-p1b-full-process test-p1c03-ovn-worker-db-failover test-p1c03-ovn-worker-drain test-p1c03-ovn-worker-fault test-p1c03-ovn-worker-latency-saturation test-p1c03-ovn-worker-renewal-response-loss test-p1c03-ovn-worker-repeated-db-failover test-p1c03-ovn-worker-soak test-postgres-integration validate-linux-host-inventory vet
+.PHONY: all bench-agent-transport build check docs-check fmt fmt-check generate-agent-protocol provider-check provider-test provider-vet scale-agent-transport test test-agent-grpc-reconnect-storm test-agent-reconnect-storm test-agent-transport test-linux-host-inventory test-p1b-full-process test-p1c03-ovn-worker-db-failover test-p1c03-ovn-worker-drain test-p1c03-ovn-worker-fault test-p1c03-ovn-worker-latency-saturation test-p1c03-ovn-worker-renewal-response-loss test-p1c03-ovn-worker-repeated-db-failover test-p1c03-ovn-worker-soak test-postgres-integration validate-linux-host-inventory vet
 
 PROTOC_GEN_GO_VERSION := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
@@ -10,16 +10,24 @@ all: check build
 build:
 	$(GO) build ./cmd/...
 
-check: fmt-check vet test docs-check
+check: fmt-check vet test provider-check docs-check
+
+provider-check: provider-vet provider-test
+
+provider-test:
+	cd terraform-provider-kim && $(GO) test ./...
+
+provider-vet:
+	cd terraform-provider-kim && $(GO) vet ./...
 
 docs-check:
 	$(GO) run ./cmd/kim-doc-lint -root .
 
 fmt:
-	gofmt -w cmd db internal
+	gofmt -w cmd db internal terraform-provider-kim
 
 fmt-check:
-	test -z "$$(gofmt -l cmd db internal)"
+	test -z "$$(gofmt -l cmd db internal terraform-provider-kim)"
 
 test:
 	$(GO) test ./...

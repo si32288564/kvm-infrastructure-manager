@@ -5,7 +5,7 @@
 - Baseline commit: Phase 1 Project+Flavor+Availability logical-resource delivery commit
 - Primary SSOT: [Infrastructure Lifecycle and IaC Architecture](../infrastructure-lifecycle-iac-architecture.md)
 - Scope: repository-based re-review after the executable Project reference vertical slice
-- Decision after Migration 076: **Yes — experimental Phase 1 Provider implementation may begin for Project, Flavor, closed SYSTEM Availability Policy, and Image only**
+- Decision after Provider Phase 1: **experimental Provider acceptance PASS for Project, Flavor, closed SYSTEM Availability Policy, and Image only**
 
 ## 1. Executive Summary
 
@@ -21,6 +21,8 @@ Migration 074は同じcontractをFlavorへ適用しました。Migration 075は�
 - response loss、delete、stale update を Provider 側の推測や recreate で解決する。
 
 Provider scaffoldとPhase 1 logical resourcesの開始条件は成立しました。Migration 076はImage expected/observed digestを分離し、typed ingestion、immutable read-back verification、first unified Operation projectionを実装しました。Network/Volume/VM、Provider import conformance、VM no-driftは引き続き別gateです。
+
+Phase 1 Providerはmonorepoの`terraform-provider-kim/`へ実装され、Terraform CLI 1.14.9、Plugin Framework v1.19.0、実HTTP/PostgreSQL 17 acceptanceでProject/Flavor/closed Availability/Imageのapply/update/refresh/import/destroyとImage Operation pollingをPASSしました。Provider import conformanceはこの4 resourceについて閉じましたが、Network/Volume/VMとVM Recovery/EVACUATE no-driftはPhase 2以降です。
 
 ## 2. Review Methodology
 
@@ -328,20 +330,20 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 | ETag/If-Match | `IMPLEMENTED_MULTI_RESOURCE` | P1 closed for Project/Flavor | extend per mutable resource |
 | desired/computed DTO separation | `API_SEMANTIC_GAP` | P0 | block VM/Volume/Port schema |
 | common error/retry contract | `IMPLEMENTED_MULTI_RESOURCE` | P1 closed for Project/Flavor | backend UNKNOWN/Operation errors remain |
-| Project/Site scope | Project `IMPLEMENTED`; Site `RESOURCE_MODEL_GAP` | Project P1 closed | Project experimental candidate; Site later |
-| Flavor | `TERRAFORM_READY_EXPERIMENTAL` | Phase 1 contract PASS | Provider implementation may begin; release acceptance pending |
-| Image | `TERRAFORM_READY_EXPERIMENTAL` | Migration 076 Image/Operation contract PASS | Provider implementation may begin; release acceptance pending |
-| Availability Policy | `TERRAFORM_READY_EXPERIMENTAL` | closed SYSTEM non-automatic profiles PASS | infrastructure-managed profile remains blocked |
+| Project/Site scope | Project `TERRAFORM_PROVIDER_ACCEPTANCE_PASS_EXPERIMENTAL`; Site `RESOURCE_MODEL_GAP` | Project Provider gate closed | Site later |
+| Flavor | `TERRAFORM_PROVIDER_ACCEPTANCE_PASS_EXPERIMENTAL` | Provider CRUD/update/import/drift PASS | Registry/release acceptance pending |
+| Image | `TERRAFORM_PROVIDER_ACCEPTANCE_PASS_EXPERIMENTAL` | verified ingestion/revision polling PASS | production artifact source/runtime profile pending |
+| Availability Policy | `TERRAFORM_PROVIDER_ACCEPTANCE_PASS_EXPERIMENTAL` | closed SYSTEM modes PASS | infrastructure-managed profile remains blocked |
 | HostGroup/Placement Scope | `API_SEMANTIC_GAP` | P1/P2 | admin phase after auth/redaction |
 | Network/Subnet | `API_SEMANTIC_GAP` | P1 | separate public resources before Provider |
 | Port | `RESOURCE_MODEL_GAP` | P0/P1 | decouple logical Port from Admission/Binding |
 | VM | `API_SEMANTIC_GAP` | P0/P1 | aggregate API + no-drift contract required |
 | Volume/Attachment | `RESOURCE_MODEL_GAP` | P0/P1 | logical lifecycle vs physical Binding split |
-| Availability Policy | `API_SEMANTIC_GAP` | P1 | typed public schema required |
+| infrastructure-managed Availability Policy | `API_SEMANTIC_GAP` | P1 | closed user profiles only; subordinate runtime policy remains internal |
 | Security/Datapath/Router/FRR | `RESOURCE_MODEL_GAP` | P1/P2 | not MVP |
 | Recovery/EVACUATE/Cleanup | `OPERATION_ONLY` | P1 public gap | polling/status only; no managed resource |
 
-Project、Flavor、closed SYSTEM Availability Policy、Image are qualified experimental Phase 1 Provider candidates, not production-ready Provider releases. Network/Volume/VM and other backend-bearing resources remain blocked or semantic gaps.
+Project、Flavor、closed SYSTEM Availability Policy、Image are qualified experimental Phase 1 Provider resources, not production-ready Provider releases. Network/Volume/VM and other backend-bearing resources remain blocked or semantic gaps.
 
 ## 14. P0 / P1 / P2 / P3 Findings
 
@@ -458,23 +460,23 @@ This re-review adds `IAC-015`/`INV-API-010`/`AT-IAC-012` and qualifies twelve No
 
 ## 19. Final Decision
 
-**May implementation of `terraform-provider-kim` begin? Conditional for scaffold + Project + Flavor only.**
+**Provider Phase 1 decision: experimental acceptance PASS for Project + Flavor + closed Availability Policy + Image only.**
 
 Allowed now:
 
-- Provider architecture/repository/scaffold
-- experimental Project and Flavor resources against the committed OpenAPI contract
-- Project/Flavor import、refresh、response-loss conformance work
+- experimental Project、Flavor、closed Availability Policy、Image use against the committed OpenAPI contract
+- continued Phase 1 Provider hardening and pre-1.0 packaging
+- explicit Phase 2 Resource Contract design without implementation readiness claims
 
 Blocked now:
 
-- shipping Project as production-ready before Provider acceptance/import tests
-- implementing Provider-managed KIM resources other than Project/Flavor
+- shipping the Provider as production-ready or publishing it to Registry without release/security/compatibility qualification
+- implementing Provider-managed Network/Volume/VM or other resources before their Resource Contracts close
 - direct PostgreSQL/internal function/Agent/backend integration from Provider
 - exposing current physical projection tables as Terraform desired schema
 - modeling Recovery/EVACUATE/Cleanup as Terraform resources
 
-次の re-review condition: experimental Project ProviderのCRUD/import/refresh/response-loss acceptance、または最初のbackend-convergent resourceのunified Operation vertical slice。
+次の re-review condition: Network/Volume/VMのいずれかのResource Contract closure、またはProvider production packaging/security/compatibility qualification。
 
 ## 20. Related Evidence
 

@@ -156,6 +156,26 @@ func (s NorthboundImageStore) Patch(ctx context.Context, p resource.Principal, i
 		if patch.Name != nil {
 			desired.Name = *patch.Name
 		}
+		contentChanged := false
+		if patch.Architecture != nil {
+			contentChanged = contentChanged || desired.Architecture != *patch.Architecture
+			desired.Architecture = *patch.Architecture
+		}
+		if patch.Format != nil {
+			contentChanged = contentChanged || desired.Format != *patch.Format
+			desired.Format = *patch.Format
+		}
+		if patch.ExpectedDigest != nil {
+			contentChanged = contentChanged || desired.ExpectedDigest != *patch.ExpectedDigest
+			desired.ExpectedDigest = *patch.ExpectedDigest
+		}
+		if patch.SourceID != nil {
+			contentChanged = contentChanged || desired.SourceID != *patch.SourceID
+			desired.SourceID = *patch.SourceID
+		}
+		if patch.Visibility != nil {
+			desired.Visibility = *patch.Visibility
+		}
 		if patch.DeleteProtection != nil {
 			desired.DeleteProtection = *patch.DeleteProtection
 		}
@@ -168,18 +188,19 @@ func (s NorthboundImageStore) Patch(ctx context.Context, p resource.Principal, i
 			lifecycle = *patch.LifecycleState
 		}
 		digest, _ := imageapi.DesiredDigest(desired)
-		if desired.Name == "" || len(desired.Name) > 255 {
+		if !validNorthboundImageDesired(desired) {
 			returned = resource.ErrValidation
 			return nil
 		}
+		requiresIngestion := contentChanged || current.VerificationState != "VERIFIED"
 		next := current.Revision + 1
 		if err := insertNorthboundImageRevisionTx(ctx, tx, id, next, desired, digest); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE kim.northbound_images_current SET image_revision=$2,lifecycle_state=$3,authority_generation=authority_generation+1,updated_at=statement_timestamp() WHERE image_id=$1`, id, next, lifecycle); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE kim.northbound_images_current SET image_revision=$2,lifecycle_state=$3,verification_state=CASE WHEN $4 THEN 'PENDING' ELSE verification_state END,verified_digest=CASE WHEN $4 THEN NULL ELSE verified_digest END,verified_size_bytes=CASE WHEN $4 THEN NULL ELSE verified_size_bytes END,current_ingestion_operation_id=CASE WHEN $4 THEN NULL ELSE current_ingestion_operation_id END,authority_generation=authority_generation+1,updated_at=statement_timestamp() WHERE image_id=$1`, id, next, lifecycle, requiresIngestion); err != nil {
 			return err
 		}
-		if current.VerificationState == "VERIFIED" {
+		if current.VerificationState == "VERIFIED" && !contentChanged {
 			if err := publishVerifiedImageRevisionTx(ctx, tx, id, next, current.VerifiedDigest, current.VerifiedSizeBytes); err != nil {
 				return err
 			}
@@ -196,6 +217,14 @@ func (s NorthboundImageStore) Patch(ctx context.Context, p resource.Principal, i
 		return out, fmt.Errorf("patch Image: %w", err)
 	}
 	return out, returned
+}
+
+func validNorthboundImageDesired(d imageapi.Desired) bool {
+	return d.Name != "" && len(d.Name) <= 255 &&
+		(d.Architecture == "X86_64" || d.Architecture == "AARCH64") &&
+		(d.Format == "RAW" || d.Format == "QCOW2") && len(d.ExpectedDigest) == 64 &&
+		d.SourceID != "" && len(d.SourceID) <= 128 &&
+		(d.Visibility == "PRIVATE" || d.Visibility == "SHARED" || d.Visibility == "PUBLIC")
 }
 
 func (s NorthboundImageStore) Delete(ctx context.Context, p resource.Principal, id string, expected uint64, requestID string) (returned error) {

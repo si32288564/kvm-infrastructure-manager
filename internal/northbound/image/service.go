@@ -54,6 +54,11 @@ type CreateRequest struct {
 }
 type Patch struct {
 	Name             *string
+	Architecture     *string
+	Format           *string
+	ExpectedDigest   *string
+	SourceID         *string
+	Visibility       *string
 	LifecycleState   *string
 	DeleteProtection *bool
 }
@@ -149,10 +154,32 @@ func (s Service) Patch(ctx context.Context, p resource.Principal, id string, rev
 		v := strings.TrimSpace(*patch.Name)
 		patch.Name = &v
 	}
-	if !idPattern.MatchString(id) || revision == 0 || requestID == "" || (patch.Name == nil && patch.LifecycleState == nil && patch.DeleteProtection == nil) {
+	if patch.ExpectedDigest != nil {
+		v := strings.ToLower(strings.TrimSpace(*patch.ExpectedDigest))
+		patch.ExpectedDigest = &v
+	}
+	if patch.SourceID != nil {
+		v := strings.TrimSpace(*patch.SourceID)
+		patch.SourceID = &v
+	}
+	if !idPattern.MatchString(id) || revision == 0 || requestID == "" || patch.empty() || !patch.valid() {
 		return Resource{}, resource.ErrValidation
 	}
 	return s.Store.Patch(ctx, p, id, revision, patch, requestID)
+}
+
+func (p Patch) empty() bool {
+	return p.Name == nil && p.Architecture == nil && p.Format == nil && p.ExpectedDigest == nil && p.SourceID == nil && p.Visibility == nil && p.LifecycleState == nil && p.DeleteProtection == nil
+}
+
+func (p Patch) valid() bool {
+	return (p.Name == nil || *p.Name != "" && len(*p.Name) <= 255) &&
+		(p.Architecture == nil || *p.Architecture == "X86_64" || *p.Architecture == "AARCH64") &&
+		(p.Format == nil || *p.Format == "RAW" || *p.Format == "QCOW2") &&
+		(p.ExpectedDigest == nil || digestPattern.MatchString(*p.ExpectedDigest)) &&
+		(p.SourceID == nil || sourcePattern.MatchString(*p.SourceID)) &&
+		(p.Visibility == nil || *p.Visibility == "PRIVATE" || *p.Visibility == "SHARED" || *p.Visibility == "PUBLIC") &&
+		(p.LifecycleState == nil || *p.LifecycleState == "ACTIVE" || *p.LifecycleState == "DEPRECATED")
 }
 func (s Service) Delete(ctx context.Context, p resource.Principal, id string, revision uint64, requestID string) error {
 	if s.Store == nil {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -89,6 +90,29 @@ func TestNorthboundImageArtifactAuthorityPostgreSQL(t *testing.T) {
 	var publishedDigest, state string
 	if err := pool.QueryRow(ctx, `SELECT observed_checksum,validation_state FROM kim.image_revision_evidence WHERE image_id=$1 AND image_revision=1`, created.ID).Scan(&publishedDigest, &state); err != nil || publishedDigest != digest || state != "VERIFIED" {
 		t.Fatalf("publication=%s/%s err=%v", publishedDigest, state, err)
+	}
+	metadataName := "qualified-renamed.raw"
+	metadataRevision, err := service.Patch(ctx, p, created.ID, 1, imageapi.Patch{Name: &metadataName}, "metadata-patch-"+suffix)
+	if err != nil || metadataRevision.ID != created.ID || metadataRevision.Revision != 2 || metadataRevision.VerificationState != "VERIFIED" || metadataRevision.VerifiedDigest == nil || *metadataRevision.VerifiedDigest != digest {
+		t.Fatalf("metadata revision=%+v err=%v", metadataRevision, err)
+	}
+	newContent := sha256.Sum256([]byte("new immutable artifact revision"))
+	newDigest := hex.EncodeToString(newContent[:])
+	newSource := "approved.fixture.revision2"
+	contentRevision, err := service.Patch(ctx, p, created.ID, 2, imageapi.Patch{ExpectedDigest: &newDigest, SourceID: &newSource}, "content-patch-"+suffix)
+	if err != nil || contentRevision.ID != created.ID || contentRevision.Revision != 3 || contentRevision.VerificationState != "PENDING" || contentRevision.VerifiedDigest != nil || contentRevision.VerifiedSizeBytes != nil {
+		t.Fatalf("content revision=%+v err=%v", contentRevision, err)
+	}
+	var currentIngestion *string
+	if err := pool.QueryRow(ctx, `SELECT current_ingestion_operation_id FROM kim.northbound_images_current WHERE image_id=$1`, created.ID).Scan(&currentIngestion); err != nil || currentIngestion != nil {
+		t.Fatalf("content revision retained stale ingestion operation=%v err=%v", currentIngestion, err)
+	}
+	var publishedRevision uint64
+	if err := pool.QueryRow(ctx, `SELECT image_revision FROM kim.images_current WHERE image_id=$1`, created.ID).Scan(&publishedRevision); err != nil || publishedRevision != 2 {
+		t.Fatalf("unverified content revision retrofitted publication revision=%d err=%v", publishedRevision, err)
+	}
+	if _, err := service.Patch(ctx, p, created.ID, 2, imageapi.Patch{Name: &metadataName}, "stale-patch-"+suffix); !errors.Is(err, resource.ErrStaleRevision) {
+		t.Fatalf("stale content revision patch err=%v", err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE kim.image_artifact_observation_evidence SET observed_digest=$2 WHERE observation_id=$1`, observation.ObservationID, strings64("0")); err == nil {
 		t.Fatal("immutable observation updated")
