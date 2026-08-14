@@ -122,15 +122,18 @@ variable "project_name" {
 provider "kim" {
   endpoint                        = %q
   token                           = "terraform-acceptance-token"
+  client_id                       = "terraform-acceptance-%s"
   request_timeout_seconds         = 10
   operation_poll_interval_seconds = 1
 }
 
 resource "kim_project" "phase1" {
+  client_reference = "kim_project.phase1"
   name = var.project_name
 }
 
 resource "kim_flavor" "phase1" {
+  client_reference = "kim_flavor.phase1"
   project_id       = kim_project.phase1.id
   name             = "small-%s"
   vcpus            = 2
@@ -142,12 +145,14 @@ resource "kim_flavor" "phase1" {
 }
 
 resource "kim_availability_policy" "phase1" {
+  client_reference  = "kim_availability_policy.phase1"
   name              = "managed-%s"
   availability_mode = "WORKLOAD_MANAGED"
   max_attempts       = 3
 }
 
 resource "kim_image" "phase1" {
+  client_reference  = "kim_image.phase1"
   project_id       = kim_project.phase1.id
   name             = "base-%s.raw"
   architecture     = "X86_64"
@@ -156,7 +161,7 @@ resource "kim_image" "phase1" {
   source_id        = "terraform.fixture"
   visibility       = "PRIVATE"
 }
-`, suffix, server.URL+"/api/v1", suffix, suffix, suffix)
+`, suffix, server.URL+"/api/v1", suffix, suffix, suffix, suffix)
 	configPath := filepath.Join(work, "main.tf")
 	if err := os.WriteFile(configPath, []byte(configuration), 0o600); err != nil {
 		t.Fatal(err)
@@ -172,6 +177,37 @@ resource "kim_image" "phase1" {
 	if err := <-watchResult; err != nil {
 		t.Fatal(err)
 	}
+	// Simulate a provider/Terraform process dying after KIM committed Create but
+	// before the Project mapping was durable in Terraform state. Re-running the
+	// exact configuration must replay the immutable Northbound decision.
+	createdState := terraformState(t, terraformCLI, work, environment)
+	createdIDs := phaseOneIDs(t, createdState)
+	runTerraform(t, terraformCLI, work, environment, true, "state", "rm", "kim_project.phase1")
+	runTerraform(t, terraformCLI, work, environment, true, "apply", "-target=kim_project.phase1", "-input=false", "-auto-approve")
+	recoveredIDs := phaseOneIDs(t, terraformState(t, terraformCLI, work, environment))
+	if recoveredIDs["kim_project.phase1"] != createdIDs["kim_project.phase1"] {
+		t.Fatalf("process-loss Create recovery adopted another Project: %s -> %s", createdIDs["kim_project.phase1"], recoveredIDs["kim_project.phase1"])
+	}
+	var activeProjects, createDecisions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.projects_current WHERE project_id=$1 AND lifecycle_state='ACTIVE'`, createdIDs["kim_project.phase1"]).Scan(&activeProjects); err != nil || activeProjects != 1 {
+		t.Fatalf("Project duplicate after state loss count=%d err=%v", activeProjects, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.northbound_idempotency_evidence WHERE resource_type='PROJECT' AND resource_id=$1`, createdIDs["kim_project.phase1"]).Scan(&createDecisions); err != nil || createDecisions != 1 {
+		t.Fatalf("Create recovery decision count=%d err=%v", createDecisions, err)
+	}
+	runTerraform(t, terraformCLI, work, environment, true, "state", "rm", "kim_project.phase1")
+	conflictingConfiguration := strings.Replace(configuration, "terraform-project-"+suffix, "different-intent-"+suffix, 1)
+	if err := os.WriteFile(configPath, []byte(conflictingConfiguration), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conflict := runTerraformExit(t, terraformCLI, work, environment, 1, "apply", "-target=kim_project.phase1", "-input=false", "-auto-approve")
+	if !strings.Contains(conflict, "IDEMPOTENCY_CONFLICT") {
+		t.Fatalf("same client reference adopted different desired intent:\n%s", conflict)
+	}
+	if err := os.WriteFile(configPath, []byte(configuration), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runTerraform(t, terraformCLI, work, environment, true, "apply", "-target=kim_project.phase1", "-input=false", "-auto-approve")
 	noOp := runTerraform(t, terraformCLI, work, environment, true, "plan", "-input=false", "-detailed-exitcode")
 	if !strings.Contains(noOp, "No changes") {
 		t.Fatalf("second plan was not no-op:\n%s", noOp)

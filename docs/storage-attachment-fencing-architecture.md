@@ -1,5 +1,9 @@
 # Storage, Attachment, and Fencing Architecture
 
+## Northbound Phase 2 authority boundary (2026-08-14)
+
+Current Volume authority is created inside Final Admission with exact capacity, Local LVM backend/VG/Host binding and workload attachment. Relocation/content preservation/source cleanup evidence proves physical mobility, but it is not an admission-independent backend-neutral Volume lifecycle. `kim_volume` remains BLOCKED until a logical immutable revision, storage-class request compiler, standalone allocation/materialization Operation, verified availability and dependency/tombstone semantics exist. Attachment remains with the Phase 3 VM aggregate. Host, VG/LV UUID, device path, binding/copy/cleanup generations remain internal physical incarnations and cannot be Terraform drift. See [Phase 2 Resource Contract Review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md).
+
 - 状態: Baseline
 - 更新日: 2026-08-09
 

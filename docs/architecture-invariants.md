@@ -45,6 +45,7 @@
 | INV-API-014 | Policy CRUDはFailure Epoch、Fencing Proof、Recovery/EVACUATE Operation、destination Host、budget claimを生成・desired projectionしない | AT-IAC-015 |
 | INV-API-015 | caller supplied Image observed digestをverified artifact evidenceとして受理しない | AT-IAC-016 |
 | INV-API-016 | Terraform ProviderはNorthbound API以外へ接続せず、remote desired driftをrefreshで検出し、stale ETagをsilent retryせず、physical/internal incarnationをstateへ投影しない | AT-IAC-017 |
+| INV-API-017 | client process/state-write loss後のCreate再実行は同じKIM resourceへ収束し、client identity/referenceが異なるresourceをdisplay nameまたはdesired similarityでadoptしない | AT-IAC-018 |
 | INV-DATA-001 | desired state、allocation、attachment、execution authorityはPostgreSQL commitでのみ確定する | AT-DATA-001 |
 | INV-DATA-002 | desired stateとobserved stateを別resource/generationとして保持する | AT-DATA-002 |
 | INV-DATA-003 | terminal Job/Attempt/audit historyを結果に合わせて書き換えない | AT-EXEC-007 |

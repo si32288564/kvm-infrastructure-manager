@@ -18,6 +18,7 @@ import (
 type availabilityPolicyResource struct{ client *client.Client }
 type availabilityModel struct {
 	ID               types.String `tfsdk:"id"`
+	ClientReference  types.String `tfsdk:"client_reference"`
 	Name             types.String `tfsdk:"name"`
 	AvailabilityMode types.String `tfsdk:"availability_mode"`
 	MaxAttempts      types.Int64  `tfsdk:"max_attempts"`
@@ -43,6 +44,7 @@ func (r *availabilityPolicyResource) Metadata(_ context.Context, _ resource.Meta
 }
 func (r *availabilityPolicyResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{Description: "Experimental closed SYSTEM Availability Policy (MANUAL or WORKLOAD_MANAGED).", Attributes: map[string]schema.Attribute{"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}, "name": schema.StringAttribute{Required: true}, "availability_mode": schema.StringAttribute{Required: true, Validators: []validator.String{stringvalidator.OneOf("MANUAL", "WORKLOAD_MANAGED")}}, "max_attempts": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.Between(1, 100)}}, "delete_protection": schema.BoolAttribute{Optional: true, Computed: true}, "revision": schema.Int64Attribute{Computed: true}, "created_at": schema.StringAttribute{Computed: true}, "updated_at": schema.StringAttribute{Computed: true}}}
+	resp.Schema.Attributes["client_reference"] = schema.StringAttribute{Required: true, WriteOnly: true, Description: "Stable client-owned logical resource reference for crash-safe Create; never stored in Terraform state."}
 }
 func (r *availabilityPolicyResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	configureClient(req, resp, &r.client)
@@ -54,7 +56,7 @@ func (r *availabilityPolicyResource) Create(ctx context.Context, req resource.Cr
 	var p availabilityModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &p)...)
 	body := availabilityBody(p)
-	key, _ := client.CreateIdempotencyKey("availability-policy", body)
+	key, _ := r.client.CreateIdempotencyKey("availability-policy", createClientReference(ctx, req.Config, &resp.Diagnostics), body)
 	var out availabilityAPI
 	response, err := r.client.Do(ctx, http.MethodPost, "/availability-policies", body, &out, map[string]string{"Idempotency-Key": key})
 	if err != nil {

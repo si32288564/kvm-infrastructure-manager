@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -20,15 +19,16 @@ import (
 )
 
 type Client struct {
-	base  *url.URL
-	token string
-	http  *http.Client
-	poll  time.Duration
+	base     *url.URL
+	token    string
+	clientID string
+	http     *http.Client
+	poll     time.Duration
 }
 type Config struct {
-	Endpoint, Token, CACertificate string
-	InsecureSkipVerify             bool
-	Timeout, PollInterval          time.Duration
+	Endpoint, Token, CACertificate, ClientID string
+	InsecureSkipVerify                       bool
+	Timeout, PollInterval                    time.Duration
 }
 type Problem struct {
 	Type      string `json:"type"`
@@ -51,8 +51,8 @@ type Response struct {
 
 func New(c Config) (*Client, error) {
 	u, err := url.Parse(strings.TrimRight(c.Endpoint, "/"))
-	if err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" || c.Token == "" || c.Timeout <= 0 {
-		return nil, errors.New("complete KIM endpoint, token, and positive timeout are required")
+	if err != nil || u.Scheme != "https" && u.Scheme != "http" || u.Host == "" || c.Token == "" || c.ClientID == "" || len(c.ClientID) > 128 || c.Timeout <= 0 {
+		return nil, errors.New("complete KIM endpoint, token, client identity, and positive timeout are required")
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: c.InsecureSkipVerify}
 	if c.CACertificate != "" {
@@ -68,7 +68,7 @@ func New(c Config) (*Client, error) {
 	if c.PollInterval <= 0 {
 		c.PollInterval = time.Second
 	}
-	return &Client{base: u, token: c.Token, http: &http.Client{Timeout: c.Timeout, Transport: &http.Transport{TLSClientConfig: tlsConfig}}, poll: c.PollInterval}, nil
+	return &Client{base: u, token: c.Token, clientID: c.ClientID, http: &http.Client{Timeout: c.Timeout, Transport: &http.Transport{TLSClientConfig: tlsConfig}}, poll: c.PollInterval}, nil
 }
 
 func (c *Client) Do(ctx context.Context, method, path string, body, out any, headers map[string]string) (Response, error) {
@@ -174,18 +174,17 @@ func IdempotencyKey(kind string, desired any) (string, error) {
 	return "tf-" + hex.EncodeToString(sum[:]), nil
 }
 
-// CreateIdempotencyKey scopes replay to one Create invocation. The returned
-// key is retained by Do for every bounded response-loss transport retry.
-func CreateIdempotencyKey(kind string, desired any) (string, error) {
-	raw, err := json.Marshal(desired)
-	if err != nil {
+// CreateIdempotencyKey reconstructs a stable client-owned Create identity.
+// KIM, not the Provider, binds that identity to the exact desired digest and
+// rejects conflicting intent.
+func (c *Client) CreateIdempotencyKey(kind, clientReference string, desired any) (string, error) {
+	if c == nil || c.clientID == "" || clientReference == "" || len(clientReference) > 255 {
+		return "", errors.New("complete client create identity is required")
+	}
+	if _, err := json.Marshal(desired); err != nil {
 		return "", err
 	}
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(append(append([]byte(kind+"\x00"), raw...), nonce...))
+	sum := sha256.Sum256([]byte(kind + "\x00" + c.clientID + "\x00" + clientReference))
 	return "tf-" + hex.EncodeToString(sum[:]), nil
 }
 

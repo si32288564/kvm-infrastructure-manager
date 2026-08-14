@@ -1,5 +1,7 @@
 # KIM Northbound API / Terraform Readiness Review
 
+> Phase 2 addendum (2026-08-14): Network/Subnet remain `API_SEMANTIC_GAP`; Port/Volume remain `RESOURCE_MODEL_GAP`. No endpoint/provider resource was added. Phase 1 Create now survives process/state-write loss through stable client identity/reference and immutable KIM idempotency replay. See [Phase 2 Resource Contract Review](kim-northbound-phase2-resource-contract-review-20260814.md).
+
 - Review date: 2026-08-14
 - Repository baseline: Migration 001–075
 - Baseline commit: Phase 1 Project+Flavor+Availability logical-resource delivery commit

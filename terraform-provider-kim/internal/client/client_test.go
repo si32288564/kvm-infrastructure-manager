@@ -12,7 +12,7 @@ import (
 
 func testClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
-	c, err := New(Config{Endpoint: server.URL, Token: "secret-token", Timeout: 2 * time.Second, PollInterval: time.Millisecond})
+	c, err := New(Config{Endpoint: server.URL, Token: "secret-token", ClientID: "test-client", Timeout: 2 * time.Second, PollInterval: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,16 +116,20 @@ func TestIdempotencyKeyIncludesDesiredPayload(t *testing.T) {
 	}
 }
 
-func TestCreateIdempotencyKeyIsInvocationScoped(t *testing.T) {
-	a, err := CreateIdempotencyKey("project", map[string]any{"name": "same"})
+func TestCreateIdempotencyKeySurvivesProcessLossAndFencesAdoption(t *testing.T) {
+	c := &Client{clientID: "terraform-workspace-a"}
+	a, err := c.CreateIdempotencyKey("project", "kim_project.example", map[string]any{"name": "same"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := CreateIdempotencyKey("project", map[string]any{"name": "same"})
+	replay, err := c.CreateIdempotencyKey("project", "kim_project.example", map[string]any{"name": "same"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a == b {
-		t.Fatal("separate Create invocations reused a permanent idempotency key")
+	differentReference, _ := c.CreateIdempotencyKey("project", "kim_project.other", map[string]any{"name": "same"})
+	differentClient, _ := (&Client{clientID: "terraform-workspace-b"}).CreateIdempotencyKey("project", "kim_project.example", map[string]any{"name": "same"})
+	differentIntent, _ := c.CreateIdempotencyKey("project", "kim_project.example", map[string]any{"name": "changed"})
+	if a != replay || a == differentReference || a == differentClient || a != differentIntent {
+		t.Fatalf("create identity fencing failed: %q %q %q %q %q", a, replay, differentReference, differentClient, differentIntent)
 	}
 }

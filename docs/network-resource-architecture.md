@@ -1,5 +1,9 @@
 # Network Resource Architecture
 
+## Northbound Phase 2 authority boundary (2026-08-14)
+
+Current Network/Subnet tables are Placement foundation, not standalone Northbound resources. `UpsertNetworkFoundation` commits Network, Subnet and Segment Claim together and performs no backend mutation. Current typed OVN convergence is Port-scoped and requires exact Admission, Host/Chassis, Segment, Mapping and Binding generations. Therefore Network/Subnet public CRUD and Terraform resources remain BLOCKED until independent immutable revision/delete/allocation producers and standalone typed backend verification exist. Port remains logical-identity-safe across Recovery/EVACUATE, but creation is Final-Admission/VM-binding dependent; Host/binding/OVN/BDF incarnations must never become desired state. See [Phase 2 Resource Contract Review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md).
+
 - 状態: Baseline
 - 更新日: 2026-08-09
 

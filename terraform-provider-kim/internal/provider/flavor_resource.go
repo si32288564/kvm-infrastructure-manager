@@ -18,6 +18,7 @@ import (
 type flavorResource struct{ client *client.Client }
 type flavorModel struct {
 	ID               types.String `tfsdk:"id"`
+	ClientReference  types.String `tfsdk:"client_reference"`
 	ProjectID        types.String `tfsdk:"project_id"`
 	Name             types.String `tfsdk:"name"`
 	VCPUs            types.Int64  `tfsdk:"vcpus"`
@@ -57,7 +58,8 @@ func (r *flavorResource) Metadata(_ context.Context, _ resource.MetadataRequest,
 }
 func (r *flavorResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{Description: "Experimental immutable-revision KIM Flavor; updates never retrofit existing VMs.", Attributes: map[string]schema.Attribute{
-		"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}, "project_id": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}}, "name": schema.StringAttribute{Required: true}, "vcpus": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "memory_mib": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "root_disk_gib": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "numa_policy": schema.StringAttribute{Required: true, Validators: []validator.String{stringvalidator.OneOf("NONE", "REQUIRED")}}, "numa_nodes": schema.Int64Attribute{Optional: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "huge_page_size_kib": schema.Int64Attribute{Optional: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "cpu_allocation": schema.StringAttribute{Required: true, Validators: []validator.String{stringvalidator.OneOf("SHARED", "DEDICATED")}}, "cpu_pinning": schema.BoolAttribute{Required: true}, "delete_protection": schema.BoolAttribute{Optional: true, Computed: true}, "revision": schema.Int64Attribute{Computed: true}, "created_at": schema.StringAttribute{Computed: true}, "updated_at": schema.StringAttribute{Computed: true}}}
+		"client_reference": schema.StringAttribute{Required: true, WriteOnly: true, Description: "Stable client-owned logical resource reference for crash-safe Create; never stored in Terraform state."},
+		"id":               schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}, "project_id": schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}}, "name": schema.StringAttribute{Required: true}, "vcpus": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "memory_mib": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "root_disk_gib": schema.Int64Attribute{Required: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "numa_policy": schema.StringAttribute{Required: true, Validators: []validator.String{stringvalidator.OneOf("NONE", "REQUIRED")}}, "numa_nodes": schema.Int64Attribute{Optional: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "huge_page_size_kib": schema.Int64Attribute{Optional: true, Validators: []validator.Int64{int64validator.AtLeast(1)}}, "cpu_allocation": schema.StringAttribute{Required: true, Validators: []validator.String{stringvalidator.OneOf("SHARED", "DEDICATED")}}, "cpu_pinning": schema.BoolAttribute{Required: true}, "delete_protection": schema.BoolAttribute{Optional: true, Computed: true}, "revision": schema.Int64Attribute{Computed: true}, "created_at": schema.StringAttribute{Computed: true}, "updated_at": schema.StringAttribute{Computed: true}}}
 }
 func (r *flavorResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	configureClient(req, resp, &r.client)
@@ -84,7 +86,7 @@ func (r *flavorResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 	body := flavorBody(p)
-	key, _ := client.CreateIdempotencyKey("flavor", body)
+	key, _ := r.client.CreateIdempotencyKey("flavor", createClientReference(ctx, req.Config, &resp.Diagnostics), body)
 	var out flavorAPI
 	response, err := r.client.Do(ctx, http.MethodPost, "/flavors", body, &out, map[string]string{"Idempotency-Key": key})
 	if err != nil {

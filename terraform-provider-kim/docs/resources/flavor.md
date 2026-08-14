@@ -4,6 +4,7 @@ Project-owned logical compute shape. Updating desired shape creates a new KIM re
 
 ```hcl
 resource "kim_flavor" "small" {
+  client_reference = "kim_flavor.small"
   project_id     = kim_project.example.id
   name           = "small"
   vcpus          = 2
@@ -14,5 +15,7 @@ resource "kim_flavor" "small" {
   cpu_pinning    = false
 }
 ```
+
+`client_reference` is the required write-only crash-recovery identity; it is not desired Flavor state.
 
 `numa_policy` is `NONE` or `REQUIRED`; `cpu_allocation` is `SHARED` or `DEDICATED`. Optional `numa_nodes` and `huge_page_size_kib` are logical requirements, not physical allocations. No Host, pCPU, NUMA realization, HugePage allocation, PMD, or backend identity is state. Changing `project_id` replaces the resource. Import uses `flavor/<uuid>`.

@@ -15,10 +15,11 @@ terraform {
 
 provider "kim" {
   endpoint = "https://kim.example/api/v1"
+  client_id = "terraform-production-workspace"
 }
 ```
 
-Set the externally issued short-lived automation credential in `KIM_TOKEN`. `KIM_ENDPOINT` and `KIM_CA_CERTIFICATE` are also supported. Provider attributes `token` and `ca_certificate` are sensitive; no resource state contains them. `insecure_skip_verify` exists only for disposable development endpoints. Per-request timeout defaults to 30 seconds; Image Operation polling interval defaults to one second.
+Set the externally issued short-lived automation credential in `KIM_TOKEN`. Set a stable, non-secret automation identity with `client_id` or `KIM_CLIENT_ID`. `KIM_ENDPOINT` and `KIM_CA_CERTIFICATE` are also supported. Provider attributes `token` and `ca_certificate` are sensitive; no resource state contains them. `insecure_skip_verify` exists only for disposable development endpoints. Per-request timeout defaults to 30 seconds; Image Operation polling interval defaults to one second.
 
 The provider sends `Authorization: Bearer`, decodes KIM Problem Details by stable `code`, and includes the KIM request ID in diagnostics. It does not acquire OIDC tokens or accept Agent/backend credentials.
 
@@ -26,7 +27,9 @@ The provider sends `Authorization: Bearer`, decodes KIM Problem Details by stabl
 
 Read stores the KIM logical revision derived from the response ETag. Update and Delete send that revision in `If-Match`. `STALE_REVISION` fails visibly; the provider does not fetch a newer revision and overwrite a concurrent client.
 
-Each Create invocation receives a fresh Idempotency-Key. A response-loss retry within that invocation reuses the exact key and payload. A later intentional recreate is a new invocation and cannot replay a tombstoned resource. KIM remains the authority for idempotency conflicts.
+Every resource requires a write-only `client_reference`, normally its stable Terraform address. The provider derives `Idempotency-Key` from resource type, provider `client_id`, and `client_reference`; KIM separately binds that key to the canonical desired digest. The same configuration therefore recovers the original KIM logical ID after provider process loss before state persistence. A different client/reference cannot adopt it, and the same reference with different desired intent is rejected by KIM's immutable idempotency authority. Display names are never recovery identity. `client_reference` is not stored in state and is not KIM resource authority.
+
+After an intentional destroy, a later logically new resource incarnation must use a new `client_reference`; retaining the old reference requests replay of the old lifecycle rather than permission to create a duplicate.
 
 ## Refresh, drift, and deletion
 

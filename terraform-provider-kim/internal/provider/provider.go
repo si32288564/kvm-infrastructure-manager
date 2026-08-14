@@ -19,6 +19,7 @@ type kimProvider struct{ version string }
 type providerModel struct {
 	Endpoint                     types.String `tfsdk:"endpoint"`
 	Token                        types.String `tfsdk:"token"`
+	ClientID                     types.String `tfsdk:"client_id"`
 	CACertificate                types.String `tfsdk:"ca_certificate"`
 	InsecureSkipVerify           types.Bool   `tfsdk:"insecure_skip_verify"`
 	RequestTimeoutSeconds        types.Int64  `tfsdk:"request_timeout_seconds"`
@@ -36,6 +37,7 @@ func (p *kimProvider) Schema(_ context.Context, _ provider.SchemaRequest, r *pro
 	r.Schema = schema.Schema{Description: "Experimental KIM Northbound API provider. Terraform state is not KIM authority.", Attributes: map[string]schema.Attribute{
 		"endpoint":                        schema.StringAttribute{Optional: true, Description: "KIM controller-side Northbound API /api/v1 endpoint. KIM_ENDPOINT may be used."},
 		"token":                           schema.StringAttribute{Optional: true, Sensitive: true, Description: "Externally issued Bearer token. KIM_TOKEN may be used and the value is not resource state."},
+		"client_id":                       schema.StringAttribute{Optional: true, Description: "Stable Northbound automation-client identity used with per-resource client_reference for crash-safe Create. KIM_CLIENT_ID may be used."},
 		"ca_certificate":                  schema.StringAttribute{Optional: true, Sensitive: true, Description: "Optional PEM trust anchor. KIM_CA_CERTIFICATE may be used."},
 		"insecure_skip_verify":            schema.BoolAttribute{Optional: true, Description: "Development-only TLS verification bypass."},
 		"request_timeout_seconds":         schema.Int64Attribute{Optional: true, Description: "Per-request timeout."},
@@ -50,14 +52,15 @@ func (p *kimProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 	endpoint := stringValue(m.Endpoint, os.Getenv("KIM_ENDPOINT"))
 	token := stringValue(m.Token, os.Getenv("KIM_TOKEN"))
+	clientID := stringValue(m.ClientID, os.Getenv("KIM_CLIENT_ID"))
 	ca := stringValue(m.CACertificate, os.Getenv("KIM_CA_CERTIFICATE"))
 	timeout := intValue(m.RequestTimeoutSeconds, 30)
 	poll := intValue(m.OperationPollIntervalSeconds, 1)
-	if endpoint == "" || token == "" || timeout < 1 || poll < 1 {
-		resp.Diagnostics.AddError("Invalid KIM provider configuration", "endpoint/token and positive request/poll timeouts are required; use provider attributes or KIM_ENDPOINT/KIM_TOKEN.")
+	if endpoint == "" || token == "" || clientID == "" || timeout < 1 || poll < 1 {
+		resp.Diagnostics.AddError("Invalid KIM provider configuration", "endpoint/token/client_id and positive request/poll timeouts are required; use provider attributes or KIM_ENDPOINT/KIM_TOKEN/KIM_CLIENT_ID.")
 		return
 	}
-	c, err := client.New(client.Config{Endpoint: endpoint, Token: token, CACertificate: ca, InsecureSkipVerify: !m.InsecureSkipVerify.IsNull() && m.InsecureSkipVerify.ValueBool(), Timeout: time.Duration(timeout) * time.Second, PollInterval: time.Duration(poll) * time.Second})
+	c, err := client.New(client.Config{Endpoint: endpoint, Token: token, ClientID: clientID, CACertificate: ca, InsecureSkipVerify: !m.InsecureSkipVerify.IsNull() && m.InsecureSkipVerify.ValueBool(), Timeout: time.Duration(timeout) * time.Second, PollInterval: time.Duration(poll) * time.Second})
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid KIM provider configuration", err.Error())
 		return

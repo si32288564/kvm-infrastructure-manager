@@ -216,7 +216,7 @@ immutable field の変更が replacement を必要とするか、in-place asynch
 
 ### 6.6 Phase 1 runtime profile
 
-Phase 1 ProviderはTerraform Plugin Framework v1.19.0を使用し、Bearer automation token、TLS trust、request timeout、Problem Details、ETag/If-Match、Create invocation-scoped idempotency、authorized refresh、contract importを共通clientへ集約します。Imageだけはmetadata commit後にseparate ingestion Operationを作り、`UNKNOWN`をnon-terminalとしてverified `SUCCEEDED`までbounded pollします。Operation/Attempt/evidence identityはresource stateへ保存しません。
+Phase 1 ProviderはTerraform Plugin Framework v1.19.0を使用し、Bearer automation token、TLS trust、request timeout、Problem Details、ETag/If-Match、cross-process Create idempotency、authorized refresh、contract importを共通clientへ集約します。provider `client_id`とresourceごとのwrite-only `client_reference`からstable Idempotency-Keyを再構成し、KIMがcanonical desired digestへbindします。display nameはrecovery identityではなく、client referenceもKIM resource authorityではありません。Imageだけはmetadata commit後にseparate ingestion Operationを作り、`UNKNOWN`をnon-terminalとしてverified `SUCCEEDED`までbounded pollします。Operation/Attempt/evidence identityはresource stateへ保存しません。
 
 Terraform CLI acceptanceはlocal filesystem mirrorからprovider binaryをロードし、実HTTP KIM handlerとPostgreSQL 17へ接続します。Project/Flavor/Availability/Imageのcreate、no-op、new revision update、remote drift、stale ETag fail-closed、import no-op、destroy、Image再ingestion、physical-state非漏洩を検証します。これはPhase 1 logical resource acceptanceであり、Network/Volume/VMまたはproduction Registry releaseをqualifyしません。
 

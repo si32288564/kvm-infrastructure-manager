@@ -20,10 +20,10 @@ func TestPhaseOneResourceSchemasMatchNorthboundContract(t *testing.T) {
 		optional []string
 		computed []string
 	}{
-		{"kim_project", NewProjectResource(), []string{"name"}, []string{"delete_protection"}, []string{"id", "revision", "created_at", "updated_at"}},
-		{"kim_flavor", NewFlavorResource(), []string{"project_id", "name", "vcpus", "memory_mib", "root_disk_gib", "numa_policy", "cpu_allocation", "cpu_pinning"}, []string{"numa_nodes", "huge_page_size_kib", "delete_protection"}, []string{"id", "revision", "created_at", "updated_at"}},
-		{"kim_availability_policy", NewAvailabilityPolicyResource(), []string{"name", "availability_mode", "max_attempts"}, []string{"delete_protection"}, []string{"id", "revision", "created_at", "updated_at"}},
-		{"kim_image", NewImageResource(), []string{"project_id", "name", "architecture", "format", "expected_digest", "source_id", "visibility"}, []string{"lifecycle_state", "delete_protection", "ingestion_timeout_seconds"}, []string{"id", "verified_digest", "verified_size_bytes", "verification_state", "revision", "created_at", "updated_at"}},
+		{"kim_project", NewProjectResource(), []string{"client_reference", "name"}, []string{"delete_protection"}, []string{"id", "revision", "created_at", "updated_at"}},
+		{"kim_flavor", NewFlavorResource(), []string{"client_reference", "project_id", "name", "vcpus", "memory_mib", "root_disk_gib", "numa_policy", "cpu_allocation", "cpu_pinning"}, []string{"numa_nodes", "huge_page_size_kib", "delete_protection"}, []string{"id", "revision", "created_at", "updated_at"}},
+		{"kim_availability_policy", NewAvailabilityPolicyResource(), []string{"client_reference", "name", "availability_mode", "max_attempts"}, []string{"delete_protection"}, []string{"id", "revision", "created_at", "updated_at"}},
+		{"kim_image", NewImageResource(), []string{"client_reference", "project_id", "name", "architecture", "format", "expected_digest", "source_id", "visibility"}, []string{"lifecycle_state", "delete_protection", "ingestion_timeout_seconds"}, []string{"id", "verified_digest", "verified_size_bytes", "verification_state", "revision", "created_at", "updated_at"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -36,6 +36,9 @@ func TestPhaseOneResourceSchemasMatchNorthboundContract(t *testing.T) {
 				if attribute := response.Schema.Attributes[name]; attribute == nil || !attribute.IsRequired() {
 					t.Errorf("%s must be required", name)
 				}
+			}
+			if attribute := response.Schema.Attributes["client_reference"]; attribute == nil || !attribute.IsWriteOnly() {
+				t.Error("client_reference must be write-only")
 			}
 			for _, name := range test.optional {
 				if attribute := response.Schema.Attributes[name]; attribute == nil || !attribute.IsOptional() {

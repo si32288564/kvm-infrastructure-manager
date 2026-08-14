@@ -16,6 +16,7 @@ import (
 type projectResource struct{ client *client.Client }
 type projectModel struct {
 	ID               types.String `tfsdk:"id"`
+	ClientReference  types.String `tfsdk:"client_reference"`
 	Name             types.String `tfsdk:"name"`
 	DeleteProtection types.Bool   `tfsdk:"delete_protection"`
 	Revision         types.Int64  `tfsdk:"revision"`
@@ -36,7 +37,7 @@ func (r *projectResource) Metadata(_ context.Context, _ resource.MetadataRequest
 	resp.TypeName = typeName + "_project"
 }
 func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
-	resp.Schema = schema.Schema{Description: "Experimental persistent KIM Project.", Attributes: map[string]schema.Attribute{"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}, "name": schema.StringAttribute{Required: true}, "delete_protection": schema.BoolAttribute{Optional: true, Computed: true}, "revision": schema.Int64Attribute{Computed: true}, "created_at": schema.StringAttribute{Computed: true}, "updated_at": schema.StringAttribute{Computed: true}}}
+	resp.Schema = schema.Schema{Description: "Experimental persistent KIM Project.", Attributes: map[string]schema.Attribute{"id": schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}}, "client_reference": schema.StringAttribute{Required: true, WriteOnly: true, Description: "Stable client-owned logical resource reference for crash-safe Create; never stored in Terraform state."}, "name": schema.StringAttribute{Required: true}, "delete_protection": schema.BoolAttribute{Optional: true, Computed: true}, "revision": schema.Int64Attribute{Computed: true}, "created_at": schema.StringAttribute{Computed: true}, "updated_at": schema.StringAttribute{Computed: true}}}
 }
 func (r *projectResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	configureClient(req, resp, &r.client)
@@ -48,7 +49,7 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 	body := map[string]any{"name": plan.Name.ValueString(), "deleteProtection": boolValue(plan.DeleteProtection)}
-	key, err := client.CreateIdempotencyKey("project", body)
+	key, err := r.client.CreateIdempotencyKey("project", createClientReference(ctx, req.Config, &resp.Diagnostics), body)
 	if err != nil {
 		addError(&resp.Diagnostics, "Create Project", err)
 		return

@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/kvm-infrastructure-manager/terraform-provider-kim/internal/client"
 )
@@ -48,6 +49,11 @@ func importID(ctx context.Context, prefix string, req resource.ImportStateReques
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }
 func boolValue(v types.Bool) bool { return !v.IsNull() && !v.IsUnknown() && v.ValueBool() }
+func createClientReference(ctx context.Context, config tfsdk.Config, d *diag.Diagnostics) string {
+	var value types.String
+	d.Append(config.GetAttribute(ctx, path.Root("client_reference"), &value)...)
+	return value.ValueString()
+}
 func optionalInt(v types.Int64) any {
 	if v.IsNull() || v.IsUnknown() {
 		return nil
