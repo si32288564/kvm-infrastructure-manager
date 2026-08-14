@@ -235,7 +235,7 @@ func PublishAvailabilityPolicy(ctx context.Context, db TxBeginner, policy Availa
 		}
 		command, err := tx.Exec(ctx, `INSERT INTO kim.availability_policies_current(policy_id,policy_revision,lifecycle_state,policy_digest)
 			VALUES($1,$2,$3,$4) ON CONFLICT(policy_id) DO UPDATE SET policy_revision=EXCLUDED.policy_revision,
-			lifecycle_state=EXCLUDED.lifecycle_state,policy_digest=EXCLUDED.policy_digest,updated_at=statement_timestamp()
+			lifecycle_state=EXCLUDED.lifecycle_state,policy_digest=EXCLUDED.policy_digest,deleted_from_revision=NULL,updated_at=statement_timestamp()
 			WHERE kim.availability_policies_current.policy_revision<EXCLUDED.policy_revision`, policy.PolicyID,
 			policy.PolicyRevision, policy.LifecycleState, digest)
 		if err != nil {

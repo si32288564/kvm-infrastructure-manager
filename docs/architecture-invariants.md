@@ -40,7 +40,10 @@
 | INV-API-009 | stale resource revisionを持つupdate/deleteはcurrent desired stateを上書きしない | AT-IAC-006 |
 | INV-API-010 | PostgreSQL-only resource mutationとbackend-convergent mutationの完了境界を混同せず、前者に形式上だけのOperationを作らず後者を同期成功として返さない | AT-API-001, AT-IAC-012 |
 | INV-API-011 | Flavor revision変更は既存VMがbindしたhistorical Flavor revisionを変更せず、current Flavorの物理Host/pCPU/NUMA incarnationをdesired schemaへ導入しない | AT-IAC-013 |
-| INV-API-012 | Image実測content verificationとAvailability Policy typed dependencyがNorthbound caller assertionで代用されているresourceをTerraform-readyへ昇格しない | AT-IAC-014 |
+| INV-API-012 | Image実測content verificationまたはinfrastructure-managed Availability subordinate policyをNorthbound caller assertionで代用してTerraform-readyへ昇格しない | AT-IAC-014 |
+| INV-API-013 | Availability Policy更新は新immutable revisionとし、既存workloadのexact Bindingを暗黙更新しない | AT-IAC-015 |
+| INV-API-014 | Policy CRUDはFailure Epoch、Fencing Proof、Recovery/EVACUATE Operation、destination Host、budget claimを生成・desired projectionしない | AT-IAC-015 |
+| INV-API-015 | caller supplied Image observed digestをverified artifact evidenceとして受理しない | AT-IAC-016 |
 | INV-DATA-001 | desired state、allocation、attachment、execution authorityはPostgreSQL commitでのみ確定する | AT-DATA-001 |
 | INV-DATA-002 | desired stateとobserved stateを別resource/generationとして保持する | AT-DATA-002 |
 | INV-DATA-003 | terminal Job/Attempt/audit historyを結果に合わせて書き換えない | AT-EXEC-007 |

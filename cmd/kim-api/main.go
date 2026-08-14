@@ -15,6 +15,7 @@ import (
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/componentmain"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/auth"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/availabilitypolicy"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/flavor"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/httpapi"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
@@ -63,6 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer pool.Close()
 	store := postgres.NorthboundProjectStore{DB: pool}
 	flavorStore := postgres.NorthboundFlavorStore{DB: pool}
+	availabilityPolicyStore := postgres.NorthboundAvailabilityPolicyStore{DB: pool}
 	if err := store.Ready(ctx); err != nil {
 		fmt.Fprintf(stderr, "kim-api readiness error: %v\n", err)
 		return 1
@@ -73,7 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer listener.Close()
-	handler := httpapi.Server{Projects: project.Service{Store: store}, Flavors: flavor.Service{Store: flavorStore}, Authenticator: verifier, Logger: stderr, RequestTimeout: *requestTimeout}.Handler()
+	handler := httpapi.Server{Projects: project.Service{Store: store}, Flavors: flavor.Service{Store: flavorStore}, AvailabilityPolicies: availabilitypolicy.Service{Store: availabilityPolicyStore}, Authenticator: verifier, Logger: stderr, RequestTimeout: *requestTimeout}.Handler()
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	errorsFound := make(chan error, 1)
 	go func() {

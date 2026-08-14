@@ -205,7 +205,9 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-IAC-011 | logical Security PolicyをOVN ACL/Port Group/Address Setへcompile/read-backし、public desired/API/stateへraw OVN syntaxを要求しない |
 | AT-IAC-012 | PostgreSQL authority commitだけで完了するProject create/update/deleteが201/200/204で確定し、形式上だけのOperationやHost/backend接続を生成しない |
 | AT-IAC-013 | ProjectとFlavorが共通Northbound transport/security contractでCRUD/list/replay/concurrencyを通り、Flavor update後も既存Admission/materializationのexact historical revisionを改変しない |
-| AT-IAC-014 | Imageはartifact ingestion/実測digest authority分離前、Availability Policyはscope/typed dependency contract完成前にcaller assertion型CRUDとして公開されずBLOCKEDになる |
+| AT-IAC-014 | Imageはartifact ingestion/実測digest authority分離前にcaller assertion型CRUDとして公開されない。Availability PolicyはMigration 075のclosed SYSTEM profileだけを公開する |
+| AT-IAC-015 | SYSTEM Availability Policyのconcurrent create、RBAC、ETag race、immutable revision、no-retrofit、dependency/protection retirement、runtime authority non-generationを実HTTP/PostgreSQLで検証する |
+| AT-IAC-016 | Image Northbound endpointが存在せず、artifact ingestion/read-back authority未分離の間caller observed digestを受理しないことをcontract reviewで検証する |
 | AT-DATA-001 | desired/allocation/Job/Command/idempotencyの一要素失敗で全transactionがrollbackする |
 | AT-DATA-002 | desired/observed generationを独立保持し、stale observationをcurrent表示しない |
 | AT-DATA-003 | schema catalogがCurrent Authority、Immutable Decision/Evidence、Delivery Journal、Derived Projectionとowner/scope/retentionを宣言する |

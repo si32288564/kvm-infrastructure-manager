@@ -33,6 +33,8 @@ PLACEMENT_POOL
 
 `AvailabilityPolicy`はimmutable versioned System resourceです。
 
+Migration 075はこの既存SYSTEM authorityをNorthboundへ投影します。公開profileは`MANUAL`と`WORKLOAD_MANAGED`だけで、どちらも`NO_AUTOMATIC_ACTION`です。name、mode、max attempts、delete protectionだけがdesiredであり、Failure Epoch、confirmation、fencing/storage evidence、Recovery/EVACUATE、budget claim、destination Hostはprojection外です。PATCHは新policy revisionを作りますが、既存VMの`vm_availability_binding_evidence`はexact historical revisionを維持します。active Group Policyまたはworkload Bindingがあるpolicyのretirementは拒否し、defaultへのfallbackやruntime side effectを発生させません。Infrastructure-managed profile authoringはtyped subordinate policy compositionのpublic contractができるまで対象外です。
+
 ```text
 policy_id / version / digest
 responsibility

@@ -1,17 +1,17 @@
 # KIM Northbound API / Terraform Readiness Review
 
 - Review date: 2026-08-14
-- Repository baseline: Migration 001–074
-- Baseline commit: Phase 1 Project+Flavor logical-resource delivery commit
+- Repository baseline: Migration 001–075
+- Baseline commit: Phase 1 Project+Flavor+Availability logical-resource delivery commit
 - Primary SSOT: [Infrastructure Lifecycle and IaC Architecture](../infrastructure-lifecycle-iac-architecture.md)
 - Scope: repository-based re-review after the executable Project reference vertical slice
-- Decision: **Conditional — Provider scaffold and experimental Project/Flavor resources may begin; Image/Availability and all backend resources remain blocked**
+- Decision: **Conditional — experimental Project/Flavor and closed SYSTEM Availability Policy resources may begin; Image and all backend resources remain blocked**
 
 ## 1. Executive Summary
 
 KIM の内部 authority model は Terraform と相性のよい要素を多く持っています。stable logical ID、immutable revision/evidence、current projection、idempotent replay、generation fencing、asynchronous subsystem Operation、desired/observed separation、Recovery/EVACUATE 後の logical identity continuity は PostgreSQL persistence と integration tests で確認できました。
 
-Migration 074 は同じcontractをFlavorへ適用し、Project固有だったprincipal/error/IDとHTTP request/ETag/cursor/Problem Details規約を共通化しました。Flavorは既存Migration 010のimmutable shape/current authorityとPlacement consumerを再利用し、更新は新revisionを作るだけで既存VMのexact revision bindingを変更しません。
+Migration 074は同じcontractをFlavorへ適用しました。Migration 075は既存SYSTEM Availability Policy authorityへpublic name/closed profile、exact idempotency、protection/retirementを追加しました。公開modeは`MANUAL`/`WORKLOAD_MANAGED`だけで、既存workload bindingをretrofitせずRecovery runtime authorityを生成しません。
 
 したがって、内部 persistence function や table が存在する resource も `TERRAFORM_READY` ではありません。Provider を先行実装すると、次の P0 authority violation を誘発します。
 
@@ -20,14 +20,14 @@ Migration 074 は同じcontractをFlavorへ適用し、Project固有だったpri
 - subsystem-specific Recovery/EVACUATE/Cleanup state machine を Terraform CRUD として再実装する。
 - response loss、delete、stale update を Provider 側の推測や recreate で解決する。
 
-Provider scaffoldとexperimental Project/Flavor resourceの開始条件は成立しました。Imageはartifact ingestion/observed digest authority未分離、Availability Policyはpublic scope/typed dependency contract不足のためBLOCKEDです。unified Operation、Provider import conformance、VM no-driftも未実装です。
+Provider scaffoldとexperimental Project/Flavor/closed Availability Policy resourceの開始条件は成立しました。Imageはartifact ingestion/observed digest authority未分離のためBLOCKEDです。infrastructure-managed Availability authoring、unified Operation、Provider import conformance、VM no-driftも未実装です。
 
 ## 2. Review Methodology
 
 次を current implementation の根拠として実査しました。
 
 1. accepted ADR-0001–0029 と architecture/API/security/resource documents
-2. Migration 001–074 の current/evidence/operation schema
+2. Migration 001–075 の current/evidence/operation schema
 3. `internal/persistence/postgres` の producer、consumer、read helper、integration tests
 4. `cmd/kim-api`、HTTP/gRPC listener、OpenAPI/Swagger artifact、OIDC/RBAC/ETag/idempotency implementation の repository search
 5. current architecture qualification inventory と validation documents
@@ -67,7 +67,7 @@ Project と Flavor が Create/Read/List/Update/Delete endpoint を持ちます�
 | Port | stable `port_id`; generation advances across incarnation | Final Admission-created Port/MAC/IP/Binding、Recovery/EVACUATE handoff qualified | independent logical Port CRUD/import/update/deleteなし。Admission and physical Binding coupled | `RESOURCE_MODEL_GAP` P0/P1 |
 | Router | none | architecture/requirements only | complete resource/realization/API absent | `RESOURCE_MODEL_GAP` P2 |
 | Floating IP / public IP | no first-class resource | IP/MAC claims only; generic floating/NAT producer absent | identity、allocation、association、release、router dependency absent | `RESOURCE_MODEL_GAP` P2 |
-| Availability Policy | `policy_id` + immutable revision/digest | policy publication/binding/rebind/Recovery consumption | SYSTEM/PROJECT scope、name、typed child-policy authoring、PLACEMENT_POOL dependency/delete contract未確定 | `BLOCKED` (`RESOURCE_MODEL_GAP` public intent) |
+| Availability Policy | UUIDv4 + immutable revision/digest、SYSTEM scope | closed MANUAL/WORKLOAD_MANAGED CRUD/list、exact workload binding、no-retrofit、dependency/protection retirement | infrastructure-managed typed child-policy authoringは未公開 | `TERRAFORM_READY` for closed experimental profiles |
 | Resilience Policy/Group | requirements/ADR model; active schema producer not found | no current resource implementation | complete model/API absent | `RESOURCE_MODEL_GAP` P2 |
 | PCI/SR-IOV logical requirement | Placement request requirement; physical claim/BDF generation | generic allocation/retirement/Recovery synthetic pass | no persistent portable requirement/profile resource; internal request exposes physical BDF | `RESOURCE_MODEL_GAP` P0/P2 |
 | Datapath Profile | none | STANDARD/DPDK/Direct-I/O target architecture; kernel OVS realization exists | profile schema、capability contract、CRUD absent | `RESOURCE_MODEL_GAP` P2 |
@@ -331,7 +331,7 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 | Project/Site scope | Project `IMPLEMENTED`; Site `RESOURCE_MODEL_GAP` | Project P1 closed | Project experimental candidate; Site later |
 | Flavor | `TERRAFORM_READY_EXPERIMENTAL` | Phase 1 contract PASS | Provider implementation may begin; release acceptance pending |
 | Image | `BLOCKED` | artifact authority gap | separate ingestion/read-back authority first |
-| Availability Policy | `BLOCKED` | public resource-model gap | scope and typed child-policy/dependency contract first |
+| Availability Policy | `TERRAFORM_READY_EXPERIMENTAL` | closed SYSTEM non-automatic profiles PASS | infrastructure-managed profile remains blocked |
 | HostGroup/Placement Scope | `API_SEMANTIC_GAP` | P1/P2 | admin phase after auth/redaction |
 | Network/Subnet | `API_SEMANTIC_GAP` | P1 | separate public resources before Provider |
 | Port | `RESOURCE_MODEL_GAP` | P0/P1 | decouple logical Port from Admission/Binding |
@@ -341,7 +341,7 @@ Initial realization may compile to OVN ACL、Port Group、Address Set with compi
 | Security/Datapath/Router/FRR | `RESOURCE_MODEL_GAP` | P1/P2 | not MVP |
 | Recovery/EVACUATE/Cleanup | `OPERATION_ONLY` | P1 public gap | polling/status only; no managed resource |
 
-Project and Flavor are qualified experimental Provider candidates, not production-ready Provider releases. Image、Availability Policy and all backend-bearing resources remain blocked or semantic gaps.
+Project、Flavor、closed SYSTEM Availability Policy are qualified experimental Provider candidates, not production-ready Provider releases. Image and all backend-bearing resources remain blocked or semantic gaps.
 
 ## 14. P0 / P1 / P2 / P3 Findings
 
@@ -380,7 +380,7 @@ Project and Flavor are qualified experimental Provider candidates, not productio
 
 ### 15.1 MVP rule
 
-MVP must follow public API maturity, not internal schema breadth. Project+Flavor are the qualified logical-resource contracts; Provider work must remain limited to scaffold/conformance and these experimental resources.
+MVP must follow public API maturity, not internal schema breadth. Project、Flavor、closed SYSTEM Availability Policy are the qualified logical-resource contracts; Provider work must remain limited to scaffold/conformance and these experimental resources.
 
 ### Phase 0 — Project reference contract (complete)
 

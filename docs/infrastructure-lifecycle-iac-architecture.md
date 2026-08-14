@@ -8,7 +8,7 @@
 
 本書は KIM を IaC-first な KVM Infrastructure Control Plane として利用するための将来設計 SSOT です。Terraform、Ansible、管理 UI、KIM、Host Agent、各 backend の責務を分離し、同じ resource lifecycle contract から API、Terraform Provider、UI を構成します。
 
-`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073/074 の Project+Flavor API は current multi-resource referenceです。Provider、UI、Image/Availability/他resource API、backend Operation projectionは引き続きproposedまたはblockedです。
+`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073–075 の Project、Flavor、SYSTEM Availability Policy API はcurrent multi-resource referenceです。Provider、UI、Image/他resource API、backend Operation projectionは引き続きproposedまたはblockedです。
 
 ## 2. 中核原則
 
@@ -103,7 +103,7 @@ flowchart TB
 
 KIM Resource Contract は JSON shape だけでなく、identity、revision、mutability、replacement、computed field、asynchronous convergence、import、delete protection、authorization を含む機械可読 contract です。OpenAPI 3.1 は HTTP contract の SSOT ですが、Provider/UI generation に不足する lifecycle metadata も OpenAPI extension または同一 versioned schema package で管理します。
 
-Project+Flavor reference implementation は `api/openapi/kim-v1.json` の `x-kim-resource` と `x-kim-field-class` をSSOTとします。共通HTTP layerはauthentication、request context、JSON bound、ETag/If-Match、cursor、Problem Detailsを提供し、resource-specific service/storeがrevision、dependency、delete、consumer semanticsを保持します。
+Project、Flavor、Availability Policy reference implementation は `api/openapi/kim-v1.json` の `x-kim-resource` と `x-kim-field-class` をSSOTとします。共通HTTP layerはauthentication、request context、JSON bound、ETag/If-Match、cursor、Problem Detailsを提供し、resource-specific service/storeがrevision、dependency、delete、consumer semanticsを保持します。
 
 ## 4. Responsibility Boundaries
 
@@ -402,7 +402,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 | Area | Current repository state | Proposed target |
 |---|---|---|
-| Northbound API | Project+Flavor CRUD/list、OIDC/RBAC、ETag/If-Match、resource-specific idempotency FK、Problem Details、cursor、audit、OpenAPIがMigration 073/074で実装 | Image ingestion、Availability scope、backend Operationを安全に追加 |
+| Northbound API | Project/Flavor/SYSTEM Availability CRUD/list、OIDC/RBAC、ETag/If-Match、exact idempotency FK、Problem Details、cursor、audit、OpenAPIがMigration 073–075で実装 | typed Image ingestion/read-back、infrastructure-managed Availability authoring、backend Operationを安全に追加 |
 | Resource persistence | Image、Flavor、Network、Volume、VM、Availability 等の persistence/authority は段階的に存在 | Terraform-ready logical resource surface と public CRUD semantics |
 | Terraform | Provider/module/registry artifact は存在しない | `terraform-provider-kim` と official modules |
 | UI | product UI resource editor/runtime console は未実装 | common contract に基づく interactive、authoring、troubleshooting UI |
@@ -469,7 +469,7 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ## 17. Migration Path
 
-1. Project+Flavor multi-resource contractのOpenAPI、security、revision、idempotency、audit patternを維持する（完了）。
+1. Project、Flavor、closed SYSTEM Availability Policy multi-resource contractのOpenAPI、security、revision、idempotency、audit patternを維持する（完了）。
 2. 各 resource に本書の lifecycle contract を記入し、public logical field と internal physical field を分離する。
 3. backend convergenceを持つ最初のresourceでunified Operation contractを実装する。
 4. Project experimental Provider resource/scaffoldでCRUD/import/refresh/response-loss testsを成立させる。

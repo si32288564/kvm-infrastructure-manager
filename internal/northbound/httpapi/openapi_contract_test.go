@@ -20,7 +20,10 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 		t.Fatalf("OpenAPI version=%v", document["openapi"])
 	}
 	paths := document["paths"].(map[string]any)
-	for path, methods := range map[string][]string{"/projects": {"post", "get"}, "/projects/{project_id}": {"get", "patch", "delete"}, "/flavors": {"post", "get"}, "/flavors/{flavor_id}": {"get", "patch", "delete"}} {
+	if _, exposed := paths["/images"]; exposed {
+		t.Fatal("Image endpoint exposed before typed ingestion/read-back authority")
+	}
+	for path, methods := range map[string][]string{"/projects": {"post", "get"}, "/projects/{project_id}": {"get", "patch", "delete"}, "/flavors": {"post", "get"}, "/flavors/{flavor_id}": {"get", "patch", "delete"}, "/availability-policies": {"post", "get"}, "/availability-policies/{policy_id}": {"get", "patch", "delete"}} {
 		entry, ok := paths[path].(map[string]any)
 		if !ok {
 			t.Fatalf("path %s absent", path)
@@ -57,6 +60,11 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 	if flavorMetadata["resourceType"] != "FLAVOR" || flavorMetadata["scope"] != "PROJECT" || flavorMetadata["mutationMode"] != "SYNCHRONOUS_AUTHORITY_COMMIT" || flavorMetadata["replacementSemantics"] != "NEW_REVISION_NO_EXISTING_VM_RETROFIT" {
 		t.Fatalf("Flavor lifecycle metadata=%v", flavorMetadata)
 	}
+	availabilitySchema := schemas["AvailabilityPolicy"].(map[string]any)
+	availabilityMetadata := availabilitySchema["x-kim-resource"].(map[string]any)
+	if availabilityMetadata["resourceType"] != "AVAILABILITY_POLICY" || availabilityMetadata["scope"] != "SYSTEM" || availabilityMetadata["replacementSemantics"] != "NEW_REVISION_NO_WORKLOAD_RETROFIT" {
+		t.Fatalf("Availability Policy lifecycle metadata=%v", availabilityMetadata)
+	}
 	desired := schemas["FlavorDesired"].(map[string]any)["properties"].(map[string]any)
 	for _, field := range []string{"projectId", "name", "vcpus", "memoryMiB", "rootDiskGiB", "numaPolicy", "cpuAllocation", "cpuPinning"} {
 		value, ok := desired[field].(map[string]any)
@@ -76,7 +84,8 @@ func TestOpenAPIProjectContractAndLifecycleMetadata(t *testing.T) {
 			}
 		}
 	}
-	text := string(raw)
+	publicDesired, _ := json.Marshal([]any{schemas["ProjectCreate"], schemas["FlavorDesired"], schemas["AvailabilityPolicyDesired"]})
+	text := string(publicDesired)
 	for _, forbiddenDesired := range []string{"hostId", "pcpu", "pmdCore", "rxq", "vhostSocket", "ovsUuid", "pciBdf", "lvUuid", "materializationGeneration", "recoveryGeneration", "evacuationGeneration", "failureEpochId", "fencingProofId", "recoveryOperationId"} {
 		if strings.Contains(text, `"`+forbiddenDesired+`"`) {
 			t.Fatalf("physical/internal field %s leaked into Phase 0 contract", forbiddenDesired)

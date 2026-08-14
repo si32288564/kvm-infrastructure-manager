@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/auth"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/availabilitypolicy"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/flavor"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/resource"
@@ -28,11 +29,12 @@ const (
 var errBodyTooLarge = errors.New("request body exceeds the maximum size")
 
 type Server struct {
-	Projects       project.Service
-	Flavors        flavor.Service
-	Authenticator  auth.Authenticator
-	Logger         io.Writer
-	RequestTimeout time.Duration
+	Projects             project.Service
+	Flavors              flavor.Service
+	AvailabilityPolicies availabilitypolicy.Service
+	Authenticator        auth.Authenticator
+	Logger               io.Writer
+	RequestTimeout       time.Duration
 }
 
 type problem struct {
@@ -59,7 +61,111 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/flavors/{flavor_id}", s.getFlavor)
 	mux.HandleFunc("PATCH /api/v1/flavors/{flavor_id}", s.patchFlavor)
 	mux.HandleFunc("DELETE /api/v1/flavors/{flavor_id}", s.deleteFlavor)
+	mux.HandleFunc("POST /api/v1/availability-policies", s.createAvailabilityPolicy)
+	mux.HandleFunc("GET /api/v1/availability-policies", s.listAvailabilityPolicies)
+	mux.HandleFunc("GET /api/v1/availability-policies/{policy_id}", s.getAvailabilityPolicy)
+	mux.HandleFunc("PATCH /api/v1/availability-policies/{policy_id}", s.patchAvailabilityPolicy)
+	mux.HandleFunc("DELETE /api/v1/availability-policies/{policy_id}", s.deleteAvailabilityPolicy)
 	return s.requestContext(s.recover(mux))
+}
+
+func (s Server) createAvailabilityPolicy(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "AVAILABILITY_POLICY_CREATE")
+	if !ok {
+		return
+	}
+	var body availabilitypolicy.Desired
+	if err := decodeJSON(r, &body); err != nil {
+		if !errors.Is(err, errBodyTooLarge) {
+			err = resource.ErrValidation
+		}
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, _, err := s.AvailabilityPolicies.Create(r.Context(), p, availabilitypolicy.CreateRequest{Desired: body, IdempotencyKey: r.Header.Get("Idempotency-Key"), RequestID: requestID(r), CanonicalPath: "/api/v1/availability-policies"})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	w.Header().Set("Location", "/api/v1/availability-policies/"+out.ID)
+	writeJSON(w, 201, out)
+}
+func (s Server) getAvailabilityPolicy(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "AVAILABILITY_POLICY_READ")
+	if !ok {
+		return
+	}
+	out, err := s.AvailabilityPolicies.Get(r.Context(), p, r.PathValue("policy_id"), requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) listAvailabilityPolicies(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "AVAILABILITY_POLICY_LIST")
+	if !ok {
+		return
+	}
+	limit, after, err := parsePage(r, map[string]bool{"limit": true, "cursor": true})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	page, err := s.AvailabilityPolicies.List(r.Context(), p, availabilitypolicy.ListRequest{AfterID: after, Limit: limit}, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	response := struct {
+		Items      []availabilitypolicy.Resource `json:"items"`
+		NextCursor string                        `json:"nextCursor,omitempty"`
+	}{Items: page.Items}
+	if page.NextAfter != "" {
+		response.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.NextAfter))
+	}
+	writeJSON(w, 200, response)
+}
+func (s Server) patchAvailabilityPolicy(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "AVAILABILITY_POLICY_UPDATE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	patch, err := decodeAvailabilityPolicyPatch(r)
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, err := s.AvailabilityPolicies.Patch(r.Context(), p, r.PathValue("policy_id"), revision, patch, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) deleteAvailabilityPolicy(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "AVAILABILITY_POLICY_DELETE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	if err := s.AvailabilityPolicies.Delete(r.Context(), p, r.PathValue("policy_id"), revision, requestID(r)); err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.WriteHeader(204)
 }
 
 func (s Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -534,6 +640,54 @@ func decodeFlavorPatch(request *http.Request) (flavor.Patch, error) {
 			if null {
 				return p, resource.ErrValidation
 			}
+			var v bool
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.DeleteProtection = &v
+		default:
+			return p, resource.ErrValidation
+		}
+	}
+	return p, nil
+}
+
+func decodeAvailabilityPolicyPatch(request *http.Request) (availabilitypolicy.Patch, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(request, &fields); err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			return availabilitypolicy.Patch{}, err
+		}
+		return availabilitypolicy.Patch{}, resource.ErrValidation
+	}
+	if len(fields) == 0 {
+		return availabilitypolicy.Patch{}, resource.ErrValidation
+	}
+	var p availabilitypolicy.Patch
+	for name, raw := range fields {
+		if string(raw) == "null" {
+			return p, resource.ErrValidation
+		}
+		switch name {
+		case "name":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Name = &v
+		case "availabilityMode":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.AvailabilityMode = &v
+		case "maxAttempts":
+			var v int
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.MaxAttempts = &v
+		case "deleteProtection":
 			var v bool
 			if json.Unmarshal(raw, &v) != nil {
 				return p, resource.ErrValidation

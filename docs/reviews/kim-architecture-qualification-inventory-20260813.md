@@ -12,6 +12,8 @@ Migration 073 adds the qualified Northbound Project reference vertical slice: ex
 
 Migration 074 expands the same contract to Project-owned Flavor while preserving Migration 010 shape authority and exact historical revision consumers. Image and Availability Policy were reviewed but remain BLOCKED at their Northbound authority boundaries. This multi-resource expansion is also cross-cutting; the 35-row denominator and all three scores remain unchanged.
 
+Migration 075 exposes the existing SYSTEM Availability Policy authority only through closed non-automatic profiles, preserving exact workload bindings and runtime Recovery separation. Image remains BLOCKED because typed ingestion/read-back is absent. This cross-cutting API closure does not change the 35-row denominator or scores.
+
 ## Executive summary
 
 KIM is an authority-oriented KVM control plane, not a generic virtualization shell. PostgreSQL owns desired state, identity, allocation, admission, execution, recovery, relocation, and cleanup decisions. Agents execute a closed set of typed operations, journal before mutation, and return observations; a command response is never sufficient evidence of convergence.

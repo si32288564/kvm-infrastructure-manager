@@ -446,6 +446,8 @@
 | IAC-014 | backend-independent Security Policy desired model を selector、direction、protocol/service/port、statefulness、action、priority、logging policy として定義し、raw OVN ACL syntaxを通常の public desired fieldにしない | Must |
 | IAC-015 | PostgreSQL resource authority commitだけで完了するmutationは201/200/204の同期応答を許容し、backend realizationを伴うmutationは202+Operationとする。形式上だけのOperationを作らない | Must |
 | IAC-016 | 複数Northbound resourceはprincipal、error、request ID、ETag/If-Match、cursor、audit、lifecycle metadata規約を共有しつつ、resource固有revision、dependency、delete、consumer semanticsをgeneric handlerへ隠さない | Must |
+| IAC-017 | SYSTEM Availability Policyのclosed non-automatic intentをstable ID、immutable revision、ETag/idempotency、exact workload dependency、retirementでNorthbound管理し、runtime Recovery authorityをdesiredへ混入しない | Must |
+| IAC-018 | Image metadataとartifact observation/ingestionを分離し、caller supplied observed digestをImage authorityへ昇格しない | Must |
 
 ### 2.16 Fault、Performance、Audit
 

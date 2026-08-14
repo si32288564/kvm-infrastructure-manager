@@ -17,7 +17,7 @@ func (s NorthboundProjectStore) Ready(ctx context.Context) error {
 	}
 	var active bool
 	err := pgx.BeginTxFunc(ctx, s.DB, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.database_authority WHERE singleton AND mode='ACTIVE') AND to_regclass('kim.projects_current') IS NOT NULL AND to_regclass('kim.northbound_flavor_idempotency_evidence') IS NOT NULL`).Scan(&active)
+		return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.database_authority WHERE singleton AND mode='ACTIVE') AND to_regclass('kim.projects_current') IS NOT NULL AND to_regclass('kim.northbound_flavor_idempotency_evidence') IS NOT NULL AND to_regclass('kim.northbound_availability_policy_idempotency_evidence') IS NOT NULL`).Scan(&active)
 	})
 	if err != nil || !active {
 		return project.ErrServiceUnavailable
