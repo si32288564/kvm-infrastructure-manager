@@ -40,6 +40,7 @@ type RuntimeConfig struct {
 type RuntimeResult struct {
 	Observation           Observation
 	NetworkObservation    NetworkObservation
+	SubnetObservation     SubnetObservation
 	RetirementObservation PortBindingRetirementObservation
 	ApplyResponseState    string
 	NBObservationDigest   string

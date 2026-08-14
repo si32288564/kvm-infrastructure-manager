@@ -713,13 +713,19 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		               SELECT 1
 		               FROM generate_series(0::bigint, subnet.allocation_end - subnet.allocation_start) candidate_offset
 		               WHERE NOT ((subnet.allocation_start + candidate_offset) = ANY(subnet.excluded_addresses))
-		                 AND NOT EXISTS (
-		                     SELECT 1 FROM kim.network_identity_claims automatic_claim
+			         AND NOT EXISTS (
+			             SELECT 1 FROM kim.network_identity_claims automatic_claim
 		                     WHERE automatic_claim.claim_type='IP'
 		                       AND automatic_claim.subnet_id=subnet.subnet_id
 		                       AND automatic_claim.ip_address=(subnet.allocation_start + candidate_offset)
-		                       AND automatic_claim.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
-		                 )
+			               AND automatic_claim.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
+			         )
+			         AND NOT EXISTS (
+			             SELECT 1 FROM kim.subnet_ip_allocations_current allocation
+			             WHERE allocation.subnet_id=subnet.subnet_id
+			               AND allocation.assigned_address=(subnet.allocation_start + candidate_offset)
+			               AND allocation.allocation_state IN ('ALLOCATED','RELEASE_PENDING')
+			         )
 		           )
 		       ELSE
 		           NULLIF($8,'')::inet <<= subnet.cidr
@@ -733,6 +739,10 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=NULLIF($8,'')::inet)
 		               OR (identity.claim_type='MAC' AND identity.network_id=network.network_id AND identity.mac_address=NULLIF($9,'')::macaddr))
 		             AND ($13='' OR identity.port_id<>$3)
+		           UNION ALL
+		           SELECT 1 FROM kim.subnet_ip_allocations_current allocation
+		           WHERE allocation.subnet_id=subnet.subnet_id AND allocation.assigned_address=NULLIF($8,'')::inet
+		             AND allocation.allocation_state IN ('ALLOCATED','RELEASE_PENDING')
 		       ) END,
 		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3 AND $13=''),
 		       ($10 = ANY(mapping.supported_binding_types)),
@@ -766,6 +776,11 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		  AND (network.authority_source='LEGACY_FOUNDATION' OR EXISTS(
 		    SELECT 1 FROM kim.network_realizations_current realization
 		    WHERE realization.network_id=network.network_id AND realization.network_revision=network.network_revision
+		      AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
+		  AND (subnet.authority_source='LEGACY_FOUNDATION' OR EXISTS(
+		    SELECT 1 FROM kim.subnet_realizations_current realization
+		    WHERE realization.subnet_id=subnet.subnet_id AND realization.subnet_revision=subnet.subnet_revision
+		      AND realization.network_revision=network.network_revision
 		      AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
 	`, projectID, hostID, required.PortID, workloadID, required.NetworkID, required.SubnetID,
 		required.SegmentClaimID, required.IPAddress, required.MACAddress,
@@ -832,6 +847,11 @@ func lockNetworkAuthorityRows(ctx context.Context, tx pgx.Tx, hostID string, req
 			    SELECT 1 FROM kim.network_realizations_current realization
 			    WHERE realization.network_id=network.network_id AND realization.network_revision=network.network_revision
 			      AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
+			  AND (subnet.authority_source='LEGACY_FOUNDATION' OR EXISTS(
+			    SELECT 1 FROM kim.subnet_realizations_current realization
+			    WHERE realization.subnet_id=subnet.subnet_id AND realization.subnet_revision=subnet.subnet_revision
+			      AND realization.network_revision=network.network_revision
+			      AND realization.realization_state='VERIFIED' AND realization.terminal_evidence_id IS NOT NULL))
 			FOR SHARE OF network, subnet, segment, mapping
 		`, required.NetworkID, required.SubnetID, required.SegmentClaimID, hostID).Scan(&networkID); err != nil {
 			return err
@@ -865,14 +885,30 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 			return fmt.Errorf("allocate automatic Network identities for Port %s: %w", required.PortID, err)
 		}
 	}
+	allocationMode := "EXPLICIT"
+	if allocationSource == "AUTOMATIC" {
+		allocationMode = "AUTO"
+	}
+	subnetAllocation, err := recordSubnetPortAllocationTx(ctx, tx, request.RequestID, required.PortID, required.SubnetID, allocationMode, ipAddress)
+	if err != nil {
+		return fmt.Errorf("authorize Subnet IP allocation for Port %s: %w", required.PortID, err)
+	}
+	var subnetRevision, ipAllocationGeneration any
+	var ipAllocationID any
+	if subnetAllocation != nil {
+		subnetRevision = subnetAllocation.SubnetRevision
+		ipAllocationID = subnetAllocation.AllocationID
+		ipAllocationGeneration = subnetAllocation.AllocationGeneration
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO kim.network_identity_claims (
 			identity_claim_id, placement_admission_id, port_id, project_id,
 			network_id, subnet_id, claim_type, ip_address,
-			allocation_source, claim_generation, claim_state
-		) VALUES ($1,$2,$3,$4,$5,$6,'IP',$7::inet,$8,1,'RESERVED')
+			allocation_source, claim_generation, claim_state,
+			subnet_revision,ip_allocation_id,ip_allocation_generation
+		) VALUES ($1,$2,$3,$4,$5,$6,'IP',$7::inet,$8,1,'RESERVED',$9,$10,$11)
 	`, "ip:"+request.RequestID+":"+required.PortID, admissionID, required.PortID,
-		request.ProjectID, required.NetworkID, required.SubnetID, ipAddress, allocationSource); err != nil {
+		request.ProjectID, required.NetworkID, required.SubnetID, ipAddress, allocationSource, subnetRevision, ipAllocationID, ipAllocationGeneration); err != nil {
 		return fmt.Errorf("reserve IP identity for Port %s: %w", required.PortID, err)
 	}
 	if _, err := tx.Exec(ctx, `

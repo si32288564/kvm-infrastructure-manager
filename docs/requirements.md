@@ -335,6 +335,14 @@
 | NET-059 | standalone OVN Network realizationをtyped Operation/claim/attempt/observation/terminalとして管理し、apply responseをVERIFIEDの根拠にしない | Must |
 | NET-060 | Network retirementはdelete protectionとSubnet/Port dependencyを検証し、exact owned Logical Switch absence terminal後だけsegmentをreleaseする | Must |
 | NET-061 | PlacementとPort intentはnew-authority Networkのexact current VERIFIED realizationを要求し、legacy adapterによるNetwork/segment authority上書きを拒否する | Must |
+| NET-062 | Subnet logical desiredをstable IDとimmutable revision/current projectionで管理し、Projectとexact verified parent Network revisionへbindする | Must |
+| NET-063 | IPv4 CIDRをcanonicalizeし、same live Network scopeでoverlapを拒否し、`NONE/AUTO/EXPLICIT` gatewayとreservationをclosed policyから導出する | Must |
+| NET-064 | Subnet IPAM poolと個別IP allocationを別generation/evidenceで管理し、AUTOはKIMが選択、EXPLICITはexact current poolで検証する | Must |
+| NET-065 | IP allocation replay/collision/release/ABAをimmutable decision/release evidenceとcurrent stateでfenceし、Final AdmissionはPort claimsと不可分にcommitする | Must |
+| NET-066 | Subnet DHCP/DNS desiredをraw OVN syntaxと分離し、typed standalone Operationのexact DHCP Options/parent Logical Switch read-backだけをVERIFIEDへ昇格する | Must |
+| NET-067 | Subnet realization response loss/lease expiryをside effect不在とみなさず、successorをREAD_BACK_FIRSTにしてexact generationへ収束する | Must |
+| NET-068 | Subnet retirementはdelete protectionとPort/IP allocation dependencyを検査し、poolをfreezeした後、backend absence terminal後だけlogical deleteとpool retireを行う | Must |
+| NET-069 | new-authority SubnetをconsumeするPlacement/Portはexact current Subnetおよびparent Network VERIFIED realizationを要求し、legacy adapterによるSubnet/IPAM authority上書きを拒否する | Must |
 
 ### 2.13 NFV Dataplane
 

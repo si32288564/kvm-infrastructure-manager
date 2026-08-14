@@ -1,9 +1,9 @@
 # KIM Northbound / Terraform Phase 2 Resource Contract Review
 
 - Review date: 2026-08-14
-- Baseline for implementation: `5e5e67f4cb7759973ebb5a2fd05c97157b496a07`, Migration 001–076
+- Current implementation: Migrations 077–078 over baseline `5f9aa336d7c7a1ad0d5e9b5ff1640c8bba4e07b8`
 - Candidates: Network, Subnet, Port, Volume
-- Decision: **Network internal contract ready; no Phase 2 public resource exposed yet**
+- Decision: **Network and Subnet internal contracts ready; no Phase 2 public resource exposed yet**
 
 ## Decision
 
@@ -12,7 +12,7 @@ The four candidates have valuable internal authority, but none has the complete 
 | Resource | Stable identity/current authority | Realization/allocation | Missing Northbound authority | Classification |
 |---|---|---|---|---|
 | Network | Migration 077 immutable desired revisions/current projection with stable ID and Project ownership | KIM VNI/VLAN allocation/release plus standalone typed OVN Logical Switch Operation/read-back terminal | public RBAC/idempotency/audit/OpenAPI/list/import surface only | `INTERNAL_AUTHORITY_COMPLETE` / `CONTRACT_READY` |
-| Subnet | `network_subnets_current.subnet_id`, generation, CIDR and allocation range | PostgreSQL IPAM claims are allocated only by Final Admission; no standalone DHCP/router realization producer | Project ownership projection, immutable revisions, independent create/update/delete, gateway/DHCP/DNS semantics, overlap policy across lifecycle, backend verification/Operation | `API_SEMANTIC_GAP` / `BLOCKED` |
+| Subnet | Migration 078 stable Project-owned ID, immutable desired revision/current projection and closed IPv4 CIDR/gateway/DHCP/DNS | independent IPAM pool/allocation/release plus typed OVN DHCP realization/read-back/retirement; Final Admission consumes exact terminals | public RBAC/idempotency/audit/OpenAPI/list/import surface; IPv6/router are future resources | `INTERNAL_AUTHORITY_COMPLETE` / `CONTRACT_READY` |
 | Port | `network_ports_current.port_id`, generation; logical ID survives qualified EVACUATE | Final Admission atomically creates Port, MAC/IP claims and exact Host binding; OVN/OVS realization/read-back and A→B handoff are qualified | Admission-independent desired Port, attachment intent without VM aggregate, revision/delete/import authority, allocation lifecycle before placement; current row requires workload/admission and physical binding | `RESOURCE_MODEL_GAP` / `BLOCKED` |
 | Volume | `volumes_current.volume_id`, desired generation; relocation history preserves identity semantics | Final Admission creates capacity claim, Local LVM binding and attachment; copy/content verification/cleanup are qualified | Admission-independent logical Volume lifecycle, backend-neutral storage-class request compiler, standalone allocation/materialization/delete/tombstone, attachment boundary before VM Phase 3, public revision/RBAC/read projection | `RESOURCE_MODEL_GAP` / `BLOCKED` |
 
@@ -22,7 +22,7 @@ The four candidates have valuable internal authority, but none has the complete 
 
 Migration 077 decomposes Network from Migration 013's combined foundation. `network_resource_revision_evidence` and expanded `networks_current` own desired identity; allocation decision/current/release evidence own segments; Network realization Operation/Attempt/Observation/Terminal/current tables own the standalone OVN Logical Switch lifecycle. The normal `kim-network-worker` claims this work and invokes only the closed `kim.network-intent.ovn-network/v1` adapter. Exact marker read-back—not apply response—derives `VERIFIED`; exact owned-object absence derives `ABSENT`. Segment release follows only that absence terminal. Backend UUID replacement creates a new realization incarnation without changing desired identity.
 
-`UpsertNetworkFoundation` remains a legacy adapter. For new Network authority it can add an exact Subnet projection but cannot overwrite Network or segment authority. Placement and Port-intent SQL require the exact current Network realization terminal for new rows. Subnet itself still lacks independent immutable lifecycle, Project projection, DHCP/gateway policy, delete semantics, and standalone realization, so Subnet remains blocked even though its parent Network prerequisite is now ready. Raw OVN UUID/DHCP syntax and arbitrary VNI/VLAN remain forbidden.
+`UpsertNetworkFoundation` remains a legacy adapter and cannot overwrite either new Network or Subnet authority. Migration 078 separates immutable Subnet desired revisions, pool/allocation/release evidence, and typed DHCP realization. Placement requires exact current Network and Subnet terminals and records the IPAM decision in the same Final Admission transaction. Raw OVN UUID/DHCP syntax, Host identity, arbitrary CIDR family, and caller availability remain forbidden. Router/LRP and per-Port DHCP attachment are explicitly deferred to their own resource consumers.
 
 ### Port
 
@@ -35,8 +35,8 @@ Migration 014 ties Volume creation to Placement Admission, capacity observation/
 ## Required implementation sequence
 
 1. Completed in Migration 077: Network immutable revision/current, KIM segment allocation/release, typed standalone OVN realization/read-back, dependency retirement, and consumer gating.
-2. Next: define independent Subnet revision, Project ownership, IPAM lifecycle, gateway/DHCP closed policy and typed backend verification.
-3. Refactor Port into admission-independent logical desired/allocation authority, with Placement creating only physical binding incarnations; retain existing handoff history.
+2. Completed in Migration 078: independent Subnet revision, Project/Network ownership, IPAM lifecycle, gateway/DHCP/DNS closed policy, typed backend verification and safe retirement.
+3. Next: refactor Port into admission-independent logical desired/allocation authority, with Placement creating only physical binding incarnations; retain existing handoff history.
 4. Define backend-neutral Volume revision and storage-class request compiler, then standalone allocation/materialization Operation; keep Attachment with the VM aggregate.
 5. Only after each producer/consumer/delete/RBAC/verification contract exists, add OpenAPI endpoints and Terraform resources.
 
@@ -71,7 +71,8 @@ The key intentionally excludes display name and desired payload. KIM separately 
 | `NETWORK_TERRAFORM_DRIFT_INVARIANT` | PASS (internal contract; no Provider resource) |
 | `NORTHBOUND_NETWORK_RESOURCE_READINESS` | CONTRACT_READY |
 | `NORTHBOUND_NETWORK_RESOURCE` | BLOCKED (endpoint not implemented) |
-| `NORTHBOUND_SUBNET_RESOURCE` | BLOCKED |
+| `NORTHBOUND_SUBNET_RESOURCE_READINESS` | CONTRACT_READY |
+| `NORTHBOUND_SUBNET_RESOURCE` | BLOCKED (endpoint not implemented) |
 | `NORTHBOUND_PORT_RESOURCE` | BLOCKED |
 | `NORTHBOUND_VOLUME_RESOURCE` | BLOCKED |
 | `NORTHBOUND_PHASE2_OPERATION_CONVERGENCE` | BLOCKED |
@@ -82,10 +83,10 @@ The key intentionally excludes display name and desired payload. KIM separately 
 | `TERRAFORM_PORT_RESOURCE` | BLOCKED |
 | `TERRAFORM_VOLUME_RESOURCE` | BLOCKED |
 | `TERRAFORM_PROCESS_CRASH_CREATE_RECOVERY` | PASS for Project; Phase 2 application BLOCKED |
-| `TERRAFORM_PHASE2_DRIFT_INVARIANTS` | Network internal contract PASS; Provider acceptance BLOCKED |
+| `TERRAFORM_PHASE2_DRIFT_INVARIANTS` | Network/ Subnet internal contract PASS; Provider acceptance BLOCKED |
 | `TERRAFORM_PHASE2_IMPORT` | BLOCKED |
 | `TERRAFORM_PHASE2_ACCEPTANCE` | BLOCKED |
 
-VM Phase 3 exit criteria are not met. Phase 1 resources remain experimentally ready; Network/Subnet/Port/Volume must not be represented as Terraform resources until the gaps above close.
+VM Phase 3 exit criteria are not met. Phase 1 resources remain experimentally ready; Network and Subnet are internal `CONTRACT_READY`, while Port and Volume remain authority-blocked. None is yet a Terraform resource.
 
 The established 35-row infrastructure/backend denominator remains unchanged: Architecture `31.5/35 = 90.0%`, Functional `30/35 = 85.7%`, Production `17.5/35 = 50.0%`.

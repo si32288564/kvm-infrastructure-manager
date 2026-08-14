@@ -222,6 +222,13 @@
 | INV-NET-045 | current Segment allocationはpool/valueを一意にし、`RELEASE_PENDING`を再利用せずexact absence terminalだけがreleaseする | AT-NET-050, FI-NET-035 |
 | INV-NET-046 | standalone Network Operationはclosed OVN Logical Switch planとexact marker read-backだけをVERIFIED/ABSENTへ昇格し、response loss/expiryをside effect不在にしない | AT-NET-051, FI-NET-036 |
 | INV-NET-047 | new-authority NetworkをconsumeするPlacement/Portはcurrent VERIFIED realizationを要求し、legacy producerはNetwork/Segment authorityを上書きしない | AT-NET-052, AT-NET-053 |
+| INV-NET-048 | Subnet ID/revision、IPAM pool/allocation generation、parent Network revision、OVN DHCP UUID、realization generationを分離し、backend交換をdesired driftにしない | AT-NET-054 |
+| INV-NET-049 | Subnet CIDR/gateway/reservation/DHCP/DNSはclosed canonical desiredからのみ導出し、raw DHCP option、backend UUID、Host/Chassisをdesiredにしない | AT-NET-054, AT-NET-055 |
+| INV-NET-050 | AUTO/EXPLICIT IP allocationはexact VERIFIED Subnet/poolをserializable transactionで再検証し、gateway/reserved/protected allocationとcollisionを除外する | AT-NET-056, FI-NET-037 |
+| INV-NET-051 | Port absenceの単一応答をIP releaseにせず、二つのclean evidenceとimmutable release後だけ別allocationのreuseを許す | AT-NET-056, FI-NET-038 |
+| INV-NET-052 | standalone Subnet Operationはclosed DHCP planとexact parent Network/DHCP read-backだけをVERIFIED/ABSENTへ昇格し、response loss/expiryをside effect不在にしない | AT-NET-055, FI-NET-039 |
+| INV-NET-053 | Subnet retirementはdependency解消後にpoolをfreezeし、exact backend absence terminal前にlogical delete/pool retireまたは新allocationを許さない | AT-NET-057, FI-NET-040 |
+| INV-NET-054 | Final Admissionはexact current parent Network/Subnet terminalsとIPAM decisionをPort/IP/MAC/Bindingと不可分にcommitし、legacy producerがnew Subnet authorityを上書きしない | AT-NET-058 |
 | INV-STO-001 | attachment outcomeまたはsingle-writer fencingが不明なVolumeを別Hostへattachしない | FI-STORAGE-001 |
 | INV-STO-002 | Volume backend capability差を明示し、未対応機能へsilent fallbackしない | AT-STO-002 |
 | INV-STO-003 | Volume desired state、Backend Binding、Attachment Intent/Claim、backend/libvirt Observationを別generationで保持する | AT-STO-003 |

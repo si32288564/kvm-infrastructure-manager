@@ -70,6 +70,10 @@ func allocateAutomaticNetworkIdentitiesTx(ctx context.Context, tx pgx.Tx, reques
 		FROM kim.network_identity_claims
 		WHERE subnet_id=$1 AND claim_type='IP'
 		  AND claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
+		UNION
+		SELECT host(assigned_address)
+		FROM kim.subnet_ip_allocations_current
+		WHERE subnet_id=$1 AND allocation_state IN ('ALLOCATED','RELEASE_PENDING')
 	`, subnetID)
 	if err != nil {
 		return "", "", err
@@ -191,7 +195,10 @@ func BeginNetworkPortRelease(ctx context.Context, db TxBeginner, portID string, 
 		if _, err := tx.Exec(ctx, `UPDATE kim.port_bindings_current SET binding_state='RELEASE_PENDING' WHERE port_id=$1 AND binding_state <> 'RELEASED'`, portID); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `UPDATE kim.network_identity_claims SET claim_state='RELEASE_PENDING' WHERE port_id=$1 AND claim_state <> 'RELEASED'`, portID)
+		if _, err := tx.Exec(ctx, `UPDATE kim.network_identity_claims SET claim_state='RELEASE_PENDING' WHERE port_id=$1 AND claim_state <> 'RELEASED'`, portID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE kim.subnet_ip_allocations_current allocation SET allocation_state='RELEASE_PENDING',updated_at=statement_timestamp() FROM kim.network_identity_claims claim WHERE claim.port_id=$1 AND claim.ip_allocation_id=allocation.allocation_id AND claim.ip_allocation_generation=allocation.allocation_generation AND allocation.allocation_state='ALLOCATED'`, portID)
 		return err
 	})
 }
@@ -312,6 +319,24 @@ func RecordNetworkIdentityReleaseObservation(ctx context.Context, db TxBeginner,
 		}
 		if _, err := tx.Exec(ctx, `UPDATE kim.network_identity_claims SET claim_state=$2 WHERE identity_claim_id=$1`, observation.IdentityClaimID, state); err != nil {
 			return err
+		}
+		if state == "RELEASED" {
+			var allocationID *string
+			var allocationGeneration, subnetRevision *int64
+			var subnetID string
+			if err := tx.QueryRow(ctx, `SELECT ip_allocation_id,ip_allocation_generation,subnet_revision,subnet_id FROM kim.network_identity_claims WHERE identity_claim_id=$1`, observation.IdentityClaimID).Scan(&allocationID, &allocationGeneration, &subnetRevision, &subnetID); err != nil {
+				return err
+			}
+			if allocationID != nil && allocationGeneration != nil && subnetRevision != nil {
+				releaseID := "subnet-ip-release:" + *allocationID
+				releaseDigest := digestNetworkResource(fmt.Sprintf("%s/%d/%s", *allocationID, *allocationGeneration, observation.ObservationID))
+				if _, err := tx.Exec(ctx, `INSERT INTO kim.subnet_ip_allocation_release_evidence(release_evidence_id,allocation_id,allocation_generation,subnet_id,subnet_revision,release_observation_id,release_digest) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(release_evidence_id) DO NOTHING`, releaseID, *allocationID, *allocationGeneration, subnetID, *subnetRevision, observation.ObservationID, releaseDigest); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(ctx, `UPDATE kim.subnet_ip_allocations_current SET allocation_state='RELEASED',updated_at=statement_timestamp() WHERE allocation_id=$1 AND allocation_generation=$2 AND allocation_state='RELEASE_PENDING'`, *allocationID, *allocationGeneration); err != nil {
+					return err
+				}
+			}
 		}
 		if state == "RELEASED" {
 			var outstanding bool

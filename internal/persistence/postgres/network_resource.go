@@ -384,7 +384,7 @@ func RequestNetworkRetirement(ctx context.Context, db TxBeginner, networkID stri
 			return errors.New("Network delete protection is enabled")
 		}
 		var dependent bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_subnets_current WHERE network_id=$1 AND lifecycle_state<>'DISABLED') OR EXISTS(SELECT 1 FROM kim.network_ports_current WHERE network_id=$1 AND desired_state<>'RELEASED')`, networkID).Scan(&dependent); err != nil || dependent {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_subnets_current WHERE network_id=$1 AND lifecycle_state IN ('ACTIVE','DRAINING','RETIRE_PENDING')) OR EXISTS(SELECT 1 FROM kim.network_ports_current WHERE network_id=$1 AND desired_state<>'RELEASED')`, networkID).Scan(&dependent); err != nil || dependent {
 			return ErrPlacementConflict
 		}
 		desired.NetworkID = networkID

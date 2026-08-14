@@ -2,7 +2,18 @@
 
 ## Northbound Phase 2 authority boundary (2026-08-14)
 
-Migration 077 closes the internal Network authority gap. `networks_current` is the single current projection over immutable desired revisions; KIM owns VNI/VLAN allocation and release evidence; standalone typed OVN Logical Switch Operations converge through read-back to `VERIFIED` or `ABSENT`. `UpsertNetworkFoundation` is now an explicit legacy adapter and cannot overwrite a `NETWORK_RESOURCE` row. New-authority Networks are usable by Placement and Port intent only while their exact current realization is verified. Public Network CRUD and Terraform remain intentionally absent, so `NORTHBOUND_NETWORK_RESOURCE_READINESS = CONTRACT_READY`, not endpoint PASS. Subnet, Port, and Volume remain blocked on their independent resource boundaries. See [Phase 2 Resource Contract Review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md) and [ADR-0031](adr/0031-independent-network-resource-segment-and-realization-authority.md).
+Migrations 077–078 close the internal Network and Subnet authority gaps. `networks_current` and `network_subnets_current` are current projections over independent immutable desired revisions. KIM owns segment and IPAM decisions; standalone typed OVN Logical Switch and DHCP Options Operations converge through read-back to `VERIFIED` or `ABSENT`. `UpsertNetworkFoundation` is an explicit legacy adapter and cannot overwrite either resource authority. Final Admission consumes the exact current verified Network and Subnet and atomically binds IPAM evidence to its Port claims. Public CRUD and Terraform remain intentionally absent, so both readiness gates are `CONTRACT_READY`, not endpoint PASS. Port and Volume remain blocked. See [ADR-0031](adr/0031-independent-network-resource-segment-and-realization-authority.md), [ADR-0032](adr/0032-independent-subnet-ipam-and-dhcp-realization-authority.md), and the [Subnet qualification](validation/p2-subnet-resource-authority-decomposition-20260814.md).
+
+### Current independent Subnet/IPAM contract
+
+- stable Project-owned `subnet_id`; same ID plus immutable `subnet_revision` for desired change;
+- exact parent Network current revision, `ACTIVE` lifecycle, and `VERIFIED` realization at create, realization terminal, allocation, and Final Admission;
+- closed IPv4 `/16..30` profile with canonical CIDR, same-Network live-overlap rejection, `NONE|AUTO|EXPLICIT` gateway, one bounded RANGE pool, reservations, DHCP boolean, and bounded IPv4 DNS list;
+- IPAM pool generation differs from individual allocation generation and logical Subnet revision; KIM selects AUTO addresses and validates EXPLICIT addresses;
+- standalone `kim.network-intent.ovn-subnet/v1` realizes the deterministic DHCP Options object and verifies its exact parent Logical Switch markers. DHCP-disabled means verified object absence, not caller-supplied `NOT_REQUIRED`;
+- retirement order is dependency check, immutable pool freeze, typed backend absence, Subnet `DELETED`, then pool `RETIRED`. Released addresses require the existing two clean Port-absence observations and immutable release evidence.
+
+Current limitation versus target architecture: IPv6, multiple pools, Router/LRP, raw DHCP option maps, NTP profiles, external IPAM, public API/Provider contracts, and real OVN qualification are not implemented. Per-Port attachment of DHCP options remains the future independent Port realization consumer.
 
 - 状態: Network internal authority implemented; public contract pending
 - 更新日: 2026-08-09

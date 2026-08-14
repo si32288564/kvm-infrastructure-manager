@@ -534,6 +534,11 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-051 | standalone typed Logical Switch create/update/retireでexact ownership marker、response-loss後read-back、partial/foreign object拒否、backend incarnation replacement、absence terminalを検証する |
 | AT-NET-052 | new-authority NetworkがPENDING中はPlacement eligibilityを持たず、exact VERIFIED terminal後だけconsumer条件を満たす |
 | AT-NET-053 | legacy foundation adapterがexact new NetworkへSubnet projectionを追加してもNetwork/segment sourceを変更せず、Port planが同じLogical Switch identity/Network markerを再利用する |
+| AT-NET-054 | Subnet create/replay/updateがstable ID、immutable revision、Project/exact Network binding、canonical IPv4 CIDR、gateway/reservation/DNS、same-Network overlap rejectionを検証する |
+| AT-NET-055 | typed standalone DHCP realize/update/retireがexact parent Logical Switch/ownership/optionsをread backし、foreign/wrong association/response loss/backend UUID replacementをfenceする |
+| AT-NET-056 | AUTO/EXPLICIT IPAMのreplay/collision/concurrency/stale revision/release/ABAをimmutable decision/current/release evidenceで検証する |
+| AT-NET-057 | active allocation/Port/delete protectionがSubnet retirementを拒否し、pool freeze後のallocationを拒否し、exact DHCP absence後だけDELETED/RETIREDへ進む |
+| AT-NET-058 | PENDING SubnetはPlacement eligibilityを持たず、exact Network/Subnet VERIFIED後のFinal AdmissionだけがIPAM/Port/IP/MAC/Bindingを不可分にcommitする |
 
 ## 18. Performance Tests
 

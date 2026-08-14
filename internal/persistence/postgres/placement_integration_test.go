@@ -65,7 +65,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	acceptPlacementInventory(t, ctx, pool, hostID)
 	qualificationID := hostID + "-vf-qualification"
 	qualifyPlacementVF(t, ctx, pool, hostID, qualificationID)
-	networkID, subnetID, autoSubnetID, segmentClaimID := "network-"+suffix, "subnet-"+suffix, "subnet-auto-"+suffix, "segment-"+suffix
+	networkID, subnetID, autoNetworkID, autoSubnetID, segmentClaimID := "network-"+suffix, "subnet-"+suffix, "network-auto-"+suffix, "subnet-auto-"+suffix, "segment-"+suffix
 	if err := UpsertNetworkFoundation(ctx, pool, NetworkFoundation{
 		NetworkID: networkID, ProjectID: "project", NetworkGeneration: 1,
 		NetworkState: "ACTIVE", MTU: 1500,
@@ -77,14 +77,53 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO kim.network_subnets_current(subnet_id,network_id,subnet_generation,lifecycle_state,cidr,allocation_start,allocation_end,excluded_addresses) VALUES($1,$2,1,'ACTIVE','192.0.2.0/24','192.0.2.220','192.0.2.230',ARRAY[]::inet[])`, autoSubnetID, networkID); err != nil {
+	projectDigest := digestBytes([]byte("placement-project"))
+	resourceProjectID := "20000000-0000-4000-8000-" + fmt.Sprintf("%012x", uint64(time.Now().UnixNano())&0xffffffffffff)
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.project_revision_evidence(project_id,project_revision,project_name,delete_protection,lifecycle_state,desired_digest,actor_issuer,actor_subject,request_id) VALUES($1,1,'placement',false,'ACTIVE',$2,'integration','placement','placement-project')`, resourceProjectID, projectDigest); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO kim.projects_current(project_id,project_revision,project_name,delete_protection,lifecycle_state,desired_digest,created_at) VALUES($1,1,'placement',false,'ACTIVE',$2,statement_timestamp())`, resourceProjectID, projectDigest); err != nil {
+		t.Fatal(err)
+	}
+	autoNetwork, err := CreateNetworkResource(ctx, pool, NetworkResourceRequest{NetworkID: autoNetworkID, ProjectID: resourceProjectID, Name: "automatic", Profile: "STANDARD_OVERLAY", MTU: 1500, SegmentPolicy: "AUTO"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	autoNetworkClaim, err := ClaimNetworkRealization(ctx, pool, autoNetwork.OperationID, "network-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, autoNetworkPlan, _ := ovnadapter.RestoreStoredNetworkPlan(autoNetworkClaim.CanonicalPlan, autoNetworkClaim.PlanDigest)
+	if err = AuthorizeNetworkRealizationApply(ctx, pool, autoNetworkClaim); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = AcceptNetworkRealizationObservation(ctx, pool, autoNetworkClaim, matchedNetworkObservation(autoNetworkClaim, autoNetworkPlan, "auto-network-backend", "RECEIVED")); err != nil {
+		t.Fatal(err)
+	}
+	autoSubnet, err := CreateSubnetResource(ctx, pool, SubnetResourceRequest{SubnetID: autoSubnetID, ProjectID: resourceProjectID, NetworkID: autoNetworkID, Name: "automatic", IPFamily: "IPV4", CIDR: "198.51.100.0/24", GatewayPolicy: "AUTO", AllocationPolicy: "RANGE", AllocationStart: "198.51.100.10", AllocationEnd: "198.51.100.30", DHCPEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	autoSubnetClaim, err := ClaimSubnetRealization(ctx, pool, autoSubnet.OperationID, "subnet-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, autoSubnetPlan, _ := ovnadapter.RestoreStoredSubnetPlan(autoSubnetClaim.CanonicalPlan, autoSubnetClaim.PlanDigest)
+	if err = AuthorizeSubnetRealizationApply(ctx, pool, autoSubnetClaim); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = AcceptSubnetRealizationObservation(ctx, pool, autoSubnetClaim, matchedSubnetObservation(autoSubnetClaim, autoSubnetPlan, "auto-dhcp-backend", "RECEIVED")); err != nil {
+		t.Fatal(err)
+	}
+	autoSegmentClaimID := "network-segment:" + autoNetworkID
 	if err := UpsertHostNetworkMapping(ctx, pool, HostNetworkMapping{
 		HostID: hostID, SegmentClaimID: segmentClaimID, Generation: 1,
 		State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS", "SRIOV_DIRECT"},
 		OVNChassisName: "ovn-chassis-" + suffix,
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertHostNetworkMapping(ctx, pool, HostNetworkMapping{HostID: hostID, SegmentClaimID: autoSegmentClaimID, Generation: 1, State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS"}, OVNChassisName: "ovn-chassis-" + suffix}); err != nil {
 		t.Fatal(err)
 	}
 	storageBackendID, storageClassID, vgUUID := "storage-"+suffix, "local-lvm-"+suffix, "vg-uuid-"+suffix
@@ -131,6 +170,13 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if _, err := RegisterFlavorRevision(ctx, pool, FlavorRevision{FlavorID: flavorID, Revision: 1, OwnerProjectID: "project", Name: "nfv.small", VCPUs: 4, MemoryMiB: 4096, RootDiskGiB: 20, NUMAPolicy: "REQUIRED", NUMANodes: &numa, HugePageSizeKiB: &huge, CPUAllocation: "DEDICATED", CPUPinning: true}); err != nil {
 		t.Fatal(err)
 	}
+	autoImageID, autoFlavorID := "image-auto-"+suffix, "flavor-auto-"+suffix
+	if _, err := RegisterImageRevision(ctx, pool, ImageRevision{ImageID: autoImageID, Revision: 1, OwnerProjectID: resourceProjectID, Format: "RAW", SizeBytes: 4096, DeclaredChecksum: checksum, ObservedChecksum: checksum, SignatureState: "VERIFIED", SignatureDigest: digestBytes([]byte("signature-auto")), SourceURI: "https://images.invalid/auto.raw", Visibility: "PRIVATE"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RegisterFlavorRevision(ctx, pool, FlavorRevision{FlavorID: autoFlavorID, Revision: 1, OwnerProjectID: resourceProjectID, Name: "auto.small", VCPUs: 4, MemoryMiB: 4096, RootDiskGiB: 20, NUMAPolicy: "REQUIRED", NUMANodes: &numa, HugePageSizeKiB: &huge, CPUAllocation: "DEDICATED", CPUPinning: true}); err != nil {
+		t.Fatal(err)
+	}
 
 	numaNode := 1
 	request := PlacementAdmissionRequest{
@@ -160,13 +206,14 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	// and MAC identities only inside the same Final Admission transaction.
 	automaticRequest := request
 	automaticRequest.RequestID = "request-automatic-" + suffix
+	automaticRequest.ProjectID, automaticRequest.ImageID, automaticRequest.FlavorID = resourceProjectID, autoImageID, autoFlavorID
 	automaticRequest.WorkloadID = "vm-automatic-" + suffix
 	automaticRequest.PCI = nil
 	automaticRequest.Storage = nil
 	automaticRequest.Network = []placement.NetworkRequirement{{
-		PortID: "port-automatic-" + suffix, NetworkID: networkID, NetworkGeneration: 1,
+		PortID: "port-automatic-" + suffix, NetworkID: autoNetworkID, NetworkGeneration: 1,
 		SubnetID: autoSubnetID, SubnetGeneration: 1,
-		SegmentClaimID: segmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
+		SegmentClaimID: autoSegmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1,
 		AllocationSource: "AUTOMATIC", BindingType: "OVS", RequiredMTU: 1500,
 	}}
 	automaticBefore := placementMutationCounts(t, ctx, pool)
@@ -181,16 +228,18 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var automaticIP, automaticMAC, ipSource, macSource string
+	var automaticIP, automaticMAC, ipSource, macSource, subnetAllocationID string
+	var allocatedSubnetRevision uint64
 	if err := pool.QueryRow(ctx, `
-		SELECT host(ip.ip_address), mac.mac_address::text, ip.allocation_source, mac.allocation_source
+		SELECT host(ip.ip_address), mac.mac_address::text, ip.allocation_source, mac.allocation_source,
+		       ip.ip_allocation_id,ip.subnet_revision
 		FROM kim.network_identity_claims ip
 		JOIN kim.network_identity_claims mac ON mac.port_id=ip.port_id AND mac.claim_type='MAC'
 		WHERE ip.port_id=$1 AND ip.claim_type='IP'
-	`, automaticRequest.Network[0].PortID).Scan(&automaticIP, &automaticMAC, &ipSource, &macSource); err != nil {
+	`, automaticRequest.Network[0].PortID).Scan(&automaticIP, &automaticMAC, &ipSource, &macSource, &subnetAllocationID, &allocatedSubnetRevision); err != nil {
 		t.Fatal(err)
 	}
-	if ipSource != "AUTOMATIC" || macSource != "AUTOMATIC" || automaticIP == "" || automaticMAC == "" || automaticIP == "192.0.2.1" {
+	if ipSource != "AUTOMATIC" || macSource != "AUTOMATIC" || automaticIP == "" || automaticMAC == "" || subnetAllocationID == "" || allocatedSubnetRevision != 1 {
 		t.Fatalf("automatic identities = %s/%s source=%s/%s", automaticIP, automaticMAC, ipSource, macSource)
 	}
 	replayedAutomatic, err := FinalAdmitPlacement(ctx, pool, automaticRequest, automaticDry)
@@ -669,8 +718,15 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	`, networkID).Scan(&ports, &identities, &bindings); err != nil {
 		t.Fatal(err)
 	}
-	if ports != 5 || identities != 10 || bindings != 5 {
+	if ports != 3 || identities != 6 || bindings != 3 {
 		t.Fatalf("atomic Network Port/identity/binding claims = %d/%d/%d", ports, identities, bindings)
+	}
+	var resourcePorts, resourceAllocations, resourceReleases int
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.network_ports_current WHERE network_id=$1),(SELECT count(*) FROM kim.subnet_ip_allocation_decision_evidence WHERE subnet_id=$2),(SELECT count(*) FROM kim.subnet_ip_allocation_release_evidence WHERE subnet_id=$2)`, autoNetworkID, autoSubnetID).Scan(&resourcePorts, &resourceAllocations, &resourceReleases); err != nil {
+		t.Fatal(err)
+	}
+	if resourcePorts != 2 || resourceAllocations != 2 || resourceReleases != 1 {
+		t.Fatalf("verified Subnet Port/IPAM/release authority=%d/%d/%d", resourcePorts, resourceAllocations, resourceReleases)
 	}
 	var volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs int
 	if err := pool.QueryRow(ctx, `

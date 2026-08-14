@@ -165,8 +165,10 @@ func seedOVNAuthority(t *testing.T, ctx context.Context, pool *pgxpool.Pool, suf
 	batch.Queue(`INSERT INTO kim.networks_current(network_id,project_id,network_generation,lifecycle_state,mtu,network_revision,network_name,network_profile,segment_policy,delete_protection,desired_digest,authority_source,created_at)
 		VALUES($1,'project',1,'ACTIVE',1500,1,$1,'LEGACY_FOUNDATION','LEGACY_EXPLICIT',false,$2,'LEGACY_FOUNDATION',statement_timestamp())`, networkID, digest("legacy-network-"+networkID))
 	batch.Queue(`INSERT INTO kim.network_subnets_current(
-		subnet_id,network_id,subnet_generation,lifecycle_state,cidr,allocation_start,allocation_end
-	) VALUES($1,$2,1,'ACTIVE','192.0.2.0/24','192.0.2.10','192.0.2.200')`, subnetID, networkID)
+		subnet_id,network_id,subnet_generation,lifecycle_state,cidr,allocation_start,allocation_end,
+		project_id,subnet_revision,subnet_name,ip_family,gateway_policy,allocation_policy,dhcp_enabled,dns_servers,delete_protection,desired_digest,authority_source,created_at
+	) VALUES($1,$2,1,'ACTIVE','192.0.2.0/24','192.0.2.10','192.0.2.200',
+		'project',1,$1,'IPV4','NONE','RANGE',false,'{}',false,$3,'LEGACY_FOUNDATION',statement_timestamp())`, subnetID, networkID, digest("legacy-subnet-"+subnetID))
 	batch.Queue(`INSERT INTO kim.network_segment_claims_current(
 		segment_claim_id,network_id,segment_generation,segment_type,scope_id,segment_id,provider_mapping_revision,claim_state
 	) VALUES($1,$2,1,'VLAN',$3,100,1,'ACTIVE')`, segmentID, networkID, "scope-"+suffix)

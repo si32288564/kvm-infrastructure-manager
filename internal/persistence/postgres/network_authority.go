@@ -75,8 +75,12 @@ func UpsertNetworkFoundation(ctx context.Context, db TxBeginner, foundation Netw
 		subnetTag, err := tx.Exec(ctx, `
 			INSERT INTO kim.network_subnets_current (
 				subnet_id, network_id, subnet_generation, lifecycle_state, cidr,
-				allocation_start, allocation_end, excluded_addresses
-			) VALUES ($1,$2,$3,$4,$5::cidr,$6::inet,$7::inet,$8::inet[])
+				allocation_start, allocation_end, excluded_addresses,
+				project_id,subnet_revision,subnet_name,ip_family,gateway_policy,allocation_policy,
+				dhcp_enabled,dns_servers,delete_protection,desired_digest,authority_source,created_at
+			) VALUES ($1,$2,$3,$4,$5::cidr,$6::inet,$7::inet,$8::inet[],
+				$9,$3,$1,'IPV4','NONE','RANGE',false,'{}'::inet[],false,
+				encode(sha256(convert_to($1||':'||($3::bigint)::text||':'||$5,'UTF8')),'hex'),'LEGACY_FOUNDATION',statement_timestamp())
 			ON CONFLICT (subnet_id) DO UPDATE SET
 				network_id=EXCLUDED.network_id,
 				subnet_generation=EXCLUDED.subnet_generation,
@@ -86,15 +90,19 @@ func UpsertNetworkFoundation(ctx context.Context, db TxBeginner, foundation Netw
 				allocation_end=EXCLUDED.allocation_end,
 				excluded_addresses=EXCLUDED.excluded_addresses,
 				updated_at=statement_timestamp()
-			WHERE kim.network_subnets_current.subnet_generation < EXCLUDED.subnet_generation
+			WHERE kim.network_subnets_current.authority_source='LEGACY_FOUNDATION'
+			  AND kim.network_subnets_current.subnet_generation < EXCLUDED.subnet_generation
 		`, foundation.SubnetID, foundation.NetworkID, foundation.SubnetGeneration,
 			foundation.SubnetState, foundation.CIDR, foundation.AllocationStart,
-			foundation.AllocationEnd, excluded)
+			foundation.AllocationEnd, excluded, foundation.ProjectID)
 		if err != nil {
 			return err
 		}
 		if subnetTag.RowsAffected() != 1 {
-			return ErrPlacementConflict
+			var compatible bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.network_subnets_current WHERE subnet_id=$1 AND network_id=$2 AND subnet_generation=$3 AND lifecycle_state=$4 AND cidr=$5::cidr AND allocation_start=$6::inet AND allocation_end=$7::inet)`, foundation.SubnetID, foundation.NetworkID, foundation.SubnetGeneration, foundation.SubnetState, foundation.CIDR, foundation.AllocationStart, foundation.AllocationEnd).Scan(&compatible); err != nil || !compatible {
+				return ErrPlacementConflict
+			}
 		}
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO kim.network_segment_claims_current (
