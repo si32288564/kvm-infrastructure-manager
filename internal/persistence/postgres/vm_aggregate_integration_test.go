@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/libvirtvolume"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/agent/execution/locallvm"
 )
 
@@ -20,8 +21,123 @@ func TestVMAggregateDataVolumePostgreSQLIntegration(t *testing.T) {
 	testVMAggregateVolumeProfilePostgreSQLIntegration(t, true)
 }
 
+func TestVMAggregateDataVolumeDeletePostgreSQLIntegration(t *testing.T) {
+	testVMAggregateVolumeProfilePostgreSQLIntegrationAfter(t, true, qualifyVMAggregateDataVolumeDelete)
+}
+
 func testVMAggregateVolumeProfilePostgreSQLIntegration(t *testing.T, withData bool) {
 	testVMAggregateVolumeProfilePostgreSQLIntegrationAfter(t, withData, nil)
+}
+
+func qualifyVMAggregateDataVolumeDelete(t *testing.T, ctx context.Context, db recoveryQualificationDB, suffix, vmID, host string, aggregate VMAggregate) {
+	var vmGeneration, powerObservationGeneration uint64
+	if err := db.QueryRow(ctx, `SELECT b.vm_generation,p.observation_generation FROM kim.vm_resource_runtime_bindings_current b JOIN kim.vm_power_state_current p ON p.vm_id=b.vm_id AND p.vm_generation=b.vm_generation WHERE b.vm_id=$1`, vmID).Scan(&vmGeneration, &powerObservationGeneration); err != nil {
+		t.Fatal(err)
+	}
+	var rootDesiredDigest, dataDesiredDigest string
+	if err := db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$1),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2)`, aggregate.RootVolumeID, aggregate.DataVolumes[0].VolumeID).Scan(&rootDesiredDigest, &dataDesiredDigest); err != nil {
+		t.Fatal(err)
+	}
+	shutdownCommand := "vm-data-delete-shutoff-command-" + suffix
+	if err := AuthorizeVMPowerOff(ctx, db, vmID, vmGeneration, host, "vm-data-delete-shutoff-job-"+suffix, shutdownCommand); err != nil {
+		t.Fatal(err)
+	}
+	acceptEvacuationCommand(t, ctx, db, host, shutdownCommand, "vm-data-delete-shutoff-verification-"+suffix, powerObservationGeneration+1, map[string]any{"domain_uuid": vmID, "desired_state": "SHUTOFF", "observed_state": "SHUTOFF", "source": "libvirt_domain_state"}, "SUCCEEDED")
+	deleting, err := StartVMAggregateDelete(ctx, db, VMAggregateDeleteRequest{RequestID: "vm-data-delete-request-" + suffix, OperationID: "vm-data-delete-operation-" + suffix, VMID: vmID, ExpectedRevision: aggregate.VMRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ClaimVMAggregateLifecycle(ctx, db, deleting.OperationID, "vm-data-delete-worker-"+suffix, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	domainCommand := "vm-data-delete-domain-command-" + suffix
+	if _, err = AuthorizeVMAggregateDeleteDomainCommand(ctx, db, claim, "vm-data-delete-domain-job-"+suffix, domainCommand); err != nil {
+		t.Fatal(err)
+	}
+	var planDigest, backendDigest string
+	var materializationGeneration uint64
+	if err = db.QueryRow(ctx, `SELECT payload->>'source_plan_digest',(payload->>'source_materialization_generation')::bigint,payload->>'backend_identity_digest' FROM kim.execution_commands WHERE command_id=$1`, domainCommand).Scan(&planDigest, &materializationGeneration, &backendDigest); err != nil {
+		t.Fatal(err)
+	}
+	domainVerification := "vm-data-delete-domain-verification-" + suffix
+	domainAttempt := recordCleanupLeaseLossVerification(t, ctx, db, host, domainCommand, domainVerification, "MATCHED", 1, map[string]any{"cleanup_operation_id": deleting.OperationID, "cleanup_generation": 1, "domain_uuid": vmID, "vm_generation": vmGeneration, "source_host_id": host, "source_plan_digest": planDigest, "source_materialization_generation": materializationGeneration, "backend_identity_digest": backendDigest, "domain_present": false, "domain_running": false, "identity_matches": true})
+	domainAbsenceID := "vm-data-delete-domain-absence-" + suffix
+	if err = RecordVMAggregateDeleteDomainAbsence(ctx, db, claim, domainAbsenceID, domainCommand, domainVerification, uint32(domainAttempt), 1, digestBytes([]byte(domainCommand+"/observation")), digestBytes([]byte(domainCommand+"/verifier"))); err != nil {
+		t.Fatal(err)
+	}
+
+	type detachAuthority struct {
+		label, commandID, verificationID, evidenceID, volumeID, attachmentID, bindingID, lvUUID string
+		attachmentGeneration, bindingGeneration                                                 uint64
+	}
+	readDetach := func(label string, authorize func(string, string) (VMAggregateDeleteCommand, error)) detachAuthority {
+		t.Helper()
+		a := detachAuthority{label: label, commandID: "vm-data-delete-" + label + "-command-" + suffix, verificationID: "vm-data-delete-" + label + "-verification-" + suffix, evidenceID: "vm-data-delete-" + label + "-observation-" + suffix}
+		if _, err := authorize("vm-data-delete-"+label+"-job-"+suffix, a.commandID); err != nil {
+			t.Fatal(err)
+		}
+		query := `SELECT root_volume_id,root_attachment_id,root_attachment_generation,root_binding_id,root_binding_generation,(SELECT lv_uuid FROM kim.volume_backend_bindings_current WHERE binding_id=root_binding_id AND binding_generation=root_binding_generation) FROM kim.vm_delete_operation_evidence WHERE delete_operation_id=$1`
+		if label == "data" {
+			query = `SELECT volume_id,physical_attachment_id,physical_attachment_generation,binding_id,binding_generation,(SELECT lv_uuid FROM kim.volume_backend_bindings_current WHERE binding_id=kim.vm_delete_data_volume_operation_evidence.binding_id AND binding_generation=kim.vm_delete_data_volume_operation_evidence.binding_generation) FROM kim.vm_delete_data_volume_operation_evidence WHERE delete_operation_id=$1`
+		}
+		if err := db.QueryRow(ctx, query, deleting.OperationID).Scan(&a.volumeID, &a.attachmentID, &a.attachmentGeneration, &a.bindingID, &a.bindingGeneration, &a.lvUUID); err != nil {
+			t.Fatal(err)
+		}
+		attempt := recordCleanupLeaseLossVerification(t, ctx, db, host, a.commandID, a.verificationID, "MATCHED", 1, map[string]any{"attachment_id": a.attachmentID, "volume_id": a.volumeID, "domain_uuid": vmID, "target_device": map[bool]string{true: "vdb", false: "vda"}[label == "data"], "observed_lv_uuid": a.lvUUID, "desired_state": libvirtvolume.StateDetached, "device_present": false, "device_identity_matches": false, "source_identity_matches": false, "holder_open": false, "read_only": false})
+		target := "vda"
+		if label == "data" {
+			target = "vdb"
+		}
+		if err := AcceptLocalLVMAttachmentObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: a.evidenceID, AttachmentID: a.attachmentID, VolumeID: a.volumeID, BindingID: a.bindingID, HostID: host, DomainUUID: vmID, TargetDevice: target, ObservedLVUUID: a.lvUUID, DesiredState: libvirtvolume.StateDetached, CommandID: a.commandID, VerificationID: a.verificationID, ObservationDigest: digestBytes([]byte(a.commandID + "/observation")), VerifierDigest: digestBytes([]byte(a.commandID + "/verifier")), EvidenceState: "MATCHED", AttachmentGeneration: a.attachmentGeneration, BindingGeneration: a.bindingGeneration, ObservationGeneration: 1, AttemptIndex: uint32(attempt)}); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	root := readDetach("root", func(jobID, commandID string) (VMAggregateDeleteCommand, error) {
+		return AuthorizeVMAggregateDeleteRootAbsenceReadBack(ctx, db, claim, domainAbsenceID, jobID, commandID)
+	})
+	data := readDetach("data", func(jobID, commandID string) (VMAggregateDeleteCommand, error) {
+		return AuthorizeVMAggregateDeleteDataAbsenceReadBack(ctx, db, claim, domainAbsenceID, jobID, commandID)
+	})
+	rootAbsenceID, dataAbsenceID := "vm-data-delete-root-absence-"+suffix, "vm-data-delete-data-absence-"+suffix
+	releaseID, terminalID, tombstoneID := "vm-data-delete-compute-release-"+suffix, "vm-data-delete-terminal-"+suffix, "vm-data-delete-tombstone-"+suffix
+	if _, err = CompleteVMAggregateDelete(ctx, db, claim, domainAbsenceID, root.evidenceID, rootAbsenceID+"-missing-data", releaseID+"-missing-data", terminalID+"-missing-data", tombstoneID+"-missing-data"); !errors.Is(err, ErrVMAggregateConflict) {
+		t.Fatalf("ROOT+DATA delete accepted without DATA absence: %v", err)
+	}
+	driftRollback := errors.New("rollback DATA binding drift")
+	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1 AND binding_generation=$2`, data.bindingID, data.bindingGeneration); err != nil {
+			return err
+		}
+		if _, err := CompleteVMAggregateDeleteWithData(ctx, scopeTxBeginner{tx}, claim, domainAbsenceID, root.evidenceID, data.evidenceID, rootAbsenceID+"-drift", dataAbsenceID+"-drift", releaseID+"-drift", terminalID+"-drift", tombstoneID+"-drift"); !errors.Is(err, ErrVMAggregateConflict) {
+			return fmt.Errorf("DATA binding drift accepted: %v", err)
+		}
+		return driftRollback
+	})
+	if !errors.Is(err, driftRollback) {
+		t.Fatal(err)
+	}
+	if terminal, err := CompleteVMAggregateDeleteWithData(ctx, db, claim, domainAbsenceID, root.evidenceID, data.evidenceID, rootAbsenceID, dataAbsenceID, releaseID, terminalID, tombstoneID); err != nil || terminal != terminalID {
+		t.Fatalf("ROOT+DATA delete terminal=%s err=%v", terminal, err)
+	}
+	if terminal, err := CompleteVMAggregateDeleteWithData(ctx, db, claim, domainAbsenceID, root.evidenceID, data.evidenceID, rootAbsenceID, dataAbsenceID, releaseID, terminalID, tombstoneID); err != nil || terminal != terminalID {
+		t.Fatalf("ROOT+DATA delete replay=%s err=%v", terminal, err)
+	}
+	var retired, available, verified, capacityHeld int
+	var resultingRootDigest, resultingDataDigest, computeState string
+	if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.volume_attachment_intents_current WHERE workload_id=$1 AND intent_state='RETIRED'),(SELECT count(*) FROM kim.volumes_current WHERE volume_id IN($2,$3) AND lifecycle_state='AVAILABLE'),(SELECT count(*) FROM kim.volume_materializations_current WHERE volume_id IN($2,$3) AND materialization_state='VERIFIED'),(SELECT count(*) FROM kim.storage_capacity_claims WHERE volume_id IN($2,$3) AND claim_state IN('RESERVED','ALLOCATED')),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3),(SELECT claim_state FROM kim.compute_allocation_claims WHERE workload_id=$1)`, vmID, root.volumeID, data.volumeID).Scan(&retired, &available, &verified, &capacityHeld, &resultingRootDigest, &resultingDataDigest, &computeState); err != nil || retired != 2 || available != 2 || verified != 2 || capacityHeld != 2 || resultingRootDigest != rootDesiredDigest || resultingDataDigest != dataDesiredDigest || computeState != "RELEASED" {
+		t.Fatalf("post-delete storage retired=%d available=%d verified=%d capacityHeld=%d err=%v", retired, available, verified, capacityHeld, err)
+	}
+	deleted, err := GetVMAggregate(ctx, db, vmID)
+	if err != nil || deleted.LifecycleState != "DELETED" || deleted.ConvergenceState != "CONVERGED" || deleted.OperationState != "VERIFIED" {
+		t.Fatalf("deleted ROOT+DATA aggregate=%+v err=%v", deleted, err)
+	}
+	for _, table := range []string{"vm_delete_data_volume_operation_evidence", "vm_delete_data_storage_absence_evidence"} {
+		if _, err = db.Exec(ctx, `UPDATE kim.`+table+` SET recorded_at=recorded_at`); err == nil {
+			t.Fatalf("immutable UPDATE succeeded: %s", table)
+		}
+	}
 }
 
 type vmAggregateProfileCallback func(*testing.T, context.Context, recoveryQualificationDB, string, string, string, VMAggregate)

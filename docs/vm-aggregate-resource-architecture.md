@@ -463,7 +463,7 @@ Mandatory negative coverage:
 | public API | `/api/v1/vms` bounded logical contract | attachment-specific actions |
 | Terraform | `kim_vm` logical state with Operation polling | production registry release |
 | mobility drift | Recovery/EVACUATE association and no-drift qualification | multi-Port/multi-Volume mobility |
-| delete | public zero-Port/one-ROOT verified delete | Port/multi-Volume delete |
+| delete | zero/one STANDARD Port + ROOT, or zero Port + ROOT/DATA verified delete | two-Port and combined Port+DATA delete |
 
 ## 23. Implemented internal profiles
 
@@ -497,7 +497,7 @@ Migration 086ではVolume集合をone ROOT plus one DATAまで一般化します
 
 Recovery network verification digestはNB/SB/OVS/dataplane/source-quiescence/handoff集合、EVACUATE network verification digestはdestination preboot OVS集合です。consumerは両者を同じdigest algorithmと誤認せず、Recovery terminal digestをcurrent readinessへexact bindしたうえで、logical Port revision/digestとdestination preboot evidenceを独立に再検証します。
 
-Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。OpenAPI `/api/v1/vms` と Terraform `kim_vm` もbounded profileでqualification済みです。未実装のまま残るものはPort付き/multi-Volume deleteとmulti-Port/multi-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
+Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はzero-Port ROOT+DATA deleteを追加しました。OpenAPI `/api/v1/vms` と Terraform `kim_vm` もbounded profileでqualification済みです。未実装のまま残るものはtwo-Port/combined Port+DATA deleteとmulti-Port/multi-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
 
 ## 24. Explicitly out of scope
 
