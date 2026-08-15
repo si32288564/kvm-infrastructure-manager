@@ -127,30 +127,49 @@ func prepareEvacuationHost(t *testing.T, ctx context.Context, db recoveryQualifi
 	}
 }
 
-func realizeEvacuationBinding(t *testing.T, ctx context.Context, db recoveryQualificationDB, hostID, admissionID, volumeID, backendID, vgUUID, suffix string) (string, string) {
+type evacuationBindingFixtureOptions struct {
+	CommandSuffix string
+	SizeBytes     uint64
+}
+
+func realizeEvacuationBinding(t *testing.T, ctx context.Context, db recoveryQualificationDB, hostID, admissionID, volumeID, backendID, vgUUID, suffix string, options ...evacuationBindingFixtureOptions) (string, string) {
 	t.Helper()
 	bindingID := "storage-binding:" + suffix + ":" + volumeID
+	commandSuffix := suffix
+	observedSize := uint64(16 << 20)
+	if len(options) > 0 {
+		if options[0].CommandSuffix != "" {
+			commandSuffix = options[0].CommandSuffix
+		}
+		if options[0].SizeBytes > 0 {
+			observedSize = options[0].SizeBytes
+		}
+	}
 	var resourceKey string
 	if err := db.QueryRow(ctx, `SELECT backend_resource_key FROM kim.volume_backend_binding_intents WHERE binding_id=$1 AND placement_admission_id=$2`, bindingID, admissionID).Scan(&resourceKey); err != nil {
 		t.Fatal(err)
 	}
-	lvUUID := "lv-" + suffix
-	commandID, verificationID := "lvm-command-"+suffix, "lvm-verification-"+suffix
-	if err := CreateExecutionCommand(ctx, db, ExecutionCommandRequest{JobID: "lvm-job-" + suffix, CommandID: commandID, HostID: hostID, ResourceType: "VOLUME", ResourceID: volumeID, DesiredRevision: 1, CommandType: locallvm.CommandType, SchemaVersion: locallvm.SchemaVersion, TargetResourceID: "volume:" + volumeID, Payload: map[string]any{"vg_uuid": vgUUID, "size_mib": 16, "desired_state": "PRESENT"}}); err != nil {
+	lvUUID := "lv-" + commandSuffix
+	commandID, verificationID := "lvm-command-"+commandSuffix, "lvm-verification-"+commandSuffix
+	if err := CreateExecutionCommand(ctx, db, ExecutionCommandRequest{JobID: "lvm-job-" + commandSuffix, CommandID: commandID, HostID: hostID, ResourceType: "VOLUME", ResourceID: volumeID, DesiredRevision: 1, CommandType: locallvm.CommandType, SchemaVersion: locallvm.SchemaVersion, TargetResourceID: "volume:" + volumeID, Payload: map[string]any{"vg_uuid": vgUUID, "size_mib": observedSize >> 20, "desired_state": "PRESENT"}}); err != nil {
 		t.Fatal(err)
 	}
-	evidence := map[string]any{"vg_uuid": vgUUID, "observed_vg_uuid": vgUUID, "observed_lv_uuid": lvUUID, "backend_resource_key": resourceKey, "observed_size_bytes": float64(16 << 20)}
+	evidence := map[string]any{"vg_uuid": vgUUID, "observed_vg_uuid": vgUUID, "observed_lv_uuid": lvUUID, "backend_resource_key": resourceKey, "observed_size_bytes": float64(observedSize)}
 	attempt := acceptEvacuationCommand(t, ctx, db, hostID, commandID, verificationID, 1, evidence, "SUCCEEDED")
-	if err := AcceptLocalLVMBindingObservation(ctx, db, LocalLVMBindingObservation{EvidenceID: "binding-evidence-" + suffix, BindingID: bindingID, VolumeID: volumeID, BackendID: backendID, HostID: hostID, VGUUID: vgUUID, LVUUID: lvUUID, BackendResourceKey: resourceKey, BindingGeneration: 1, CommandID: commandID, VerificationID: verificationID, AttemptIndex: uint32(attempt), ObservationGeneration: 1, ObservationDigest: digestBytes([]byte(commandID + "/observation")), VerifierDigest: digestBytes([]byte(commandID + "/verifier")), EvidenceState: "MATCHED", ObservedSizeBytes: 16 << 20}); err != nil {
+	if err := AcceptLocalLVMBindingObservation(ctx, db, LocalLVMBindingObservation{EvidenceID: "binding-evidence-" + commandSuffix, BindingID: bindingID, VolumeID: volumeID, BackendID: backendID, HostID: hostID, VGUUID: vgUUID, LVUUID: lvUUID, BackendResourceKey: resourceKey, BindingGeneration: 1, CommandID: commandID, VerificationID: verificationID, AttemptIndex: uint32(attempt), ObservationGeneration: 1, ObservationDigest: digestBytes([]byte(commandID + "/observation")), VerifierDigest: digestBytes([]byte(commandID + "/verifier")), EvidenceState: "MATCHED", ObservedSizeBytes: observedSize}); err != nil {
 		t.Fatal(err)
 	}
 	return bindingID, lvUUID
 }
 
-func qualifyEvacuationLocalLVMCopy(t *testing.T, ctx context.Context, db recoveryQualificationDB, claim HostEvacuationClaim, suffix, destinationAdmission, safetyID, contentDigest string, responseLost bool) LocalLVMRelocationCopyVerification {
+func qualifyEvacuationLocalLVMCopy(t *testing.T, ctx context.Context, db recoveryQualificationDB, claim HostEvacuationClaim, suffix, destinationAdmission, safetyID, contentDigest string, responseLost bool, volumeOrdinal ...uint32) LocalLVMRelocationCopyVerification {
 	t.Helper()
+	ordinal := uint32(0)
+	if len(volumeOrdinal) > 0 {
+		ordinal = volumeOrdinal[0]
+	}
 	copyID, commandID := "local-lvm-copy-"+suffix, "local-lvm-copy-command-"+suffix
-	authority, err := PrepareLocalLVMRelocationCopy(ctx, db, claim, LocalLVMRelocationCopyRequest{CopyOperationID: copyID, DestinationAdmissionID: destinationAdmission, SourceSafetyEvidenceID: safetyID, JobID: "local-lvm-copy-job-" + suffix, CommandID: commandID})
+	authority, err := PrepareLocalLVMRelocationCopy(ctx, db, claim, LocalLVMRelocationCopyRequest{CopyOperationID: copyID, DestinationAdmissionID: destinationAdmission, SourceSafetyEvidenceID: safetyID, JobID: "local-lvm-copy-job-" + suffix, CommandID: commandID, VolumeOrdinal: ordinal})
 	if err != nil {
 		t.Fatalf("prepare Local LVM copy: %v", err)
 	}

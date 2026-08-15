@@ -16,6 +16,12 @@ import (
 type repeatedEvacuationIncarnation struct {
 	Host, Admission, Plan, Volume, Attachment, Binding, LV, Backend, VG string
 	Materialization, PortGeneration, BindingGeneration                  uint64
+	Data                                                                *repeatedEvacuationVolume
+}
+
+type repeatedEvacuationVolume struct {
+	Volume, Attachment, Binding, LV, Backend, VG string
+	AttachmentGeneration, BindingGeneration      uint64
 }
 
 type repeatedEvacuationMove struct {
@@ -156,6 +162,24 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 	if err := EvaluateHostEvacuationSourceStorageSafety(ctx, db, claim, move.StorageSafety); err != nil {
 		t.Fatalf("%s source storage safety: %v", label, err)
 	}
+	if source.Data != nil {
+		dataCommand := "evacuation-repeated-data-safety-command-" + label + "-" + suffix
+		dataVerification := "evacuation-repeated-data-safety-verification-" + label + "-" + suffix
+		if err := CreateExecutionCommand(ctx, db, ExecutionCommandRequest{JobID: "evacuation-repeated-data-safety-job-" + label + "-" + suffix, CommandID: dataCommand, HostID: source.Host, ResourceType: "VOLUME_ATTACHMENT", ResourceID: source.Data.Attachment, DesiredRevision: int64(source.Materialization), CommandType: PlannedSourceVolumeSafetyReadBackCommandType, SchemaVersion: PlannedSourceVolumeSafetyReadBackSchema, TargetResourceID: "attachment:" + source.Data.Attachment, Payload: map[string]any{"desired_state": "OBSERVE"}}); err != nil {
+			t.Fatalf("%s DATA safety command: %v", label, err)
+		}
+		dataEvidence := map[string]any{"attachment_id": source.Data.Attachment, "volume_id": source.Data.Volume, "binding_id": source.Data.Binding, "domain_uuid": vmID, "target_device": "vdb", "observed_lv_uuid": source.Data.LV, "device_present": true, "device_identity_matches": true, "source_identity_matches": true, "holder_open": false}
+		dataAttempt := acceptEvacuationCommand(t, ctx, db, source.Host, dataCommand, dataVerification, source.Materialization, dataEvidence, "SUCCEEDED")
+		if err := AcceptPlannedSourceVolumeSafetyObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: "evacuation-repeated-data-safety-evidence-" + label + "-" + suffix, AttachmentID: source.Data.Attachment, VolumeID: source.Data.Volume, AttachmentGeneration: source.Data.AttachmentGeneration, BindingID: source.Data.Binding, BindingGeneration: source.Data.BindingGeneration, HostID: source.Host, DomainUUID: vmID, TargetDevice: "vdb", ObservedLVUUID: source.Data.LV, CommandID: dataCommand, VerificationID: dataVerification, AttemptIndex: uint32(dataAttempt), ObservationGeneration: source.Materialization, ObservationDigest: digestBytes([]byte(dataCommand + "/observation")), VerifierDigest: digestBytes([]byte(dataCommand + "/verifier")), EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true}); err != nil {
+			t.Fatalf("%s source DATA safety observation: %v", label, err)
+		}
+		if err := ReleaseHostEvacuationSourcePlacement(ctx, db, claim, "missing-data-safety-release-"+label+"-"+suffix, move.StorageSafety); !errors.Is(err, ErrHostEvacuationBlocked) {
+			t.Fatalf("%s source release accepted without complete Storage safety set: %v", label, err)
+		}
+		if err := EvaluateHostEvacuationSourceStorageSafetySet(ctx, db, claim, "evacuation-repeated-storage-safety-set-"+label+"-"+suffix, move.StorageSafety); err != nil {
+			t.Fatalf("%s source Storage safety set: %v", label, err)
+		}
+	}
 	for i, p := range ports {
 		portLabel := fmt.Sprintf("%s-p%d", label, i)
 		authorityID := "evacuation-repeated-retirement-authority-" + portLabel + "-" + suffix
@@ -282,7 +306,21 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		}
 	}
 	destinationBinding, destinationLV := realizeEvacuationBinding(t, ctx, db, destinationHost, destinationAdmission.AdmissionID, destinationRequest.Storage[0].VolumeID, destinationBackend, destinationVG, destinationRequest.RequestID)
+	var destinationData *repeatedEvacuationVolume
+	if source.Data != nil {
+		if len(destinationRequest.Storage) != 2 {
+			t.Fatalf("%s destination Storage cardinality=%d", label, len(destinationRequest.Storage))
+		}
+		dataBinding, dataLV := realizeEvacuationBinding(t, ctx, db, destinationHost, destinationAdmission.AdmissionID, destinationRequest.Storage[1].VolumeID, destinationBackend, destinationVG, destinationRequest.RequestID, evacuationBindingFixtureOptions{CommandSuffix: destinationRequest.RequestID + "-data", SizeBytes: 8 << 20})
+		destinationData = &repeatedEvacuationVolume{Volume: destinationRequest.Storage[1].VolumeID, Attachment: destinationRequest.Storage[1].AttachmentID, Binding: dataBinding, LV: dataLV, Backend: destinationBackend, VG: destinationVG, AttachmentGeneration: 1, BindingGeneration: 1}
+	}
 	qualifyEvacuationLocalLVMCopy(t, ctx, db, claim, "repeated-"+label+"-"+suffix, destinationAdmission.AdmissionID, move.StorageSafety, digestBytes([]byte("repeated-guest-state/"+label+"/"+suffix)), false)
+	if source.Data != nil {
+		if err := AuthorizeHostEvacuationRelocation(ctx, db, claim, "missing-data-copy-relocation-"+label+"-"+suffix, destinationAdmission.AdmissionID, move.StorageSafety, releaseID); !errors.Is(err, ErrHostEvacuationBlocked) {
+			t.Fatalf("%s relocation accepted without DATA copy terminal: %v", label, err)
+		}
+		qualifyEvacuationLocalLVMCopy(t, ctx, db, claim, "repeated-data-"+label+"-"+suffix, destinationAdmission.AdmissionID, move.StorageSafety, digestBytes([]byte("repeated-data-guest-state/"+label+"/"+suffix)), true, 1)
+	}
 	move.Relocation = "evacuation-repeated-relocation-" + label + "-" + suffix
 	if old != nil {
 		if err := AuthorizeHostEvacuationRelocation(ctx, db, claim, "old-storage-relocation-"+label+"-"+suffix, destinationAdmission.AdmissionID, old.StorageSafety, releaseID); !errors.Is(err, ErrHostEvacuationBlocked) {
@@ -358,6 +396,21 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 			t.Fatal("old E1 child verification completed E2 child")
 		}
 	}
+	if source.Data != nil {
+		rollback := errors.New("rollback destination DATA binding drift")
+		err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, destinationData.Binding); err != nil {
+				return err
+			}
+			if _, err := EvaluateHostEvacuationChildEvidence(ctx, scopeTxBeginner{tx}, claim, move.ChildVerification+"-data-drift", "evacuation-repeated-destination-binding-"+label+"-data-drift-"+suffix, destinationAdmission.AdmissionID); !errors.Is(err, ErrHostEvacuationBlocked) {
+				return fmt.Errorf("destination DATA binding drift verified child: %v", err)
+			}
+			return rollback
+		})
+		if !errors.Is(err, rollback) {
+			t.Fatal(err)
+		}
+	}
 	if _, err := EvaluateHostEvacuationChildEvidence(ctx, db, claim, move.ChildVerification, "evacuation-repeated-destination-binding-"+label+"-"+suffix, destinationAdmission.AdmissionID); err != nil {
 		t.Fatal(err)
 	}
@@ -373,6 +426,21 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 			}
 			if err := CompleteHostEvacuationChild(ctx, scopeTxBeginner{tx}, claim, move.ChildVerification, move.ChildTerminal+"-drift"); !errors.Is(err, ErrHostEvacuationStale) {
 				t.Fatalf("E2 old verification accepted 4/4 drift: %v", err)
+			}
+			return rollback
+		})
+		if !errors.Is(err, rollback) {
+			t.Fatal(err)
+		}
+	}
+	if source.Data != nil {
+		rollback := errors.New("rollback terminal DATA binding drift")
+		err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, destinationData.Binding); err != nil {
+				return err
+			}
+			if err := CompleteHostEvacuationChild(ctx, scopeTxBeginner{tx}, claim, move.ChildVerification, move.ChildTerminal+"-data-drift"); !errors.Is(err, ErrHostEvacuationStale) {
+				return fmt.Errorf("destination DATA terminal drift accepted: %v", err)
 			}
 			return rollback
 		})
@@ -396,7 +464,7 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 	if replay, err := FinalizeHostEvacuation(ctx, db, move.Operation, move.ParentTerminal); err != nil || replay.LifecycleState != "VERIFIED" || replay.WorkloadCount != 1 {
 		t.Fatalf("%s parent replay=%+v err=%v", label, replay, err)
 	}
-	move.Destination = repeatedEvacuationIncarnation{Host: destinationHost, Admission: destinationAdmission.AdmissionID, Plan: destinationPlan, Volume: destinationRequest.Storage[0].VolumeID, Attachment: destinationRequest.Storage[0].AttachmentID, Binding: destinationBinding, LV: destinationLV, Backend: destinationBackend, VG: destinationVG, Materialization: source.Materialization + 1, PortGeneration: sourcePortGeneration + 1, BindingGeneration: sourceBindingGeneration + 1}
+	move.Destination = repeatedEvacuationIncarnation{Host: destinationHost, Admission: destinationAdmission.AdmissionID, Plan: destinationPlan, Volume: destinationRequest.Storage[0].VolumeID, Attachment: destinationRequest.Storage[0].AttachmentID, Binding: destinationBinding, LV: destinationLV, Backend: destinationBackend, VG: destinationVG, Materialization: source.Materialization + 1, PortGeneration: sourcePortGeneration + 1, BindingGeneration: sourceBindingGeneration + 1, Data: destinationData}
 	return move
 }
 

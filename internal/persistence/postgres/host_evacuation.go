@@ -273,14 +273,21 @@ func loadHostEvacuationWorkloadsTx(ctx context.Context, tx pgx.Tx, operationID s
 }
 
 // EvaluateHostEvacuationEligibility derives profile eligibility from the
-// immutable snapshot. One ordinary boot root may proceed only to the later
-// planned root-safety and relocation gates; physical PCI remains blocked.
+// immutable snapshot. The bounded profile is one boot ROOT plus at most one
+// non-bootable DATA Volume from an exact VM aggregate snapshot; physical PCI
+// remains blocked.
 func EvaluateHostEvacuationEligibility(ctx context.Context, db TxBeginner, operationID string) error {
 	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `SELECT c.child_operation_id,jsonb_array_length(e.storage_requirements),jsonb_array_length(e.pci_requirements),COALESCE((e.storage_requirements->0->>'Bootable')::boolean,false)
+		rows, err := tx.Query(ctx, `SELECT c.child_operation_id,jsonb_array_length(e.storage_requirements),jsonb_array_length(e.pci_requirements),
+			(SELECT count(*) FROM jsonb_array_elements(e.storage_requirements) requirement WHERE COALESCE((requirement->>'Bootable')::boolean,false)),
+			EXISTS(SELECT 1 FROM kim.vm_resources_current resource
+				JOIN kim.vm_resource_runtime_bindings_current runtime ON runtime.vm_id=resource.vm_id AND runtime.admission_id=e.source_admission_id
+				JOIN kim.vm_runtime_intent_evidence intent ON (intent.vm_id,intent.runtime_intent_generation)=(resource.vm_id,resource.runtime_intent_generation)
+				JOIN kim.vm_dependency_snapshot_evidence snapshot ON snapshot.dependency_snapshot_id=intent.dependency_snapshot_id AND snapshot.volume_count=jsonb_array_length(e.storage_requirements)
+				WHERE resource.vm_id=e.vm_id AND resource.lifecycle_state='ACTIVE' AND resource.convergence_state='CONVERGED')
 			FROM kim.host_evacuation_workloads_current c JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
 			WHERE c.evacuation_operation_id=$1 AND c.phase='DISCOVERED' ORDER BY e.ordinal FOR UPDATE OF c`, operationID)
 		if err != nil {
@@ -290,14 +297,14 @@ func EvaluateHostEvacuationEligibility(ctx context.Context, db TxBeginner, opera
 		var decisions []decision
 		for rows.Next() {
 			var d decision
-			var storageCount, pciCount int
-			var rootBootable bool
-			if err := rows.Scan(&d.id, &storageCount, &pciCount, &rootBootable); err != nil {
+			var storageCount, pciCount, bootableCount int
+			var aggregateProfile bool
+			if err := rows.Scan(&d.id, &storageCount, &pciCount, &bootableCount, &aggregateProfile); err != nil {
 				rows.Close()
 				return err
 			}
 			switch {
-			case storageCount > 1 || (storageCount == 1 && !rootBootable):
+			case storageCount < 1 || storageCount > 2 || bootableCount != 1 || (storageCount == 2 && !aggregateProfile):
 				d.phase, d.result, d.reason = "BLOCKED", "BLOCKED", "local_lvm_data_independence_unproven"
 			case pciCount > 0:
 				d.phase, d.result, d.reason = "BLOCKED", "BLOCKED", "physical_pci_vf_evacuation_unqualified"

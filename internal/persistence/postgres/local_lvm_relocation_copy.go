@@ -17,6 +17,7 @@ const (
 type LocalLVMRelocationCopyRequest struct {
 	CopyOperationID, DestinationAdmissionID, SourceSafetyEvidenceID string
 	JobID, CommandID                                                string
+	VolumeOrdinal                                                   uint32
 }
 
 type LocalLVMRelocationCopyAuthority struct {
@@ -51,34 +52,44 @@ func PrepareLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim Hos
 		}
 		var childGeneration, vmGeneration, sourceMaterialization, sourceBindingGeneration, destinationBindingGeneration uint64
 		var vmID, sourceHost, sourceVolume, sourceBinding, sourceVG, sourceLV, safetyDigest string
+		var role, sourceMemberID, sourceMemberDigest string
 		var destinationHost, destinationVolume, destinationBinding, destinationVG, destinationLV string
 		var sourceSize, destinationSize uint64
 		err := tx.QueryRow(ctx, `SELECT c.child_generation,e.vm_id::text,e.vm_generation,e.source_host_id,e.source_materialization_generation,
-			s.root_volume_id,s.root_binding_id,s.root_binding_generation,sb.vg_uuid,sb.lv_uuid,sv.size_bytes,s.safety_digest,
+			COALESCE(member.volume_id,s.root_volume_id),COALESCE(member.binding_id,s.root_binding_id),COALESCE(member.binding_generation,s.root_binding_generation),sb.vg_uuid,sb.lv_uuid,sv.size_bytes,s.safety_digest,
+			CASE WHEN $4=0 THEN 'ROOT' ELSE 'DATA' END,COALESCE(member.safety_member_evidence_id,''),COALESCE(member.safety_member_digest,''),
 			d.host_id,dv.volume_id,db.binding_id,db.binding_generation,db.vg_uuid,db.lv_uuid,dv.size_bytes
 			FROM kim.host_evacuation_workloads_current c
 			JOIN kim.host_evacuation_workload_evidence e USING(child_operation_id)
 			JOIN kim.host_evacuation_source_storage_safety_evidence s ON s.safety_evidence_id=$3 AND s.child_operation_id=c.child_operation_id AND s.child_generation=c.child_generation AND s.safety_state='SAFE'
-			JOIN kim.volumes_current sv ON sv.volume_id=s.root_volume_id AND sv.placement_admission_id=e.source_admission_id AND sv.bootable
-			JOIN kim.volume_backend_bindings_current sb ON sb.binding_id=s.root_binding_id AND sb.binding_generation=s.root_binding_generation AND sb.volume_id=sv.volume_id AND sb.host_id=e.source_host_id AND sb.lv_uuid IS NOT NULL AND sb.binding_state='BOUND'
+			LEFT JOIN kim.host_evacuation_source_storage_safety_set_evidence safety_set ON safety_set.root_storage_safety_evidence_id=s.safety_evidence_id AND safety_set.child_operation_id=c.child_operation_id AND safety_set.safety_state='SAFE'
+			LEFT JOIN kim.host_evacuation_source_storage_volume_safety_evidence member ON member.root_storage_safety_evidence_id=s.safety_evidence_id AND member.child_operation_id=c.child_operation_id AND member.volume_ordinal=$4 AND member.safety_state='SAFE'
+			JOIN kim.volumes_current sv ON sv.volume_id=COALESCE(member.volume_id,s.root_volume_id) AND sv.placement_admission_id=e.source_admission_id AND sv.bootable=($4=0)
+			JOIN kim.volume_backend_bindings_current sb ON sb.binding_id=COALESCE(member.binding_id,s.root_binding_id) AND sb.binding_generation=COALESCE(member.binding_generation,s.root_binding_generation) AND sb.volume_id=sv.volume_id AND sb.host_id=e.source_host_id AND sb.lv_uuid IS NOT NULL AND sb.binding_state='BOUND'
 			JOIN kim.placement_admission_decisions d ON d.admission_id=$2 AND d.workload_id=e.workload_id AND d.host_id<>e.source_host_id AND d.decision_state='ACCEPTED'
-			JOIN kim.volumes_current dv ON dv.placement_admission_id=d.admission_id AND dv.bootable AND dv.storage_class_id=sv.storage_class_id AND dv.storage_class_revision=sv.storage_class_revision AND dv.access_mode=sv.access_mode
+			CROSS JOIN LATERAL jsonb_array_elements(d.storage_requirements) destination_requirement(value)
+			JOIN kim.volumes_current dv ON dv.volume_id=destination_requirement.value->>'VolumeID' AND dv.placement_admission_id=d.admission_id AND dv.bootable=($4=0) AND dv.storage_class_id=sv.storage_class_id AND dv.storage_class_revision=sv.storage_class_revision AND dv.access_mode=sv.access_mode
 			JOIN kim.volume_backend_bindings_current db ON db.volume_id=dv.volume_id AND db.host_id=d.host_id AND db.binding_state='BOUND' AND db.lv_uuid IS NOT NULL
 			JOIN kim.vm_power_state_current power ON power.vm_id=e.vm_id AND power.vm_generation=e.vm_generation AND power.observed_power_state='SHUTOFF' AND power.convergence_state='MATCHED'
 			JOIN kim.vm_power_observation_evidence power_evidence ON power_evidence.evidence_id=power.evidence_id AND power_evidence.host_id=e.source_host_id AND power_evidence.observation_generation=power.observation_generation AND power_evidence.observed_power_state='SHUTOFF'
-			JOIN kim.volume_attachment_observations_current holder ON holder.attachment_id=s.root_attachment_id AND holder.attachment_generation=s.root_attachment_generation AND NOT holder.holder_open
-			WHERE c.child_operation_id=$1 AND c.phase='SOURCE_QUIESCED' FOR UPDATE OF c,sb,db,power,holder`, claim.ChildOperationID, request.DestinationAdmissionID, request.SourceSafetyEvidenceID).Scan(
+			JOIN kim.volume_attachment_observations_current holder ON holder.attachment_id=COALESCE(member.attachment_id,s.root_attachment_id) AND holder.attachment_generation=COALESCE(member.attachment_generation,s.root_attachment_generation) AND NOT holder.holder_open
+			WHERE c.child_operation_id=$1 AND c.phase='SOURCE_QUIESCED' AND ($4=0 OR (safety_set.volume_count>$4 AND member.safety_member_evidence_id IS NOT NULL)) FOR UPDATE OF c,sb,db,power,holder`, claim.ChildOperationID, request.DestinationAdmissionID, request.SourceSafetyEvidenceID, request.VolumeOrdinal).Scan(
 			&childGeneration, &vmID, &vmGeneration, &sourceHost, &sourceMaterialization, &sourceVolume, &sourceBinding, &sourceBindingGeneration, &sourceVG, &sourceLV, &sourceSize, &safetyDigest,
+			&role, &sourceMemberID, &sourceMemberDigest,
 			&destinationHost, &destinationVolume, &destinationBinding, &destinationBindingGeneration, &destinationVG, &destinationLV, &destinationSize)
-		if err != nil || sourceSize == 0 || sourceSize != destinationSize || sourceLV == destinationLV {
+		if err != nil || request.VolumeOrdinal > 1 || sourceSize == 0 || sourceSize != destinationSize || sourceLV == destinationLV {
 			return ErrHostEvacuationBlocked
 		}
 		payload := map[string]any{"copy_operation_id": request.CopyOperationID, "copy_generation": uint64(1), "source_host_id": sourceHost, "source_volume_id": sourceVolume, "source_binding_id": sourceBinding, "source_binding_generation": sourceBindingGeneration, "source_vg_uuid": sourceVG, "source_lv_uuid": sourceLV, "destination_host_id": destinationHost, "destination_volume_id": destinationVolume, "destination_binding_id": destinationBinding, "destination_binding_generation": destinationBindingGeneration, "destination_vg_uuid": destinationVG, "destination_lv_uuid": destinationLV, "exact_byte_count": sourceSize, "digest_algorithm": "SHA-256", "copy_policy_revision": uint64(1), "desired_state": "CONTENT_IDENTICAL"}
 		if err := CreateExecutionCommand(ctx, scopeTxBeginner{tx}, ExecutionCommandRequest{JobID: request.JobID, CommandID: request.CommandID, HostID: destinationHost, ResourceType: "LOCAL_LVM_RELOCATION_COPY", ResourceID: request.CopyOperationID, DesiredRevision: 1, CommandType: LocalLVMRelocationCopyCommandType, SchemaVersion: LocalLVMRelocationCopySchema, TargetResourceID: "local-lvm-relocation:" + request.CopyOperationID, Payload: payload}); err != nil {
 			return err
 		}
-		authorityDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%d/%s/%d/%s/%s/%d/%s/%d/%d/%s", claim.ChildOperationID, vmID, vmGeneration, sourceHost, sourceMaterialization, sourceVolume, sourceBinding, sourceBindingGeneration, destinationVolume, destinationBindingGeneration, sourceSize, safetyDigest)))
-		tag, err := tx.Exec(ctx, `INSERT INTO kim.local_lvm_relocation_copy_operation_evidence(copy_operation_id,copy_generation,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_materialization_generation,source_volume_id,source_binding_id,source_binding_generation,source_vg_uuid,source_lv_uuid,source_storage_safety_evidence_id,source_storage_safety_digest,destination_host_id,destination_admission_id,destination_volume_id,destination_binding_id,destination_binding_generation,destination_vg_uuid,destination_lv_uuid,expected_size_bytes,digest_algorithm,block_profile,copy_policy_revision,command_id,authority_digest) VALUES($1,1,$2,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'SHA-256','EXACT_BYTE_RANGE_V1',1,$23,$24) ON CONFLICT(copy_operation_id) DO NOTHING`, request.CopyOperationID, claim.ChildOperationID, childGeneration, vmID, vmGeneration, sourceHost, sourceMaterialization, sourceVolume, sourceBinding, sourceBindingGeneration, sourceVG, sourceLV, request.SourceSafetyEvidenceID, safetyDigest, destinationHost, request.DestinationAdmissionID, destinationVolume, destinationBinding, destinationBindingGeneration, destinationVG, destinationLV, sourceSize, request.CommandID, authorityDigest)
+		authorityDigest := digestReleaseBytes([]byte(fmt.Sprintf("%s/%s/%d/%s/%d/%d/%s/%s/%d/%s/%d/%d/%s/%s", claim.ChildOperationID, vmID, vmGeneration, sourceHost, sourceMaterialization, request.VolumeOrdinal, sourceVolume, sourceBinding, sourceBindingGeneration, destinationVolume, destinationBindingGeneration, sourceSize, safetyDigest, sourceMemberDigest)))
+		var memberID, memberDigest any
+		if sourceMemberID != "" {
+			memberID, memberDigest = sourceMemberID, sourceMemberDigest
+		}
+		tag, err := tx.Exec(ctx, `INSERT INTO kim.local_lvm_relocation_copy_operation_evidence(copy_operation_id,copy_generation,child_operation_id,child_generation,vm_id,vm_generation,source_host_id,source_materialization_generation,source_volume_id,source_binding_id,source_binding_generation,source_vg_uuid,source_lv_uuid,source_storage_safety_evidence_id,source_storage_safety_digest,destination_host_id,destination_admission_id,destination_volume_id,destination_binding_id,destination_binding_generation,destination_vg_uuid,destination_lv_uuid,expected_size_bytes,digest_algorithm,block_profile,copy_policy_revision,command_id,authority_digest,volume_ordinal,device_role,source_volume_safety_evidence_id,source_volume_safety_digest) VALUES($1,1,$2,$3,$4::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'SHA-256','EXACT_BYTE_RANGE_V1',1,$23,$24,$25,$26,$27,$28) ON CONFLICT(copy_operation_id) DO NOTHING`, request.CopyOperationID, claim.ChildOperationID, childGeneration, vmID, vmGeneration, sourceHost, sourceMaterialization, sourceVolume, sourceBinding, sourceBindingGeneration, sourceVG, sourceLV, request.SourceSafetyEvidenceID, safetyDigest, destinationHost, request.DestinationAdmissionID, destinationVolume, destinationBinding, destinationBindingGeneration, destinationVG, destinationLV, sourceSize, request.CommandID, authorityDigest, request.VolumeOrdinal, role, memberID, memberDigest)
 		if err != nil {
 			return err
 		}

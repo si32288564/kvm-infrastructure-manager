@@ -27,6 +27,10 @@ func TestVMAggregateOneStandardPortDataVolumeDeletePostgreSQLIntegration(t *test
 	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, true, true)
 }
 
+func TestVMAggregateOneStandardPortDataVolumeEvacuationPostgreSQLIntegration(t *testing.T) {
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, true, false)
+}
+
 func TestVMAggregateMultiStandardPortPostgreSQLIntegration(t *testing.T) {
 	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, false, false)
 }
@@ -476,6 +480,69 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 				t.Fatal(err)
 			}
 			qualifyVMAggregateOneStandardPortDelete(t, ctx, db, suffix, vmID, port.PortID, deletePortDigest)
+		}
+		return
+	}
+	if withData {
+		logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
+		var failureEpochsBefore, fencingProofsBefore int
+		if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.failure_epoch_evidence),(SELECT count(*) FROM kim.failure_fencing_proof_evidence)`).Scan(&failureEpochsBefore, &fencingProofsBefore); err != nil {
+			t.Fatal(err)
+		}
+		var logicalPortDigest, logicalRootDigest, logicalDataDigest string
+		if err = db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3)`, port.PortID, volume.VolumeID, dataVolume.VolumeID).Scan(&logicalPortDigest, &logicalRootDigest, &logicalDataDigest); err != nil {
+			t.Fatal(err)
+		}
+		convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, port.PortID, network.NetworkID, segmentID, port.MACAddress, "aggregate-"+suffix, 1, 1, 1)
+		source := repeatedEvacuationIncarnation{Host: host, Admission: admission.AdmissionID, Plan: decision.PlanID, Volume: volume.VolumeID, Attachment: placementRequest.Storage[0].AttachmentID, Binding: volume.BindingID, LV: volume.LVUUID, Backend: backendID, VG: vgUUID, Materialization: 1, PortGeneration: 1, BindingGeneration: 1, Data: &repeatedEvacuationVolume{Volume: dataVolume.VolumeID, Attachment: placementRequest.Storage[1].AttachmentID, Binding: dataVolume.BindingID, LV: dataVolume.LVUUID, Backend: backendID, VG: vgUUID, AttachmentGeneration: 1, BindingGeneration: dataVolume.BindingGeneration}}
+		move := executeRepeatedEvacuationMove(t, ctx, db, suffix, "aggregate-root-data", vmID, imageID, imageDigest, network.NetworkID, segmentID, port.PortID, port.MACAddress, source, destinationHost, destinationBackend, destinationVG, 1, 1, 2, 3, 2, 3, nil, nil)
+		associationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-root-data-evacuation-association-" + suffix, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}
+		driftRollback := errors.New("rollback destination DATA binding drift")
+		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, move.Destination.Data.Binding); err != nil {
+				return err
+			}
+			if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID + "-drift", VMID: vmID, MobilityKind: associationRequest.MobilityKind, MobilityTerminalEvidenceID: associationRequest.MobilityTerminalEvidenceID}); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("destination DATA binding drift accepted: %v", err)
+			}
+			return driftRollback
+		})
+		if !errors.Is(err, driftRollback) {
+			t.Fatal(err)
+		}
+		association, err := AssociateVMAggregateMobility(ctx, db, associationRequest)
+		if err != nil || association.AssociationGeneration != 1 || association.SourceHostID != host || association.DestinationHostID != destinationHost || association.SourcePlanID != decision.PlanID || association.DestinationPlanID != move.Destination.Plan || association.DependencyDigest != logicalDependency || association.DesiredDigest != logicalDesired {
+			t.Fatalf("ROOT+DATA EVACUATE association=%+v err=%v", association, err)
+		}
+		if replay, err := AssociateVMAggregateMobility(ctx, db, associationRequest); err != nil || replay.AssociationDigest != association.AssociationDigest {
+			t.Fatalf("ROOT+DATA EVACUATE replay=%+v err=%v", replay, err)
+		}
+		var currentRevision, currentRuntime, currentAssociationGeneration uint64
+		var currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociation string
+		if err = db.QueryRow(ctx, `SELECT r.vm_revision,r.runtime_intent_generation,s.dependency_digest,r.desired_digest,b.host_id,b.admission_id,b.plan_id,b.mobility_association_generation,b.mobility_association_id FROM kim.vm_resources_current r JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(r.vm_id,r.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id WHERE r.vm_id=$1`, vmID).Scan(&currentRevision, &currentRuntime, &currentDependency, &currentDesired, &currentHost, &currentAdmission, &currentPlan, &currentAssociationGeneration, &currentAssociation); err != nil || currentRevision != logicalRevision || currentRuntime != logicalRuntime || currentDependency != logicalDependency || currentDesired != logicalDesired || currentHost != destinationHost || currentAdmission != move.Destination.Admission || currentPlan != move.Destination.Plan || currentAssociationGeneration != 1 || currentAssociation != association.AssociationID {
+			t.Fatalf("ROOT+DATA post-mobility logical/runtime=%d/%d %s/%s physical=%s/%s/%s association=%d/%s err=%v", currentRevision, currentRuntime, currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociationGeneration, currentAssociation, err)
+		}
+		var currentPortDigest, currentRootDigest, currentDataDigest string
+		var associatedVolumes, relocationVolumes int
+		if err = db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$4),(SELECT volume_count FROM kim.vm_aggregate_mobility_association_evidence WHERE association_id=$1),(SELECT volume_count FROM kim.vm_materialization_relocation_authority_evidence WHERE relocation_authority_id=$5)`, association.AssociationID, port.PortID, volume.VolumeID, dataVolume.VolumeID, move.Relocation).Scan(&currentPortDigest, &currentRootDigest, &currentDataDigest, &associatedVolumes, &relocationVolumes); err != nil || currentPortDigest != logicalPortDigest || currentRootDigest != logicalRootDigest || currentDataDigest != logicalDataDigest || associatedVolumes != 2 || relocationVolumes != 2 {
+			t.Fatalf("ROOT+DATA logical digests=%s/%s/%s cardinality=%d/%d err=%v", currentPortDigest, currentRootDigest, currentDataDigest, associatedVolumes, relocationVolumes, err)
+		}
+		var releasedSourceCapacity int
+		if err = db.QueryRow(ctx, `SELECT count(*) FROM kim.storage_capacity_claims WHERE volume_id=ANY($1) AND claim_state IN ('RELEASE_PENDING','RELEASED')`, []string{volume.VolumeID, dataVolume.VolumeID}).Scan(&releasedSourceCapacity); err != nil || releasedSourceCapacity != 0 {
+			t.Fatalf("source capacity reclaimed during relocation count=%d err=%v", releasedSourceCapacity, err)
+		}
+		var failureEpochsAfter, fencingProofsAfter int
+		if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.failure_epoch_evidence),(SELECT count(*) FROM kim.failure_fencing_proof_evidence)`).Scan(&failureEpochsAfter, &fencingProofsAfter); err != nil || failureEpochsAfter != failureEpochsBefore || fencingProofsAfter != fencingProofsBefore {
+			t.Fatalf("planned EVACUATE generated Recovery authority epochs=%d→%d fencing=%d→%d err=%v", failureEpochsBefore, failureEpochsAfter, fencingProofsBefore, fencingProofsAfter, err)
+		}
+		for table, assignment := range map[string]string{
+			"host_evacuation_source_storage_volume_safety_evidence": "safety_member_digest=safety_member_digest",
+			"host_evacuation_source_storage_safety_set_evidence":    "member_set_digest=member_set_digest",
+			"vm_materialization_relocation_volume_evidence":         "member_digest=member_digest",
+		} {
+			if _, err = db.Exec(ctx, fmt.Sprintf(`UPDATE kim.%s SET %s WHERE true`, table, assignment)); err == nil {
+				t.Fatalf("immutable %s accepted UPDATE", table)
+			}
 		}
 		return
 	}

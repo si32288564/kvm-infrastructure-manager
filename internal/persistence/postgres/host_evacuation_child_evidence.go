@@ -63,13 +63,13 @@ func EvaluateHostEvacuationChildEvidence(ctx context.Context, db TxBeginner, cla
 			WHERE c.child_operation_id=$1`, claim.ChildOperationID, destinationAdmissionID).Scan(&phase, &vmID, &vmGeneration, &workloadID, &sourceHost, &destinationHost, &planID, &planDigest, &quiescenceID, &definitionID, &imageID, &powerID, &sourceAuthority, &currentAuthority, &readyGeneration, &powerGeneration, &storageCount, &networkCount, &pciCount, &destinationStorageCount, &destinationNetworkCount, &destinationPCICount, &childPlanGeneration); err != nil {
 			return ErrHostEvacuationBlocked
 		}
-		if phase != "SOURCE_QUIESCED" || currentAuthority != sourceAuthority || childPlanGeneration == 0 || pciCount != 0 || destinationPCICount != 0 || networkCount != destinationNetworkCount || storageCount != destinationStorageCount || storageCount > 1 {
+		if phase != "SOURCE_QUIESCED" || currentAuthority != sourceAuthority || childPlanGeneration == 0 || pciCount != 0 || destinationPCICount != 0 || networkCount != destinationNetworkCount || storageCount != destinationStorageCount || storageCount > 2 {
 			return ErrHostEvacuationBlocked
 		}
 		sourceStorageState, destinationStorageState := "NOT_REQUIRED", "NOT_REQUIRED"
 		var sourceStorageDigest, destinationStorageDigest *string
 		var sourceStorageDigestValue, destinationStorageDigestValue string
-		if storageCount == 1 {
+		if storageCount > 0 {
 			var safetyDigest, sourceContentDigest, terminalDigest, destinationContentDigest string
 			if err := tx.QueryRow(ctx, `SELECT s.safety_digest,source.content_evidence_digest,terminal.terminal_digest,destination.content_evidence_digest
 				FROM kim.host_evacuation_source_storage_safety_evidence s
@@ -87,6 +87,28 @@ func EvaluateHostEvacuationChildEvidence(ctx context.Context, db TxBeginner, cla
 			}
 			sourceStorageDigestValue = digestReleaseBytes([]byte(safetyDigest + "/" + sourceContentDigest))
 			destinationStorageDigestValue = digestReleaseBytes([]byte(terminalDigest + "/" + destinationContentDigest))
+			if storageCount == 2 {
+				var memberCount int
+				var sourceSet, destinationSet string
+				if err := tx.QueryRow(ctx, `SELECT count(*),
+					coalesce(string_agg(member.volume_ordinal||':'||safety.safety_member_digest||':'||source.content_evidence_digest,',' ORDER BY member.volume_ordinal),''),
+					coalesce(string_agg(member.volume_ordinal||':'||member.copy_terminal_digest||':'||destination.content_evidence_digest,',' ORDER BY member.volume_ordinal),'')
+					FROM kim.vm_materialization_relocation_authority_evidence relocation
+					JOIN kim.vm_materialization_relocation_volume_evidence member ON member.relocation_authority_id=relocation.relocation_authority_id
+					JOIN kim.host_evacuation_source_storage_volume_safety_evidence safety ON safety.safety_member_evidence_id=member.source_volume_safety_evidence_id AND safety.volume_ordinal=member.volume_ordinal AND safety.volume_id=member.source_volume_id AND safety.binding_id=member.source_binding_id AND safety.binding_generation=member.source_binding_generation AND safety.lv_uuid=member.source_lv_uuid AND safety.safety_state='SAFE'
+					JOIN kim.local_lvm_relocation_copy_terminal_evidence terminal ON terminal.terminal_evidence_id=member.copy_terminal_evidence_id AND terminal.terminal_digest=member.copy_terminal_digest AND terminal.terminal_state='VERIFIED'
+					JOIN kim.local_lvm_relocation_copy_verification_evidence verified ON verified.verification_id=terminal.verification_id AND verified.content_identity_state='VERIFIED'
+					JOIN kim.local_lvm_relocation_content_observation_evidence source ON source.content_evidence_id=verified.source_content_evidence_id AND source.volume_id=member.source_volume_id AND source.binding_id=member.source_binding_id AND source.binding_generation=member.source_binding_generation AND source.lv_uuid=member.source_lv_uuid
+					JOIN kim.local_lvm_relocation_content_observation_evidence destination ON destination.content_evidence_id=verified.destination_content_evidence_id AND destination.volume_id=member.destination_volume_id AND destination.binding_id=member.destination_binding_id AND destination.binding_generation=member.destination_binding_generation AND destination.lv_uuid=member.destination_lv_uuid
+					JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=member.destination_binding_id AND binding.binding_generation=member.destination_binding_generation AND binding.volume_id=member.destination_volume_id AND binding.lv_uuid=member.destination_lv_uuid AND binding.host_id=$3 AND binding.binding_state='BOUND'
+					JOIN kim.volumes_current volume ON volume.volume_id=member.destination_volume_id AND volume.placement_admission_id=$2
+					JOIN kim.volume_attachments_current attachment ON attachment.volume_id=member.destination_volume_id AND attachment.placement_admission_id=$2 AND attachment.desired_host_id=$3
+					WHERE relocation.child_operation_id=$1 AND relocation.destination_admission_id=$2 AND relocation.volume_count=2`, claim.ChildOperationID, destinationAdmissionID, destinationHost).Scan(&memberCount, &sourceSet, &destinationSet); err != nil || memberCount != 2 {
+					return ErrHostEvacuationBlocked
+				}
+				sourceStorageDigestValue = digestReleaseBytes([]byte(sourceSet))
+				destinationStorageDigestValue = digestReleaseBytes([]byte(destinationSet))
+			}
 			sourceStorageState, destinationStorageState = "SAFE", "CURRENT"
 			sourceStorageDigest, destinationStorageDigest = &sourceStorageDigestValue, &destinationStorageDigestValue
 		}
@@ -241,7 +263,12 @@ func CompleteHostEvacuationChild(ctx context.Context, db TxBeginner, claim HostE
 				JOIN kim.local_lvm_relocation_copy_operations_current c ON c.copy_operation_id=t.copy_operation_id AND c.copy_generation=t.copy_generation AND c.terminal_evidence_id=t.terminal_evidence_id AND c.operation_state='VERIFIED'
 				JOIN kim.vm_materialization_plan_evidence p ON p.plan_id=(SELECT current_plan_id FROM kim.virtual_machines_current WHERE vm_id=v.vm_id) AND p.root_binding_id=t.destination_binding_id AND p.root_binding_generation=t.destination_binding_generation
 				JOIN kim.volume_backend_bindings_current b ON b.binding_id=t.destination_binding_id AND b.binding_generation=t.destination_binding_generation AND b.lv_uuid=t.destination_lv_uuid AND b.volume_id=p.root_volume_id AND b.host_id=v.destination_host_id AND b.binding_state='BOUND'
-				WHERE v.verification_id=$1)`, verificationID).Scan(&storageCurrent); err != nil || !storageCurrent {
+				WHERE v.verification_id=$1 AND (r.volume_count=1 OR r.volume_count=(SELECT count(*) FROM kim.vm_materialization_relocation_volume_evidence member
+					JOIN kim.local_lvm_relocation_copy_terminal_evidence member_terminal ON member_terminal.terminal_evidence_id=member.copy_terminal_evidence_id AND member_terminal.terminal_digest=member.copy_terminal_digest AND member_terminal.terminal_state='VERIFIED'
+					JOIN kim.local_lvm_relocation_copy_operations_current member_current ON member_current.copy_operation_id=member_terminal.copy_operation_id AND member_current.copy_generation=member_terminal.copy_generation AND member_current.terminal_evidence_id=member_terminal.terminal_evidence_id AND member_current.operation_state='VERIFIED'
+					JOIN kim.volume_backend_bindings_current member_binding ON member_binding.binding_id=member.destination_binding_id AND member_binding.binding_generation=member.destination_binding_generation AND member_binding.volume_id=member.destination_volume_id AND member_binding.lv_uuid=member.destination_lv_uuid AND member_binding.host_id=v.destination_host_id AND member_binding.binding_state='BOUND'
+					JOIN kim.volumes_current member_volume ON member_volume.volume_id=member.destination_volume_id AND member_volume.placement_admission_id=v.destination_admission_id
+					WHERE member.relocation_authority_id=r.relocation_authority_id)))`, verificationID).Scan(&storageCurrent); err != nil || !storageCurrent {
 				return ErrHostEvacuationStale
 			}
 		}
