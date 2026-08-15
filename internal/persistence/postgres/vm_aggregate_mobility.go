@@ -105,8 +105,8 @@ func AssociateVMAggregateMobility(ctx context.Context, db TxBeginner, r VMAggreg
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_resource_revision_evidence e JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.vm_revision)=(e.vm_id,e.vm_revision) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id WHERE e.vm_id=$1 AND e.vm_revision=$2 AND e.desired_digest=$3 AND i.runtime_intent_generation=$4 AND s.dependency_digest=$5)`, r.VMID, vmRevision, desiredDigest, runtimeGeneration, dependencyDigest).Scan(&desiredCurrent); err != nil || !desiredCurrent {
 			return ErrVMAggregateConflict
 		}
-		var portCount int
-		if err := tx.QueryRow(ctx, `SELECT port_count FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, dependencyID).Scan(&portCount); err != nil || portCount < 0 || portCount > maxVMAggregatePorts {
+		var portCount, volumeCount int
+		if err := tx.QueryRow(ctx, `SELECT port_count,volume_count FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, dependencyID).Scan(&portCount, &volumeCount); err != nil || portCount < 0 || portCount > maxVMAggregatePorts || volumeCount != 1 {
 			return ErrVMAggregateConflict
 		}
 		portSet := ""

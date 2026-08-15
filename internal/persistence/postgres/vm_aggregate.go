@@ -32,6 +32,7 @@ type VMAggregateCreateRequest struct {
 	RootVolumeRevision                                   uint64
 	PortRevision                                         uint64
 	Ports                                                []VMAggregatePortRequest
+	DataVolumes                                          []VMAggregateVolumeRequest
 	DeleteProtection                                     bool
 }
 
@@ -42,12 +43,20 @@ type VMAggregatePortRequest struct {
 	PortRevision uint64
 }
 
+// VMAggregateVolumeRequest identifies a logical DATA Volume revision. ROOT is
+// explicit in VMAggregateCreateRequest; DATA identities are canonicalized.
+type VMAggregateVolumeRequest struct {
+	VolumeID       string
+	VolumeRevision uint64
+}
+
 type VMAggregate struct {
 	VMID, ProjectID, Name, DesiredPowerState, LifecycleState string
 	ConvergenceState, OperationID, OperationState            string
 	DependencySnapshotID, DependencyDigest, DesiredDigest    string
 	RootVolumeID, PortID                                     string
 	Ports                                                    []VMAggregatePortRequest
+	DataVolumes                                              []VMAggregateVolumeRequest
 	VMRevision, RuntimeIntentGeneration, RootVolumeRevision  uint64
 	PortRevision                                             uint64
 }
@@ -55,6 +64,7 @@ type VMAggregate struct {
 // The producer bound tracks the largest positively qualified profile. Raise
 // it only with a larger cardinality campaign; schema capacity is not a PASS.
 const maxVMAggregatePorts = 2
+const maxVMAggregateVolumes = 2 // one ROOT plus one DATA Volume
 
 func normalizeVMAggregatePorts(r VMAggregateCreateRequest) ([]VMAggregatePortRequest, error) {
 	if len(r.Ports) > 0 && (r.PortID != "" || r.PortRevision != 0) {
@@ -74,6 +84,20 @@ func normalizeVMAggregatePorts(r VMAggregateCreateRequest) ([]VMAggregatePortReq
 		}
 	}
 	return ports, nil
+}
+
+func normalizeVMAggregateDataVolumes(r VMAggregateCreateRequest) ([]VMAggregateVolumeRequest, error) {
+	volumes := append([]VMAggregateVolumeRequest(nil), r.DataVolumes...)
+	if len(volumes)+1 > maxVMAggregateVolumes {
+		return nil, ErrVMAggregateConflict
+	}
+	sort.Slice(volumes, func(i, j int) bool { return volumes[i].VolumeID < volumes[j].VolumeID })
+	for i := range volumes {
+		if volumes[i].VolumeID == "" || volumes[i].VolumeRevision == 0 || volumes[i].VolumeID == r.RootVolumeID || (i > 0 && volumes[i-1].VolumeID == volumes[i].VolumeID) {
+			return nil, ErrVMAggregateConflict
+		}
+	}
+	return volumes, nil
 }
 
 type VMAggregateClaim struct {
@@ -109,6 +133,10 @@ func validateVMAggregateCreate(r VMAggregateCreateRequest) error {
 		return ErrVMAggregateConflict
 	}
 	_, err := normalizeVMAggregatePorts(r)
+	if err != nil {
+		return err
+	}
+	_, err = normalizeVMAggregateDataVolumes(r)
 	return err
 }
 
@@ -120,7 +148,9 @@ func CreateVMAggregate(ctx context.Context, db TxBeginner, r VMAggregateCreateRe
 		return VMAggregate{}, err
 	}
 	requestedPorts, _ := normalizeVMAggregatePorts(r)
+	requestedDataVolumes, _ := normalizeVMAggregateDataVolumes(r)
 	r.Ports, r.PortID, r.PortRevision = requestedPorts, "", 0
+	r.DataVolumes = requestedDataVolumes
 	requestDigest := digestVMAggregate(r)
 	err := RunSerializable(ctx, db, SerializableOptions{MaxAttempts: 8, BaseDelay: time.Millisecond}, func(ctx context.Context, tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
@@ -169,19 +199,22 @@ func CreateVMAggregate(ctx context.Context, db TxBeginner, r VMAggregateCreateRe
 				return ErrVMAggregateConflict
 			}
 		}
-		var volumeProject, volumeDigest, volumeState string
-		var bootable bool
-		if err := tx.QueryRow(ctx, `SELECT v.project_id,v.desired_digest,v.lifecycle_state,v.bootable FROM kim.volumes_current v JOIN kim.volume_materializations_current m ON m.volume_id=v.volume_id AND m.volume_revision=v.volume_revision AND m.materialization_state='VERIFIED' AND m.terminal_evidence_id IS NOT NULL JOIN kim.volume_backend_bindings_current b ON b.binding_id=m.binding_id AND b.binding_generation=m.binding_generation AND b.binding_state='BOUND' WHERE v.volume_id=$1 AND v.volume_revision=$2 AND v.authority_source='VOLUME_RESOURCE' FOR UPDATE OF v`, r.RootVolumeID, r.RootVolumeRevision).Scan(&volumeProject, &volumeDigest, &volumeState, &bootable); err != nil || volumeProject != r.ProjectID || volumeState != "AVAILABLE" || !bootable {
-			return ErrVMAggregateConflict
-		}
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.volume_attachment_intents_current WHERE volume_id=$1 AND intent_state IN('REQUESTED','ATTACHED'))`, r.RootVolumeID).Scan(&exists); err != nil || exists {
-			return ErrVMAggregateConflict
+		requestedVolumes := []VMAggregateVolumeRequest{{VolumeID: r.RootVolumeID, VolumeRevision: r.RootVolumeRevision}}
+		requestedVolumes = append(requestedVolumes, requestedDataVolumes...)
+		volumeDigests := make([]string, len(requestedVolumes))
+		for ordinal, requestedVolume := range requestedVolumes {
+			var volumeProject, volumeState string
+			var bootable bool
+			if err := tx.QueryRow(ctx, `SELECT v.project_id,v.desired_digest,v.lifecycle_state,v.bootable FROM kim.volumes_current v JOIN kim.volume_materializations_current m ON m.volume_id=v.volume_id AND m.volume_revision=v.volume_revision AND m.materialization_state='VERIFIED' AND m.terminal_evidence_id IS NOT NULL JOIN kim.volume_backend_bindings_current b ON b.binding_id=m.binding_id AND b.binding_generation=m.binding_generation AND b.binding_state='BOUND' WHERE v.volume_id=$1 AND v.volume_revision=$2 AND v.authority_source='VOLUME_RESOURCE' FOR UPDATE OF v`, requestedVolume.VolumeID, requestedVolume.VolumeRevision).Scan(&volumeProject, &volumeDigests[ordinal], &volumeState, &bootable); err != nil || volumeProject != r.ProjectID || volumeState != "AVAILABLE" || bootable != (ordinal == 0) {
+				return ErrVMAggregateConflict
+			}
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.volume_attachment_intents_current WHERE volume_id=$1 AND intent_state IN('REQUESTED','ATTACHED'))`, requestedVolume.VolumeID).Scan(&exists); err != nil || exists {
+				return ErrVMAggregateConflict
+			}
 		}
 
 		vmRevision, runtimeGeneration := uint64(1), uint64(1)
 		snapshotID := fmt.Sprintf("vm-dependencies:%s:%d", r.VMID, runtimeGeneration)
-		attachmentIntentID := fmt.Sprintf("vm-volume-intent:%s:%d:root", r.VMID, runtimeGeneration)
-		attachmentID := fmt.Sprintf("vm-volume-attachment:%s:%d:root", r.VMID, runtimeGeneration)
 		ports := []any{}
 		portCount := len(requestedPorts)
 		for ordinal, requestedPort := range requestedPorts {
@@ -194,8 +227,19 @@ func CreateVMAggregate(ctx context.Context, db TxBeginner, r VMAggregateCreateRe
 			"availability_policy": map[string]any{"id": r.AvailabilityPolicyID, "revision": r.AvailabilityPolicyRevision, "digest": policyDigest},
 			"placement_scope":     map[string]any{"id": r.PlacementScopeID, "generation": r.PlacementScopeGeneration, "digest": scopeDigest},
 			"ports":               ports,
-			"volumes":             []any{map[string]any{"id": r.RootVolumeID, "revision": r.RootVolumeRevision, "role": "ROOT", "digest": volumeDigest, "attachment_intent_id": attachmentIntentID, "attachment_id": attachmentID}},
+			"volumes":             []any{},
 		}
+		volumePayload := make([]any, 0, len(requestedVolumes))
+		for ordinal, requestedVolume := range requestedVolumes {
+			role := "DATA"
+			if ordinal == 0 {
+				role = "ROOT"
+			}
+			attachmentIntentID := fmt.Sprintf("vm-volume-intent:%s:%d:%d", r.VMID, runtimeGeneration, ordinal)
+			attachmentID := fmt.Sprintf("vm-volume-attachment:%s:%d:%d", r.VMID, runtimeGeneration, ordinal)
+			volumePayload = append(volumePayload, map[string]any{"ordinal": ordinal, "id": requestedVolume.VolumeID, "revision": requestedVolume.VolumeRevision, "role": role, "digest": volumeDigests[ordinal], "attachment_intent_id": attachmentIntentID, "attachment_id": attachmentID})
+		}
+		dependencyPayload["volumes"] = volumePayload
 		dependencyRaw, _ := json.Marshal(dependencyPayload)
 		dependencyDigest := digestBytes(dependencyRaw)
 		desiredDigest := digestVMAggregate(map[string]any{"request": r, "vm_revision": vmRevision, "lifecycle": "ACTIVE"})
@@ -205,7 +249,7 @@ func CreateVMAggregate(ctx context.Context, db TxBeginner, r VMAggregateCreateRe
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_resource_revision_evidence(vm_id,vm_revision,project_id,vm_name,flavor_id,flavor_revision,image_id,image_revision,availability_policy_id,availability_policy_revision,placement_scope_id,placement_scope_generation,desired_power_state,delete_protection,lifecycle_state,previous_revision,desired_digest) VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ACTIVE',NULL,$14)`, r.VMID, r.ProjectID, r.Name, r.FlavorID, r.FlavorRevision, r.ImageID, r.ImageRevision, r.AvailabilityPolicyID, r.AvailabilityPolicyRevision, r.PlacementScopeID, r.PlacementScopeGeneration, r.DesiredPowerState, r.DeleteProtection, desiredDigest); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_dependency_snapshot_evidence(dependency_snapshot_id,vm_id,vm_revision,runtime_intent_generation,flavor_id,flavor_revision,flavor_revision_digest,image_id,image_revision,image_revision_digest,availability_policy_id,availability_policy_revision,availability_policy_digest,placement_scope_id,placement_scope_generation,placement_scope_digest,port_count,volume_count,dependency_payload,dependency_digest) VALUES($1,$2,1,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,1,$16,$17)`, snapshotID, r.VMID, r.FlavorID, r.FlavorRevision, flavorDigest, r.ImageID, r.ImageRevision, imageDigest, r.AvailabilityPolicyID, r.AvailabilityPolicyRevision, policyDigest, r.PlacementScopeID, r.PlacementScopeGeneration, scopeDigest, portCount, dependencyRaw, dependencyDigest); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_dependency_snapshot_evidence(dependency_snapshot_id,vm_id,vm_revision,runtime_intent_generation,flavor_id,flavor_revision,flavor_revision_digest,image_id,image_revision,image_revision_digest,availability_policy_id,availability_policy_revision,availability_policy_digest,placement_scope_id,placement_scope_generation,placement_scope_digest,port_count,volume_count,dependency_payload,dependency_digest) VALUES($1,$2,1,1,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, snapshotID, r.VMID, r.FlavorID, r.FlavorRevision, flavorDigest, r.ImageID, r.ImageRevision, imageDigest, r.AvailabilityPolicyID, r.AvailabilityPolicyRevision, policyDigest, r.PlacementScopeID, r.PlacementScopeGeneration, scopeDigest, portCount, len(requestedVolumes), dependencyRaw, dependencyDigest); err != nil {
 			return err
 		}
 		for ordinal, requestedPort := range requestedPorts {
@@ -224,15 +268,23 @@ func CreateVMAggregate(ctx context.Context, db TxBeginner, r VMAggregateCreateRe
 				return err
 			}
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_dependency_volume_evidence(dependency_snapshot_id,volume_ordinal,volume_id,volume_revision,device_role,desired_digest,attachment_intent_id,requested_attachment_id) VALUES($1,0,$2,$3,'ROOT',$4,$5,$6)`, snapshotID, r.RootVolumeID, r.RootVolumeRevision, volumeDigest, attachmentIntentID, attachmentID); err != nil {
-			return err
-		}
-		intentEvidenceDigest := digestVolumeAuthority(fmt.Sprintf("%s/%s/%d/%s/%s", attachmentIntentID, r.RootVolumeID, r.RootVolumeRevision, r.VMID, attachmentID))
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachment_intent_evidence(attachment_intent_id,volume_id,volume_revision,attachment_generation,workload_id,requested_attachment_id,requested_physical_attachment_generation,intent_state,intent_digest) VALUES($1,$2,$3,1,$4,$5,1,'REQUESTED',$6)`, attachmentIntentID, r.RootVolumeID, r.RootVolumeRevision, r.VMID, attachmentID, intentEvidenceDigest); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachment_intents_current(volume_id,volume_revision,attachment_intent_id,attachment_generation,workload_id,requested_attachment_id,requested_physical_attachment_generation,intent_state) VALUES($1,$2,$3,1,$4,$5,1,'REQUESTED')`, r.RootVolumeID, r.RootVolumeRevision, attachmentIntentID, r.VMID, attachmentID); err != nil {
-			return err
+		for ordinal, requestedVolume := range requestedVolumes {
+			role := "DATA"
+			if ordinal == 0 {
+				role = "ROOT"
+			}
+			attachmentIntentID := fmt.Sprintf("vm-volume-intent:%s:%d:%d", r.VMID, runtimeGeneration, ordinal)
+			attachmentID := fmt.Sprintf("vm-volume-attachment:%s:%d:%d", r.VMID, runtimeGeneration, ordinal)
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_dependency_volume_evidence(dependency_snapshot_id,volume_ordinal,volume_id,volume_revision,device_role,desired_digest,attachment_intent_id,requested_attachment_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, snapshotID, ordinal, requestedVolume.VolumeID, requestedVolume.VolumeRevision, role, volumeDigests[ordinal], attachmentIntentID, attachmentID); err != nil {
+				return err
+			}
+			intentEvidenceDigest := digestVolumeAuthority(fmt.Sprintf("%s/%s/%d/%s/%s", attachmentIntentID, requestedVolume.VolumeID, requestedVolume.VolumeRevision, r.VMID, attachmentID))
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachment_intent_evidence(attachment_intent_id,volume_id,volume_revision,attachment_generation,workload_id,requested_attachment_id,requested_physical_attachment_generation,intent_state,intent_digest) VALUES($1,$2,$3,1,$4,$5,1,'REQUESTED',$6)`, attachmentIntentID, requestedVolume.VolumeID, requestedVolume.VolumeRevision, r.VMID, attachmentID, intentEvidenceDigest); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachment_intents_current(volume_id,volume_revision,attachment_intent_id,attachment_generation,workload_id,requested_attachment_id,requested_physical_attachment_generation,intent_state) VALUES($1,$2,$3,1,$4,$5,1,'REQUESTED')`, requestedVolume.VolumeID, requestedVolume.VolumeRevision, attachmentIntentID, r.VMID, attachmentID); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_runtime_intent_evidence(vm_id,runtime_intent_generation,vm_revision,dependency_snapshot_id,desired_power_state,intent_digest) VALUES($1,1,1,$2,$3,$4)`, r.VMID, snapshotID, r.DesiredPowerState, intentDigest); err != nil {
 			return err
@@ -275,6 +327,21 @@ func GetVMAggregate(ctx context.Context, db TxBeginner, vmID string) (VMAggregat
 		}
 		if len(v.Ports) > 0 {
 			v.PortID, v.PortRevision = v.Ports[0].PortID, v.Ports[0].PortRevision
+		}
+		volumeRows, err := tx.Query(ctx, `SELECT volume_id,volume_revision FROM kim.vm_dependency_volume_evidence WHERE dependency_snapshot_id=$1 AND device_role='DATA' ORDER BY volume_ordinal`, v.DependencySnapshotID)
+		if err != nil {
+			return err
+		}
+		defer volumeRows.Close()
+		for volumeRows.Next() {
+			var data VMAggregateVolumeRequest
+			if err := volumeRows.Scan(&data.VolumeID, &data.VolumeRevision); err != nil {
+				return err
+			}
+			v.DataVolumes = append(v.DataVolumes, data)
+		}
+		if err := volumeRows.Err(); err != nil {
+			return err
 		}
 		return nil
 	})
@@ -335,15 +402,32 @@ func CompileVMAggregatePlacement(ctx context.Context, db TxBeginner, c VMAggrega
 		var vmID, projectID, flavorID, imageID, scopeID, dependencyDigest string
 		var vmRevision, runtimeGeneration, flavorRevision, imageRevision, scopeGeneration uint64
 		var portCount, volumeCount int
-		if err := tx.QueryRow(ctx, `SELECT o.vm_id::text,o.vm_revision,o.runtime_intent_generation,e.project_id,s.flavor_id,s.flavor_revision,s.image_id,s.image_revision,s.placement_scope_id,s.placement_scope_generation,s.dependency_digest,s.port_count,s.volume_count FROM kim.vm_lifecycle_operation_evidence o JOIN kim.vm_lifecycle_operations_current operation ON operation.operation_id=o.operation_id AND operation.operation_generation=o.operation_generation AND operation.operation_state='PENDING' JOIN kim.vm_resources_current current ON current.vm_id=o.vm_id AND current.vm_revision=o.vm_revision AND current.runtime_intent_generation=o.runtime_intent_generation AND current.current_operation_id=o.operation_id JOIN kim.vm_resource_revision_evidence e ON(e.vm_id,e.vm_revision)=(o.vm_id,o.vm_revision) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=o.dependency_snapshot_id AND s.dependency_digest=o.dependency_digest WHERE o.operation_id=$1 AND o.operation_generation=$2`, c.OperationID, c.OperationGeneration).Scan(&vmID, &vmRevision, &runtimeGeneration, &projectID, &flavorID, &flavorRevision, &imageID, &imageRevision, &scopeID, &scopeGeneration, &dependencyDigest, &portCount, &volumeCount); err != nil || portCount < 0 || portCount > maxVMAggregatePorts || volumeCount != 1 {
+		if err := tx.QueryRow(ctx, `SELECT o.vm_id::text,o.vm_revision,o.runtime_intent_generation,e.project_id,s.flavor_id,s.flavor_revision,s.image_id,s.image_revision,s.placement_scope_id,s.placement_scope_generation,s.dependency_digest,s.port_count,s.volume_count FROM kim.vm_lifecycle_operation_evidence o JOIN kim.vm_lifecycle_operations_current operation ON operation.operation_id=o.operation_id AND operation.operation_generation=o.operation_generation AND operation.operation_state='PENDING' JOIN kim.vm_resources_current current ON current.vm_id=o.vm_id AND current.vm_revision=o.vm_revision AND current.runtime_intent_generation=o.runtime_intent_generation AND current.current_operation_id=o.operation_id JOIN kim.vm_resource_revision_evidence e ON(e.vm_id,e.vm_revision)=(o.vm_id,o.vm_revision) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=o.dependency_snapshot_id AND s.dependency_digest=o.dependency_digest WHERE o.operation_id=$1 AND o.operation_generation=$2`, c.OperationID, c.OperationGeneration).Scan(&vmID, &vmRevision, &runtimeGeneration, &projectID, &flavorID, &flavorRevision, &imageID, &imageRevision, &scopeID, &scopeGeneration, &dependencyDigest, &portCount, &volumeCount); err != nil || portCount < 0 || portCount > maxVMAggregatePorts || volumeCount < 1 || volumeCount > maxVMAggregateVolumes {
 			return ErrVMAggregateConflict
 		}
 		var current bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.flavors_current WHERE flavor_id=$1 AND flavor_revision=$2 AND lifecycle_state='ACTIVE') AND EXISTS(SELECT 1 FROM kim.images_current WHERE image_id=$3 AND image_revision=$4 AND lifecycle_state='ACTIVE') AND EXISTS(SELECT 1 FROM kim.placement_scopes_current WHERE placement_scope_id=$5 AND scope_generation=$6 AND lifecycle_state='ACTIVE')`, flavorID, flavorRevision, imageID, imageRevision, scopeID, scopeGeneration).Scan(&current); err != nil || !current {
 			return ErrVMAggregateConflict
 		}
-		var storage placement.StorageRequirement
-		if err := tx.QueryRow(ctx, `SELECT v.volume_id,v.volume_revision,a.requested_attachment_id,a.requested_physical_attachment_generation,a.attachment_intent_id,a.attachment_generation,c.allocation_decision_id,c.allocation_generation,i.backend_id,b.backend_generation,i.vg_uuid,v.storage_class_id,v.storage_class_revision,c.capacity_generation,class.fencing_policy_revision,v.size_bytes,v.access_mode,v.bootable FROM kim.vm_dependency_volume_evidence d JOIN kim.volumes_current v ON v.volume_id=d.volume_id AND v.volume_revision=d.volume_revision AND v.desired_digest=d.desired_digest AND v.authority_source='VOLUME_RESOURCE' AND v.lifecycle_state='AVAILABLE' JOIN kim.volume_attachment_intents_current a ON a.volume_id=v.volume_id AND a.attachment_intent_id=d.attachment_intent_id AND a.requested_attachment_id=d.requested_attachment_id AND a.workload_id=$2 AND a.intent_state='REQUESTED' JOIN kim.volume_materializations_current m ON m.volume_id=v.volume_id AND m.volume_revision=v.volume_revision AND m.materialization_state='VERIFIED' AND m.terminal_evidence_id IS NOT NULL JOIN kim.volume_backend_binding_intents i ON i.binding_id=m.binding_id AND i.binding_generation=m.binding_generation AND i.authority_source='VOLUME_RESOURCE' JOIN kim.volume_backend_bindings_current bound ON bound.binding_id=i.binding_id AND bound.binding_generation=i.binding_generation AND bound.binding_state='BOUND' JOIN kim.storage_capacity_claims c ON c.volume_id=v.volume_id AND c.allocation_decision_id=i.capacity_allocation_id AND c.allocation_generation=i.capacity_allocation_generation AND c.authority_source='VOLUME_RESOURCE' AND c.claim_state IN('RESERVED','ALLOCATED') JOIN kim.storage_backends_current b ON b.backend_id=i.backend_id AND b.host_id=i.host_id AND b.vg_uuid=i.vg_uuid AND b.lifecycle_state='ACTIVE' JOIN kim.storage_classes_current sc ON sc.storage_class_id=v.storage_class_id AND sc.class_revision=v.storage_class_revision AND sc.lifecycle_state='ACTIVE' JOIN kim.storage_class_revision_evidence class ON(class.storage_class_id,class.class_revision)=(sc.storage_class_id,sc.class_revision) WHERE d.dependency_snapshot_id=(SELECT dependency_snapshot_id FROM kim.vm_lifecycle_operation_evidence WHERE operation_id=$1 AND operation_generation=$3) AND d.device_role='ROOT'`, c.OperationID, vmID, c.OperationGeneration).Scan(&storage.VolumeID, &storage.VolumeRevision, &storage.AttachmentID, &storage.AttachmentGeneration, &storage.AttachmentIntentID, &storage.AttachmentIntentGeneration, &storage.CapacityAllocationID, &storage.CapacityAllocationGeneration, &storage.BackendID, &storage.BackendGeneration, &storage.VGUUID, &storage.StorageClassID, &storage.StorageClassRevision, &storage.CapacityGeneration, &storage.FencingPolicyRevision, &storage.SizeBytes, &storage.AccessMode, &storage.Bootable); err != nil {
+		storage := make([]placement.StorageRequirement, 0, volumeCount)
+		storageRows, err := tx.Query(ctx, `SELECT d.volume_ordinal,d.device_role,v.volume_id,v.volume_revision,a.requested_attachment_id,a.requested_physical_attachment_generation,a.attachment_intent_id,a.attachment_generation,c.allocation_decision_id,c.allocation_generation,i.backend_id,b.backend_generation,i.vg_uuid,v.storage_class_id,v.storage_class_revision,c.capacity_generation,class.fencing_policy_revision,v.size_bytes,v.access_mode,v.bootable FROM kim.vm_dependency_volume_evidence d JOIN kim.volumes_current v ON v.volume_id=d.volume_id AND v.volume_revision=d.volume_revision AND v.desired_digest=d.desired_digest AND v.authority_source='VOLUME_RESOURCE' AND v.lifecycle_state='AVAILABLE' JOIN kim.volume_attachment_intents_current a ON a.volume_id=v.volume_id AND a.attachment_intent_id=d.attachment_intent_id AND a.requested_attachment_id=d.requested_attachment_id AND a.workload_id=$2 AND a.intent_state='REQUESTED' JOIN kim.volume_materializations_current m ON m.volume_id=v.volume_id AND m.volume_revision=v.volume_revision AND m.materialization_state='VERIFIED' AND m.terminal_evidence_id IS NOT NULL JOIN kim.volume_backend_binding_intents i ON i.binding_id=m.binding_id AND i.binding_generation=m.binding_generation AND i.authority_source='VOLUME_RESOURCE' JOIN kim.volume_backend_bindings_current bound ON bound.binding_id=i.binding_id AND bound.binding_generation=i.binding_generation AND bound.binding_state='BOUND' JOIN kim.storage_capacity_claims c ON c.volume_id=v.volume_id AND c.allocation_decision_id=i.capacity_allocation_id AND c.allocation_generation=i.capacity_allocation_generation AND c.authority_source='VOLUME_RESOURCE' AND c.claim_state IN('RESERVED','ALLOCATED') JOIN kim.storage_backends_current b ON b.backend_id=i.backend_id AND b.host_id=i.host_id AND b.vg_uuid=i.vg_uuid AND b.lifecycle_state='ACTIVE' JOIN kim.storage_classes_current sc ON sc.storage_class_id=v.storage_class_id AND sc.class_revision=v.storage_class_revision AND sc.lifecycle_state='ACTIVE' JOIN kim.storage_class_revision_evidence class ON(class.storage_class_id,class.class_revision)=(sc.storage_class_id,sc.class_revision) WHERE d.dependency_snapshot_id=(SELECT dependency_snapshot_id FROM kim.vm_lifecycle_operation_evidence WHERE operation_id=$1 AND operation_generation=$3) ORDER BY d.volume_ordinal`, c.OperationID, vmID, c.OperationGeneration)
+		if err != nil {
+			return err
+		}
+		defer storageRows.Close()
+		for storageRows.Next() {
+			var ordinal int
+			var role string
+			var required placement.StorageRequirement
+			if err := storageRows.Scan(&ordinal, &role, &required.VolumeID, &required.VolumeRevision, &required.AttachmentID, &required.AttachmentGeneration, &required.AttachmentIntentID, &required.AttachmentIntentGeneration, &required.CapacityAllocationID, &required.CapacityAllocationGeneration, &required.BackendID, &required.BackendGeneration, &required.VGUUID, &required.StorageClassID, &required.StorageClassRevision, &required.CapacityGeneration, &required.FencingPolicyRevision, &required.SizeBytes, &required.AccessMode, &required.Bootable); err != nil || ordinal != len(storage) || (role == "ROOT") != (ordinal == 0) || required.Bootable != (ordinal == 0) {
+				return ErrVMAggregateConflict
+			}
+			storage = append(storage, required)
+		}
+		if err := storageRows.Err(); err != nil {
+			return err
+		}
+		if len(storage) != volumeCount {
 			return ErrVMAggregateConflict
 		}
 		network := make([]placement.NetworkRequirement, 0, portCount)
@@ -368,7 +452,7 @@ func CompileVMAggregatePlacement(ctx context.Context, db TxBeginner, c VMAggrega
 		if len(network) != portCount {
 			return ErrVMAggregateConflict
 		}
-		out = PlacementAdmissionRequest{RequestID: "vm-placement:" + c.OperationID + ":1", ProjectID: projectID, WorkloadID: vmID, ImageID: imageID, FlavorID: flavorID, PlacementScopeID: scopeID, Network: network, Storage: []placement.StorageRequirement{storage}}
+		out = PlacementAdmissionRequest{RequestID: "vm-placement:" + c.OperationID + ":1", ProjectID: projectID, WorkloadID: vmID, ImageID: imageID, FlavorID: flavorID, PlacementScopeID: scopeID, Network: network, Storage: storage}
 		_ = vmRevision
 		_ = runtimeGeneration
 		_ = dependencyDigest
@@ -404,8 +488,33 @@ func BindVMAggregateAdmission(ctx context.Context, db TxBeginner, c VMAggregateC
 		if err := tx.QueryRow(ctx, `SELECT e.availability_policy_id,e.availability_policy_revision,e.availability_policy_digest FROM kim.vm_availability_binding_evidence e JOIN kim.vm_availability_bindings_current current ON(current.workload_id,current.binding_revision,current.binding_digest)=(e.workload_id,e.binding_revision,e.binding_digest) WHERE e.admission_id=$1`, admissionID).Scan(&policyID, &policyRevision, &policyDigest); err != nil || policyID != expectedPolicyID || policyRevision != expectedPolicyRevision || policyDigest != expectedPolicyDigest {
 			return ErrVMAggregateConflict
 		}
-		var exactRoot bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_dependency_volume_evidence d JOIN kim.volume_attachment_intent_evidence requested ON requested.attachment_intent_id=d.attachment_intent_id AND requested.volume_id=d.volume_id AND requested.volume_revision=d.volume_revision AND requested.requested_attachment_id=d.requested_attachment_id AND requested.workload_id=$2 AND requested.intent_state='REQUESTED' JOIN kim.volume_attachment_intents_current a ON a.volume_id=d.volume_id AND a.volume_revision=d.volume_revision AND a.requested_attachment_id=d.requested_attachment_id AND a.workload_id=$2 AND a.intent_state='ATTACHED' JOIN kim.volume_attachment_intent_evidence e ON e.attachment_intent_id=a.attachment_intent_id AND e.placement_admission_id=$3 AND e.binding_id IS NOT NULL WHERE d.dependency_snapshot_id=$1 AND d.device_role='ROOT')`, dependencyID, vmID, admissionID).Scan(&exactRoot); err != nil || !exactRoot {
+		var volumeCount int
+		if err := tx.QueryRow(ctx, `SELECT volume_count FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, dependencyID).Scan(&volumeCount); err != nil || volumeCount < 1 || volumeCount > maxVMAggregateVolumes {
+			return ErrVMAggregateConflict
+		}
+		type aggregateVolumeBinding struct {
+			ordinal                                                                                                    int
+			role, volumeID, desiredDigest, requestedIntent, attachedIntent, physicalAttachment, backendBinding, digest string
+			volumeRevision, attachedGeneration, backendGeneration                                                      uint64
+		}
+		volumeBindings := make([]aggregateVolumeBinding, 0, volumeCount)
+		volumeRows, err := tx.Query(ctx, `SELECT d.volume_ordinal,d.device_role,d.volume_id,d.volume_revision,d.desired_digest,d.attachment_intent_id,current.attachment_intent_id,current.attachment_generation,attached.physical_attachment_id,attached.binding_id,attached.binding_generation FROM kim.vm_dependency_volume_evidence d JOIN kim.volume_attachment_intent_evidence requested ON requested.attachment_intent_id=d.attachment_intent_id AND requested.volume_id=d.volume_id AND requested.volume_revision=d.volume_revision AND requested.requested_attachment_id=d.requested_attachment_id AND requested.workload_id=$2 AND requested.intent_state='REQUESTED' JOIN kim.volumes_current volume ON volume.volume_id=d.volume_id AND volume.volume_revision=d.volume_revision AND volume.desired_digest=d.desired_digest AND volume.placement_admission_id=$3 JOIN kim.volume_attachment_intents_current current ON current.volume_id=d.volume_id AND current.volume_revision=d.volume_revision AND current.requested_attachment_id=d.requested_attachment_id AND current.workload_id=$2 AND current.intent_state='ATTACHED' JOIN kim.volume_attachment_intent_evidence attached ON attached.attachment_intent_id=current.attachment_intent_id AND attached.attachment_generation=current.attachment_generation AND attached.placement_admission_id=$3 AND attached.physical_attachment_id=d.requested_attachment_id JOIN kim.volume_attachments_current physical ON physical.attachment_id=attached.physical_attachment_id AND physical.volume_id=d.volume_id AND physical.workload_id=$2 AND physical.placement_admission_id=$3 AND physical.desired_host_id=$4 AND physical.desired_state='RESERVED' JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=attached.binding_id AND binding.binding_generation=attached.binding_generation AND binding.volume_id=d.volume_id AND binding.host_id=$4 AND binding.binding_state='BOUND' WHERE d.dependency_snapshot_id=$1 ORDER BY d.volume_ordinal`, dependencyID, vmID, admissionID, hostID)
+		if err != nil {
+			return err
+		}
+		defer volumeRows.Close()
+		for volumeRows.Next() {
+			var v aggregateVolumeBinding
+			if err := volumeRows.Scan(&v.ordinal, &v.role, &v.volumeID, &v.volumeRevision, &v.desiredDigest, &v.requestedIntent, &v.attachedIntent, &v.attachedGeneration, &v.physicalAttachment, &v.backendBinding, &v.backendGeneration); err != nil || v.ordinal != len(volumeBindings) || (v.role == "ROOT") != (v.ordinal == 0) {
+				return ErrVMAggregateConflict
+			}
+			v.digest = digestVMAggregate(map[string]any{"ordinal": v.ordinal, "role": v.role, "volume_id": v.volumeID, "volume_revision": v.volumeRevision, "desired_digest": v.desiredDigest, "requested_intent": v.requestedIntent, "attached_intent": v.attachedIntent, "attached_generation": v.attachedGeneration, "physical_attachment": v.physicalAttachment, "admission_id": admissionID, "host_id": hostID, "backend_binding": v.backendBinding, "backend_generation": v.backendGeneration})
+			volumeBindings = append(volumeBindings, v)
+		}
+		if err := volumeRows.Err(); err != nil {
+			return err
+		}
+		if len(volumeBindings) != volumeCount {
 			return ErrVMAggregateConflict
 		}
 		var portCount int
@@ -441,7 +550,11 @@ func BindVMAggregateAdmission(ctx context.Context, db TxBeginner, c VMAggregateC
 		for i := range portBindings {
 			portBindingDigests[i] = portBindings[i].digest
 		}
-		digest := digestVMAggregate(map[string]any{"operation_id": c.OperationID, "generation": c.OperationGeneration, "vm_id": vmID, "vm_revision": vmRevision, "runtime_generation": runtimeGeneration, "dependency_digest": dependencyDigest, "admission_id": admissionID, "host_id": hostID, "scope_id": scopeID, "scope_generation": scopeGeneration, "scope_digest": scopeDigest, "port_binding_digests": portBindingDigests})
+		volumeBindingDigests := make([]string, len(volumeBindings))
+		for i := range volumeBindings {
+			volumeBindingDigests[i] = volumeBindings[i].digest
+		}
+		digest := digestVMAggregate(map[string]any{"operation_id": c.OperationID, "generation": c.OperationGeneration, "vm_id": vmID, "vm_revision": vmRevision, "runtime_generation": runtimeGeneration, "dependency_digest": dependencyDigest, "admission_id": admissionID, "host_id": hostID, "scope_id": scopeID, "scope_generation": scopeGeneration, "scope_digest": scopeDigest, "port_binding_digests": portBindingDigests, "volume_binding_digests": volumeBindingDigests})
 		tag, err := tx.Exec(ctx, `INSERT INTO kim.vm_aggregate_admission_binding_evidence(binding_evidence_id,operation_id,operation_generation,vm_id,vm_revision,runtime_intent_generation,dependency_snapshot_id,dependency_digest,admission_id,host_id,placement_scope_id,placement_scope_generation,placement_scope_digest,admission_binding_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(binding_evidence_id) DO NOTHING`, bindingID, c.OperationID, c.OperationGeneration, vmID, vmRevision, runtimeGeneration, dependencyID, dependencyDigest, admissionID, hostID, scopeID, scopeGeneration, scopeDigest, digest)
 		if err != nil {
 			return err
@@ -450,6 +563,19 @@ func BindVMAggregateAdmission(ctx context.Context, db TxBeginner, c VMAggregateC
 			var existingAdmission, existingDigest string
 			if err := tx.QueryRow(ctx, `SELECT admission_id,admission_binding_digest FROM kim.vm_aggregate_admission_binding_evidence WHERE binding_evidence_id=$1`, bindingID).Scan(&existingAdmission, &existingDigest); err != nil || existingAdmission != admissionID || existingDigest != digest {
 				return ErrVMAggregateConflict
+			}
+		}
+		for _, v := range volumeBindings {
+			volumeEvidenceID := fmt.Sprintf("vm-volume-binding:%s:%d", c.OperationID, v.ordinal)
+			tag, err := tx.Exec(ctx, `INSERT INTO kim.vm_aggregate_volume_binding_evidence(binding_evidence_id,aggregate_admission_binding_evidence_id,operation_id,operation_generation,dependency_snapshot_id,volume_ordinal,device_role,volume_id,volume_revision,desired_digest,requested_attachment_intent_id,attached_attachment_intent_id,attached_attachment_generation,physical_attachment_id,admission_id,host_id,backend_binding_id,backend_binding_generation,binding_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(binding_evidence_id) DO NOTHING`, volumeEvidenceID, bindingID, c.OperationID, c.OperationGeneration, dependencyID, v.ordinal, v.role, v.volumeID, v.volumeRevision, v.desiredDigest, v.requestedIntent, v.attachedIntent, v.attachedGeneration, v.physicalAttachment, admissionID, hostID, v.backendBinding, v.backendGeneration, v.digest)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				var old string
+				if err := tx.QueryRow(ctx, `SELECT binding_digest FROM kim.vm_aggregate_volume_binding_evidence WHERE binding_evidence_id=$1`, volumeEvidenceID).Scan(&old); err != nil || old != v.digest {
+					return ErrVMAggregateConflict
+				}
 			}
 		}
 		for _, p := range portBindings {
@@ -575,15 +701,44 @@ func EvaluateVMAggregateEvidence(ctx context.Context, db TxBeginner, c VMAggrega
 				return ErrVMAggregateConflict
 			}
 		}
-		var exactRoot bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.vm_dependency_volume_evidence d JOIN kim.volume_attachment_intent_evidence requested ON requested.attachment_intent_id=d.attachment_intent_id AND requested.volume_id=d.volume_id AND requested.volume_revision=d.volume_revision AND requested.requested_attachment_id=d.requested_attachment_id AND requested.intent_state='REQUESTED' JOIN kim.volume_attachment_intents_current intent ON intent.volume_id=d.volume_id AND intent.volume_revision=d.volume_revision AND intent.requested_attachment_id=d.requested_attachment_id AND intent.workload_id=requested.workload_id AND intent.intent_state='ATTACHED' JOIN kim.volume_attachment_intent_evidence ie ON ie.attachment_intent_id=intent.attachment_intent_id AND ie.placement_admission_id=$2 JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=ie.binding_id AND binding.binding_generation=ie.binding_generation AND binding.host_id=$3 AND binding.binding_state='BOUND' JOIN kim.volume_materializations_current materialized ON materialized.volume_id=d.volume_id AND materialized.volume_revision=d.volume_revision AND materialized.binding_id=binding.binding_id AND materialized.binding_generation=binding.binding_generation AND materialized.materialization_state='VERIFIED' WHERE d.dependency_snapshot_id=$1 AND d.device_role='ROOT')`, dependencyID, admissionID, hostID).Scan(&exactRoot); err != nil || !exactRoot {
+		var volumeCount int
+		if err := tx.QueryRow(ctx, `SELECT volume_count FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, dependencyID).Scan(&volumeCount); err != nil || volumeCount < 1 || volumeCount > maxVMAggregateVolumes {
+			return ErrVMAggregateConflict
+		}
+		type aggregateVolumeVerification struct {
+			ordinal                                                                                       int
+			bindingEvidence, role, volumeID, physicalAttachment, backendBinding, terminalEvidence, digest string
+			volumeRevision, backendGeneration                                                             uint64
+		}
+		volumeVerifications := make([]aggregateVolumeVerification, 0, volumeCount)
+		volumeRows, err := tx.Query(ctx, `SELECT vb.volume_ordinal,vb.binding_evidence_id,vb.device_role,vb.volume_id,vb.volume_revision,vb.physical_attachment_id,vb.backend_binding_id,vb.backend_binding_generation,materialized.terminal_evidence_id FROM kim.vm_aggregate_volume_binding_evidence vb JOIN kim.volumes_current volume ON volume.volume_id=vb.volume_id AND volume.volume_revision=vb.volume_revision AND volume.desired_digest=vb.desired_digest AND volume.placement_admission_id=vb.admission_id JOIN kim.volume_attachment_intents_current intent ON intent.volume_id=vb.volume_id AND intent.attachment_intent_id=vb.attached_attachment_intent_id AND intent.attachment_generation=vb.attached_attachment_generation AND intent.intent_state='ATTACHED' JOIN kim.volume_attachments_current physical ON physical.attachment_id=vb.physical_attachment_id AND physical.volume_id=vb.volume_id AND physical.placement_admission_id=vb.admission_id AND physical.desired_host_id=vb.host_id AND physical.desired_state='RESERVED' JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=vb.backend_binding_id AND binding.binding_generation=vb.backend_binding_generation AND binding.volume_id=vb.volume_id AND binding.host_id=vb.host_id AND binding.binding_state='BOUND' JOIN kim.volume_materializations_current materialized ON materialized.volume_id=vb.volume_id AND materialized.volume_revision=vb.volume_revision AND materialized.binding_id=vb.backend_binding_id AND materialized.binding_generation=vb.backend_binding_generation AND materialized.materialization_state='VERIFIED' AND materialized.terminal_evidence_id IS NOT NULL JOIN kim.volume_materialization_terminal_evidence terminal ON terminal.terminal_evidence_id=materialized.terminal_evidence_id AND terminal.volume_id=vb.volume_id AND terminal.volume_revision=vb.volume_revision AND terminal.binding_id=vb.backend_binding_id AND terminal.binding_generation=vb.backend_binding_generation AND terminal.terminal_state='VERIFIED' WHERE vb.operation_id=$1 AND vb.operation_generation=$2 AND vb.admission_id=$3 AND vb.host_id=$4 ORDER BY vb.volume_ordinal`, c.OperationID, c.OperationGeneration, admissionID, hostID)
+		if err != nil {
+			return err
+		}
+		defer volumeRows.Close()
+		for volumeRows.Next() {
+			var v aggregateVolumeVerification
+			if err := volumeRows.Scan(&v.ordinal, &v.bindingEvidence, &v.role, &v.volumeID, &v.volumeRevision, &v.physicalAttachment, &v.backendBinding, &v.backendGeneration, &v.terminalEvidence); err != nil || v.ordinal != len(volumeVerifications) || (v.role == "ROOT") != (v.ordinal == 0) {
+				return ErrVMAggregateConflict
+			}
+			v.digest = digestVMAggregate(map[string]any{"verification_id": verificationID, "ordinal": v.ordinal, "binding_evidence": v.bindingEvidence, "role": v.role, "volume_id": v.volumeID, "volume_revision": v.volumeRevision, "admission_id": admissionID, "host_id": hostID, "physical_attachment": v.physicalAttachment, "backend_binding": v.backendBinding, "backend_generation": v.backendGeneration, "materialization_terminal": v.terminalEvidence})
+			volumeVerifications = append(volumeVerifications, v)
+		}
+		if err := volumeRows.Err(); err != nil {
+			return err
+		}
+		if len(volumeVerifications) != volumeCount {
 			return ErrVMAggregateConflict
 		}
 		portVerificationDigests := make([]string, len(portVerifications))
 		for i := range portVerifications {
 			portVerificationDigests[i] = portVerifications[i].digest
 		}
-		digest := digestVMAggregate(map[string]any{"verification_id": verificationID, "operation_id": c.OperationID, "generation": c.OperationGeneration, "vm_id": vmID, "vm_revision": vmRevision, "runtime_generation": runtimeGeneration, "dependency_digest": dependencyDigest, "admission_binding": admissionBindingID, "materialization_binding": materializationBindingID, "admission_id": admissionID, "host_id": hostID, "vm_generation": vmGeneration, "plan_id": planID, "plan_digest": planDigest, "readiness_generation": readinessGeneration, "definition_evidence": definitionEvidence, "image_evidence": imageEvidence, "network_digest": networkDigest, "port_verification_digests": portVerificationDigests, "power_generation": powerGeneration, "power_evidence": powerEvidence})
+		volumeVerificationDigests := make([]string, len(volumeVerifications))
+		for i := range volumeVerifications {
+			volumeVerificationDigests[i] = volumeVerifications[i].digest
+		}
+		digest := digestVMAggregate(map[string]any{"verification_id": verificationID, "operation_id": c.OperationID, "generation": c.OperationGeneration, "vm_id": vmID, "vm_revision": vmRevision, "runtime_generation": runtimeGeneration, "dependency_digest": dependencyDigest, "admission_binding": admissionBindingID, "materialization_binding": materializationBindingID, "admission_id": admissionID, "host_id": hostID, "vm_generation": vmGeneration, "plan_id": planID, "plan_digest": planDigest, "readiness_generation": readinessGeneration, "definition_evidence": definitionEvidence, "image_evidence": imageEvidence, "network_digest": networkDigest, "port_verification_digests": portVerificationDigests, "volume_verification_digests": volumeVerificationDigests, "power_generation": powerGeneration, "power_evidence": powerEvidence})
 		tag, err := tx.Exec(ctx, `INSERT INTO kim.vm_aggregate_verification_evidence(verification_id,operation_id,operation_generation,vm_id,vm_revision,runtime_intent_generation,dependency_snapshot_id,dependency_digest,admission_binding_evidence_id,materialization_binding_evidence_id,admission_id,host_id,vm_generation,plan_id,plan_digest,readiness_observation_generation,definition_evidence_id,image_evidence_id,network_evidence_set_digest,power_observation_generation,power_evidence_id,desired_power_state,observed_power_state,verification_state,verification_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,'RUNNING','RUNNING','VERIFIED',$22) ON CONFLICT(verification_id) DO NOTHING`, verificationID, c.OperationID, c.OperationGeneration, vmID, vmRevision, runtimeGeneration, dependencyID, dependencyDigest, admissionBindingID, materializationBindingID, admissionID, hostID, vmGeneration, planID, planDigest, readinessGeneration, definitionEvidence, imageEvidence, networkDigest, powerGeneration, powerEvidence, digest)
 		if err != nil {
 			return err
@@ -592,6 +747,18 @@ func EvaluateVMAggregateEvidence(ctx context.Context, db TxBeginner, c VMAggrega
 			var oldOperation, oldDigest string
 			if err := tx.QueryRow(ctx, `SELECT operation_id,verification_digest FROM kim.vm_aggregate_verification_evidence WHERE verification_id=$1`, verificationID).Scan(&oldOperation, &oldDigest); err != nil || oldOperation != c.OperationID || oldDigest != digest {
 				return ErrVMAggregateConflict
+			}
+		}
+		for _, v := range volumeVerifications {
+			tag, err := tx.Exec(ctx, `INSERT INTO kim.vm_aggregate_storage_volume_verification_evidence(verification_id,volume_ordinal,volume_binding_evidence_id,device_role,volume_id,volume_revision,admission_id,host_id,physical_attachment_id,backend_binding_id,backend_binding_generation,materialization_terminal_evidence_id,verification_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(verification_id,volume_ordinal) DO NOTHING`, verificationID, v.ordinal, v.bindingEvidence, v.role, v.volumeID, v.volumeRevision, admissionID, hostID, v.physicalAttachment, v.backendBinding, v.backendGeneration, v.terminalEvidence, v.digest)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 0 {
+				var old string
+				if err := tx.QueryRow(ctx, `SELECT verification_digest FROM kim.vm_aggregate_storage_volume_verification_evidence WHERE verification_id=$1 AND volume_ordinal=$2`, verificationID, v.ordinal).Scan(&old); err != nil || old != v.digest {
+					return ErrVMAggregateConflict
+				}
 			}
 		}
 		for _, p := range portVerifications {
@@ -640,6 +807,10 @@ func CompleteVMAggregateLifecycle(ctx context.Context, db TxBeginner, c VMAggreg
 		}
 		var expectedPorts, currentPorts int
 		if err := tx.QueryRow(ctx, `SELECT s.port_count,(SELECT count(*) FROM kim.vm_aggregate_network_port_verification_evidence nv JOIN kim.vm_aggregate_port_binding_evidence pb ON pb.binding_evidence_id=nv.port_binding_evidence_id AND pb.port_id=nv.port_id AND pb.port_revision=nv.port_revision AND pb.admission_id=nv.admission_id AND pb.host_id=nv.host_id AND pb.binding_generation=nv.binding_generation JOIN kim.network_ports_current port ON port.port_id=nv.port_id AND port.port_revision=nv.port_revision AND port.placement_admission_id=nv.admission_id AND port.attachment_state='BOUND' AND port.desired_state='RESERVED' JOIN kim.port_bindings_current binding ON binding.port_id=nv.port_id AND binding.placement_admission_id=nv.admission_id AND binding.host_id=nv.host_id AND binding.binding_generation=nv.binding_generation AND binding.binding_state='RESERVED' JOIN kim.vm_network_port_realizations_current current ON current.vm_id=$2 AND current.vm_generation=$3 AND current.port_id=nv.port_id AND current.binding_generation=nv.binding_generation AND current.evidence_id=nv.realization_evidence_id AND current.observation_generation=nv.realization_observation_generation JOIN kim.vm_network_port_realization_evidence e ON e.evidence_id=nv.realization_evidence_id AND e.observation_digest=nv.realization_observation_digest AND e.plan_id=$4 AND e.host_id=$5 WHERE nv.verification_id=$1) FROM kim.vm_aggregate_verification_evidence v JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=v.dependency_snapshot_id WHERE v.verification_id=$1`, verificationID, vmID, vmGeneration, planID, hostID).Scan(&expectedPorts, &currentPorts); err != nil || expectedPorts != currentPorts {
+			return ErrVMAggregateConflict
+		}
+		var expectedVolumes, currentVolumes int
+		if err := tx.QueryRow(ctx, `SELECT s.volume_count,(SELECT count(*) FROM kim.vm_aggregate_storage_volume_verification_evidence sv JOIN kim.vm_aggregate_volume_binding_evidence vb ON vb.binding_evidence_id=sv.volume_binding_evidence_id AND vb.volume_ordinal=sv.volume_ordinal AND vb.device_role=sv.device_role AND vb.volume_id=sv.volume_id AND vb.volume_revision=sv.volume_revision AND vb.admission_id=sv.admission_id AND vb.host_id=sv.host_id AND vb.physical_attachment_id=sv.physical_attachment_id AND vb.backend_binding_id=sv.backend_binding_id AND vb.backend_binding_generation=sv.backend_binding_generation JOIN kim.volumes_current volume ON volume.volume_id=sv.volume_id AND volume.volume_revision=sv.volume_revision AND volume.desired_digest=vb.desired_digest AND volume.placement_admission_id=sv.admission_id JOIN kim.volume_attachments_current physical ON physical.attachment_id=sv.physical_attachment_id AND physical.volume_id=sv.volume_id AND physical.placement_admission_id=sv.admission_id AND physical.desired_host_id=sv.host_id AND physical.desired_state='RESERVED' JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=sv.backend_binding_id AND binding.binding_generation=sv.backend_binding_generation AND binding.volume_id=sv.volume_id AND binding.host_id=sv.host_id AND binding.binding_state='BOUND' JOIN kim.volume_materializations_current materialized ON materialized.volume_id=sv.volume_id AND materialized.volume_revision=sv.volume_revision AND materialized.binding_id=sv.backend_binding_id AND materialized.binding_generation=sv.backend_binding_generation AND materialized.terminal_evidence_id=sv.materialization_terminal_evidence_id AND materialized.materialization_state='VERIFIED' WHERE sv.verification_id=$1) FROM kim.vm_aggregate_verification_evidence v JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=v.dependency_snapshot_id WHERE v.verification_id=$1`, verificationID).Scan(&expectedVolumes, &currentVolumes); err != nil || expectedVolumes != currentVolumes || expectedVolumes < 1 || expectedVolumes > maxVMAggregateVolumes {
 			return ErrVMAggregateConflict
 		}
 		terminalDigest := digestVMAggregate(map[string]any{"terminal_id": terminalID, "operation_id": c.OperationID, "generation": c.OperationGeneration, "verification_id": verificationID, "verification_digest": verificationDigest, "state": "VERIFIED"})

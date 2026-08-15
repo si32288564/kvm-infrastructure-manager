@@ -84,6 +84,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"vm_aggregate_network_port_verification_evidence",
 		"vm_aggregate_mobility_association_evidence",
 		"vm_aggregate_mobility_associations_current",
+		"vm_aggregate_volume_binding_evidence",
+		"vm_aggregate_storage_volume_verification_evidence",
 		"agent_message_receipts",
 		"agent_resync_checkpoints",
 		"host_inventory_snapshots",

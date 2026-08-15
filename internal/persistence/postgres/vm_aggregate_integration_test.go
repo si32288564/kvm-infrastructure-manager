@@ -13,6 +13,14 @@ import (
 )
 
 func TestVMAggregateAuthorityPostgreSQLIntegration(t *testing.T) {
+	testVMAggregateVolumeProfilePostgreSQLIntegration(t, false)
+}
+
+func TestVMAggregateDataVolumePostgreSQLIntegration(t *testing.T) {
+	testVMAggregateVolumeProfilePostgreSQLIntegration(t, true)
+}
+
+func testVMAggregateVolumeProfilePostgreSQLIntegration(t *testing.T, withData bool) {
 	url := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if url == "" {
 		t.Skip("KIM_POSTGRES_TEST_URL is not set")
@@ -108,15 +116,81 @@ func TestVMAggregateAuthorityPostgreSQLIntegration(t *testing.T) {
 	if err != nil || volume.Lifecycle != "AVAILABLE" || volume.MaterializationState != "VERIFIED" {
 		t.Fatalf("volume=%+v err=%v", volume, err)
 	}
+	var dataVolume VolumeResource
+	if withData {
+		dataVolume, err = CreateVolumeResource(ctx, pool, VolumeResourceRequest{VolumeID: "vm-aggregate-data-" + suffix, ProjectID: "project", Name: "data", StorageClassID: classID, StorageClassRevision: 1, SizeBytes: 8 << 20, Bootable: false, SourceType: "BLANK"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dataVolume, err = AllocateVolumeCapacity(ctx, pool, VolumeCapacityAllocationRequest{VolumeID: dataVolume.VolumeID, BackendID: backendID, ExpectedVolumeRevision: 1, ExpectedBackendGeneration: 1, ExpectedCapacityGeneration: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dataClient := &volumeResourceLVMClient{vgUUID: vgUUID, lvUUID: "lv-vm-aggregate-data-" + suffix}
+		dataMutation := locallvm.Backend{Client: dataClient, VolumeGroups: map[string]string{vgUUID: "kim_test_vg"}}
+		dataReadOnly := locallvm.ReadBackBackend{Backend: dataMutation}
+		dataClaim, err := ClaimVolumeMaterialization(ctx, pool, dataVolume.OperationID, "vm-aggregate-data-worker-a", time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dataApply, err := AuthorizeVolumeMaterializationCommand(ctx, pool, dataClaim, "vm-aggregate-data-apply-job-"+suffix, "vm-aggregate-data-apply-command-"+suffix, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runVolumeBackendWithLostResponse(t, ctx, pool, dataApply.CommandID, 1, CommandLeaseScopeMutation, dataMutation)
+		if err = MarkVolumeMaterializationDispatchUnknown(ctx, pool, dataClaim); err != nil {
+			t.Fatal(err)
+		}
+		dataClaim, err = ClaimVolumeMaterialization(ctx, pool, dataVolume.OperationID, "vm-aggregate-data-worker-b", time.Minute)
+		if err != nil || dataClaim.ClaimMode != "READ_BACK_FIRST" {
+			t.Fatalf("data successor=%+v err=%v", dataClaim, err)
+		}
+		dataRead, err := AuthorizeVolumeMaterializationCommand(ctx, pool, dataClaim, "vm-aggregate-data-read-job-"+suffix, "vm-aggregate-data-read-command-"+suffix, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dataVerification := observeVolumeBackendAfterLostResponse(t, ctx, pool, dataRead.CommandID, "vm-aggregate-data-verification-"+suffix, 1, dataReadOnly)
+		if _, err = CompleteVolumeMaterialization(ctx, pool, dataClaim, CompleteVolumeMaterializationRequest{OperationID: dataClaim.OperationID, OperationGeneration: dataClaim.OperationGeneration, ClaimGeneration: dataClaim.ClaimGeneration, ObservationID: "vm-aggregate-data-observation-" + suffix, VerificationID: dataVerification}); err != nil {
+			t.Fatal(err)
+		}
+		dataVolume, err = GetVolumeResource(ctx, pool, dataVolume.VolumeID)
+		if err != nil || dataVolume.Lifecycle != "AVAILABLE" || dataVolume.MaterializationState != "VERIFIED" || dataVolume.Bootable {
+			t.Fatalf("data volume=%+v err=%v", dataVolume, err)
+		}
+	}
 
 	create := VMAggregateCreateRequest{RequestID: "vm-aggregate-create-request-" + suffix, OperationID: "vm-aggregate-create-operation-" + suffix, VMID: vmID, ProjectID: "project", Name: "qualified-vm-" + suffix, FlavorID: flavorID, FlavorRevision: 1, ImageID: imageID, ImageRevision: 1, AvailabilityPolicyID: policyID, AvailabilityPolicyRevision: 1, PlacementScopeID: scopeID, PlacementScopeGeneration: 1, RootVolumeID: volume.VolumeID, RootVolumeRevision: 1, DesiredPowerState: "RUNNING"}
+	if withData {
+		create.DataVolumes = []VMAggregateVolumeRequest{{VolumeID: dataVolume.VolumeID, VolumeRevision: 1}}
+	}
 	wrong := create
 	wrong.RequestID, wrong.OperationID, wrong.VMID, wrong.RootVolumeRevision = wrong.RequestID+"-wrong", wrong.OperationID+"-wrong", "82000000-0000-4000-8000-000000000002", 2
 	if _, err = CreateVMAggregate(ctx, pool, wrong); !errors.Is(err, ErrVMAggregateConflict) {
 		t.Fatalf("stale Volume revision accepted: %v", err)
 	}
+	if withData {
+		staleData := create
+		staleData.DataVolumes = append([]VMAggregateVolumeRequest(nil), create.DataVolumes...)
+		staleData.RequestID, staleData.OperationID, staleData.VMID = staleData.RequestID+"-stale-data", staleData.OperationID+"-stale-data", "82000000-0000-4000-8000-000000000003"
+		staleData.DataVolumes[0].VolumeRevision = 2
+		if _, err = CreateVMAggregate(ctx, pool, staleData); !errors.Is(err, ErrVMAggregateConflict) {
+			t.Fatalf("stale DATA revision accepted: %v", err)
+		}
+		duplicate := create
+		duplicate.RequestID, duplicate.OperationID, duplicate.VMID = duplicate.RequestID+"-duplicate", duplicate.OperationID+"-duplicate", "82000000-0000-4000-8000-000000000004"
+		duplicate.DataVolumes = []VMAggregateVolumeRequest{{VolumeID: volume.VolumeID, VolumeRevision: 1}}
+		if _, err = CreateVMAggregate(ctx, pool, duplicate); !errors.Is(err, ErrVMAggregateConflict) {
+			t.Fatalf("ROOT reused as DATA accepted: %v", err)
+		}
+		oversized := create
+		oversized.RequestID, oversized.OperationID, oversized.VMID = oversized.RequestID+"-oversized", oversized.OperationID+"-oversized", "82000000-0000-4000-8000-000000000005"
+		oversized.DataVolumes = append(append([]VMAggregateVolumeRequest(nil), create.DataVolumes...), VMAggregateVolumeRequest{VolumeID: "unqualified-third", VolumeRevision: 1})
+		if _, err = CreateVMAggregate(ctx, pool, oversized); !errors.Is(err, ErrVMAggregateConflict) {
+			t.Fatalf("unqualified Volume cardinality accepted: %v", err)
+		}
+	}
 	aggregate, err := CreateVMAggregate(ctx, pool, create)
-	if err != nil || aggregate.VMRevision != 1 || aggregate.RuntimeIntentGeneration != 1 || aggregate.OperationState != "PENDING" {
+	if err != nil || aggregate.VMRevision != 1 || aggregate.RuntimeIntentGeneration != 1 || aggregate.OperationState != "PENDING" || len(aggregate.DataVolumes) != len(create.DataVolumes) {
 		t.Fatalf("aggregate=%+v err=%v", aggregate, err)
 	}
 	if replay, err := CreateVMAggregate(ctx, pool, create); err != nil || replay.DependencyDigest != aggregate.DependencyDigest {
@@ -128,7 +202,11 @@ func TestVMAggregateAuthorityPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	placementRequest, err := CompileVMAggregatePlacement(ctx, pool, claim)
-	if err != nil || placementRequest.WorkloadID != vmID || len(placementRequest.Network) != 0 || len(placementRequest.PCI) != 0 || len(placementRequest.Storage) != 1 || placementRequest.Storage[0].VolumeID != volume.VolumeID {
+	expectedStorage := 1
+	if withData {
+		expectedStorage = 2
+	}
+	if err != nil || placementRequest.WorkloadID != vmID || len(placementRequest.Network) != 0 || len(placementRequest.PCI) != 0 || len(placementRequest.Storage) != expectedStorage || placementRequest.Storage[0].VolumeID != volume.VolumeID || (withData && placementRequest.Storage[1].VolumeID != dataVolume.VolumeID) {
 		t.Fatalf("compiled placement=%+v err=%v", placementRequest, err)
 	}
 	dry, err := DryEvaluateAvailabilityPlacementScope(ctx, pool, placementRequest)
@@ -185,6 +263,21 @@ func TestVMAggregateAuthorityPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	acceptEvacuationLostReadBack(t, ctx, pool, host, powerCommand, "vm-aggregate-power-verification-"+suffix, 1, map[string]any{"domain_uuid": vmID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"})
+	if withData {
+		partialRollback := errors.New("rollback missing DATA materialization")
+		err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `DELETE FROM kim.volume_materializations_current WHERE volume_id=$1`, dataVolume.VolumeID); err != nil {
+				return err
+			}
+			if _, err := EvaluateVMAggregateEvidence(ctx, scopeTxBeginner{tx}, claim, "vm-aggregate-missing-data-verification-"+suffix); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("missing DATA materialization accepted: %v", err)
+			}
+			return partialRollback
+		})
+		if !errors.Is(err, partialRollback) {
+			t.Fatal(err)
+		}
+	}
 	verificationID := "vm-aggregate-verification-" + suffix
 	verification, err := EvaluateVMAggregateEvidence(ctx, pool, claim, verificationID)
 	if err != nil || verification.VerificationState != "VERIFIED" {
@@ -196,7 +289,11 @@ func TestVMAggregateAuthorityPostgreSQLIntegration(t *testing.T) {
 	terminalID := "vm-aggregate-terminal-" + suffix
 	driftRollback := errors.New("rollback terminal drift branch")
 	err = pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `UPDATE kim.vm_materialization_readiness_current SET observation_generation=observation_generation+1 WHERE vm_id=$1`, vmID); err != nil {
+		if withData {
+			if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, dataVolume.BindingID); err != nil {
+				return err
+			}
+		} else if _, err := tx.Exec(ctx, `UPDATE kim.vm_materialization_readiness_current SET observation_generation=observation_generation+1 WHERE vm_id=$1`, vmID); err != nil {
 			return err
 		}
 		if _, err := CompleteVMAggregateLifecycle(ctx, scopeTxBeginner{tx}, claim, verificationID, terminalID+"-drift"); !errors.Is(err, ErrVMAggregateConflict) {
@@ -216,6 +313,18 @@ func TestVMAggregateAuthorityPostgreSQLIntegration(t *testing.T) {
 	aggregate, err = GetVMAggregate(ctx, pool, vmID)
 	if err != nil || aggregate.LifecycleState != "ACTIVE" || aggregate.ConvergenceState != "CONVERGED" || aggregate.OperationState != "VERIFIED" {
 		t.Fatalf("terminal aggregate=%+v err=%v", aggregate, err)
+	}
+	if withData {
+		var bindings, verifications int
+		if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.vm_aggregate_volume_binding_evidence WHERE operation_id=$1),(SELECT count(*) FROM kim.vm_aggregate_storage_volume_verification_evidence WHERE verification_id=$2)`, aggregate.OperationID, verificationID).Scan(&bindings, &verifications); err != nil || bindings != 2 || verifications != 2 {
+			t.Fatalf("Volume evidence cardinality=%d/%d err=%v", bindings, verifications, err)
+		}
+		updates := map[string]string{"vm_dependency_volume_evidence": "desired_digest=desired_digest", "vm_aggregate_volume_binding_evidence": "binding_digest=binding_digest", "vm_aggregate_storage_volume_verification_evidence": "verification_digest=verification_digest"}
+		for table, assignment := range updates {
+			if _, err = pool.Exec(ctx, fmt.Sprintf(`UPDATE kim.%s SET %s WHERE true`, table, assignment)); err == nil {
+				t.Fatalf("immutable %s accepted UPDATE", table)
+			}
+		}
 	}
 	var runtimeHost, runtimeAdmission, runtimePlan string
 	if err = pool.QueryRow(ctx, `SELECT host_id,admission_id,plan_id FROM kim.vm_resource_runtime_bindings_current WHERE vm_id=$1`, vmID).Scan(&runtimeHost, &runtimeAdmission, &runtimePlan); err != nil || runtimeHost != host || runtimeAdmission != admission.AdmissionID || runtimePlan != decision.PlanID {

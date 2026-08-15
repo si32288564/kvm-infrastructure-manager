@@ -16,6 +16,7 @@ import (
 
 type volumeResourceLVMClient struct {
 	vgUUID  string
+	lvUUID  string
 	volume  locallvm.LogicalVolume
 	present bool
 }
@@ -33,7 +34,11 @@ func (c *volumeResourceLVMClient) CreateLogicalVolume(_ context.Context, _, name
 	if c.present {
 		return errors.New("already present")
 	}
-	c.volume = locallvm.LogicalVolume{VGUUID: c.vgUUID, LVUUID: "lv-volume-resource", Name: name, SizeBytes: size * locallvm.MiB}
+	lvUUID := c.lvUUID
+	if lvUUID == "" {
+		lvUUID = "lv-volume-resource"
+	}
+	c.volume = locallvm.LogicalVolume{VGUUID: c.vgUUID, LVUUID: lvUUID, Name: name, SizeBytes: size * locallvm.MiB}
 	c.present = true
 	return nil
 }
