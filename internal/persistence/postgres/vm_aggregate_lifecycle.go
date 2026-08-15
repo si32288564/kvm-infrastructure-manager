@@ -244,8 +244,8 @@ func CompleteVMAggregatePowerUpdate(ctx context.Context, db TxBeginner, claim VM
 }
 
 // StartVMAggregateDelete fences qualified delete profiles only after exact
-// SHUTOFF read-back. Up to one STANDARD Port and up to one DATA Volume may be
-// present; every physical incarnation is snapshotted before retirement.
+// SHUTOFF read-back. Up to two STANDARD Ports are accepted; one DATA Volume is
+// accepted only with zero or one Port. Every incarnation is snapshotted.
 func StartVMAggregateDelete(ctx context.Context, db TxBeginner, r VMAggregateDeleteRequest) (VMAggregate, error) {
 	if r.RequestID == "" || r.OperationID == "" || !vmUUIDPattern.MatchString(r.VMID) || r.ExpectedRevision == 0 {
 		return VMAggregate{}, ErrVMAggregateConflict
@@ -273,13 +273,37 @@ func StartVMAggregateDelete(ctx context.Context, db TxBeginner, r VMAggregateDel
 		var flavorRevision, imageRevision, policyRevision, scopeGeneration uint64
 		var protected bool
 		var portCount, volumeCount, pciCount int
-		if err := tx.QueryRow(ctx, `SELECT c.vm_revision,c.runtime_intent_generation,c.project_id,e.vm_name,c.lifecycle_state,c.convergence_state,o.operation_state,c.desired_digest,e.delete_protection,e.flavor_id,e.flavor_revision,e.image_id,e.image_revision,e.availability_policy_id,e.availability_policy_revision,e.placement_scope_id,e.placement_scope_generation,s.dependency_snapshot_id,s.dependency_digest,s.port_count,s.volume_count,b.admission_id,b.host_id,b.vm_generation,b.plan_id,b.materialization_generation,d.volume_id,d.volume_revision,plan.root_attachment_id,plan.root_attachment_generation,plan.root_binding_id,plan.root_binding_generation,compute.allocation_id,power.evidence_id,jsonb_array_length(admission.pci_requirements) FROM kim.vm_resources_current c JOIN kim.vm_resource_revision_evidence e ON(e.vm_id,e.vm_revision)=(c.vm_id,c.vm_revision) JOIN kim.vm_lifecycle_operations_current o ON o.operation_id=c.current_operation_id JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(c.vm_id,c.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_dependency_volume_evidence d ON d.dependency_snapshot_id=s.dependency_snapshot_id AND d.volume_ordinal=0 AND d.device_role='ROOT' JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=c.vm_id AND b.vm_revision=c.vm_revision AND b.runtime_intent_generation=c.runtime_intent_generation JOIN kim.vm_materialization_plan_evidence plan ON plan.plan_id=b.plan_id AND plan.vm_id=c.vm_id AND plan.vm_generation=b.vm_generation AND plan.placement_admission_id=b.admission_id AND plan.host_id=b.host_id AND plan.root_volume_id=d.volume_id JOIN kim.volume_attachments_current physical ON physical.attachment_id=plan.root_attachment_id AND physical.attachment_generation=plan.root_attachment_generation AND physical.placement_admission_id=b.admission_id AND physical.volume_id=d.volume_id AND physical.desired_host_id=b.host_id JOIN kim.volume_materializations_current materialized ON materialized.volume_id=d.volume_id AND materialized.volume_revision=d.volume_revision AND materialized.binding_id=plan.root_binding_id AND materialized.binding_generation=plan.root_binding_generation AND materialized.materialization_state='VERIFIED' JOIN kim.volume_backend_bindings_current root_binding ON root_binding.binding_id=plan.root_binding_id AND root_binding.binding_generation=plan.root_binding_generation AND root_binding.volume_id=d.volume_id AND root_binding.host_id=b.host_id AND root_binding.binding_state='BOUND' JOIN kim.compute_allocation_claims compute ON compute.admission_id=b.admission_id AND compute.workload_id=c.vm_id::text AND compute.claim_state IN('RESERVED','ALLOCATED') JOIN kim.vm_power_state_current power ON power.vm_id=c.vm_id AND power.vm_generation=b.vm_generation AND power.desired_power_state='SHUTOFF' AND power.observed_power_state='SHUTOFF' AND power.convergence_state='MATCHED' JOIN kim.placement_admission_decisions admission ON admission.admission_id=b.admission_id WHERE c.vm_id=$1 FOR UPDATE OF c,physical,root_binding,compute,power`, r.VMID).Scan(&revision, &runtime, &projectID, &name, &lifecycle, &convergence, &operationState, &priorDigest, &protected, &flavorID, &flavorRevision, &imageID, &imageRevision, &policyID, &policyRevision, &scopeID, &scopeGeneration, &snapshotID, &dependencyDigest, &portCount, &volumeCount, &admissionID, &hostID, &vmGeneration, &planID, &materializationGeneration, &rootVolumeID, &rootRevision, &rootAttachmentID, &rootAttachmentGeneration, &rootBindingID, &rootBindingGeneration, &computeID, &powerEvidence, &pciCount); err != nil || revision != r.ExpectedRevision || lifecycle != "ACTIVE" || convergence != "CONVERGED" || operationState != "VERIFIED" || protected || portCount > 1 || volumeCount < 1 || volumeCount > 2 || pciCount != 0 {
+		if err := tx.QueryRow(ctx, `SELECT c.vm_revision,c.runtime_intent_generation,c.project_id,e.vm_name,c.lifecycle_state,c.convergence_state,o.operation_state,c.desired_digest,e.delete_protection,e.flavor_id,e.flavor_revision,e.image_id,e.image_revision,e.availability_policy_id,e.availability_policy_revision,e.placement_scope_id,e.placement_scope_generation,s.dependency_snapshot_id,s.dependency_digest,s.port_count,s.volume_count,b.admission_id,b.host_id,b.vm_generation,b.plan_id,b.materialization_generation,d.volume_id,d.volume_revision,plan.root_attachment_id,plan.root_attachment_generation,plan.root_binding_id,plan.root_binding_generation,compute.allocation_id,power.evidence_id,jsonb_array_length(admission.pci_requirements) FROM kim.vm_resources_current c JOIN kim.vm_resource_revision_evidence e ON(e.vm_id,e.vm_revision)=(c.vm_id,c.vm_revision) JOIN kim.vm_lifecycle_operations_current o ON o.operation_id=c.current_operation_id JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(c.vm_id,c.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_dependency_volume_evidence d ON d.dependency_snapshot_id=s.dependency_snapshot_id AND d.volume_ordinal=0 AND d.device_role='ROOT' JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=c.vm_id AND b.vm_revision=c.vm_revision AND b.runtime_intent_generation=c.runtime_intent_generation JOIN kim.vm_materialization_plan_evidence plan ON plan.plan_id=b.plan_id AND plan.vm_id=c.vm_id AND plan.vm_generation=b.vm_generation AND plan.placement_admission_id=b.admission_id AND plan.host_id=b.host_id AND plan.root_volume_id=d.volume_id JOIN kim.volume_attachments_current physical ON physical.attachment_id=plan.root_attachment_id AND physical.attachment_generation=plan.root_attachment_generation AND physical.placement_admission_id=b.admission_id AND physical.volume_id=d.volume_id AND physical.desired_host_id=b.host_id JOIN kim.volume_materializations_current materialized ON materialized.volume_id=d.volume_id AND materialized.volume_revision=d.volume_revision AND materialized.binding_id=plan.root_binding_id AND materialized.binding_generation=plan.root_binding_generation AND materialized.materialization_state='VERIFIED' JOIN kim.volume_backend_bindings_current root_binding ON root_binding.binding_id=plan.root_binding_id AND root_binding.binding_generation=plan.root_binding_generation AND root_binding.volume_id=d.volume_id AND root_binding.host_id=b.host_id AND root_binding.binding_state='BOUND' JOIN kim.compute_allocation_claims compute ON compute.admission_id=b.admission_id AND compute.workload_id=c.vm_id::text AND compute.claim_state IN('RESERVED','ALLOCATED') JOIN kim.vm_power_state_current power ON power.vm_id=c.vm_id AND power.vm_generation=b.vm_generation AND power.desired_power_state='SHUTOFF' AND power.observed_power_state='SHUTOFF' AND power.convergence_state='MATCHED' JOIN kim.placement_admission_decisions admission ON admission.admission_id=b.admission_id WHERE c.vm_id=$1 FOR UPDATE OF c,physical,root_binding,compute,power`, r.VMID).Scan(&revision, &runtime, &projectID, &name, &lifecycle, &convergence, &operationState, &priorDigest, &protected, &flavorID, &flavorRevision, &imageID, &imageRevision, &policyID, &policyRevision, &scopeID, &scopeGeneration, &snapshotID, &dependencyDigest, &portCount, &volumeCount, &admissionID, &hostID, &vmGeneration, &planID, &materializationGeneration, &rootVolumeID, &rootRevision, &rootAttachmentID, &rootAttachmentGeneration, &rootBindingID, &rootBindingGeneration, &computeID, &powerEvidence, &pciCount); err != nil || revision != r.ExpectedRevision || lifecycle != "ACTIVE" || convergence != "CONVERGED" || operationState != "VERIFIED" || protected || !((portCount <= 1 && volumeCount >= 1 && volumeCount <= 2) || (portCount == 2 && volumeCount == 1)) || pciCount != 0 {
 			return ErrVMAggregateConflict
 		}
 		var portID, portIntentID string
 		var portRevision, portGeneration, portIntentGeneration, portBindingGeneration, retirementIntentGeneration uint64
 		if portCount == 1 {
 			if err := tx.QueryRow(ctx, `SELECT d.port_id,d.port_revision,p.port_generation,i.attachment_intent_id,i.attachment_generation,b.binding_generation,ovn.intent_generation+1 FROM kim.vm_dependency_port_evidence d JOIN kim.network_ports_current p ON p.port_id=d.port_id AND p.port_revision=d.port_revision AND p.desired_digest=d.desired_digest AND p.placement_admission_id=$2 AND p.workload_id=$3 AND p.authority_source='PORT_RESOURCE' AND p.datapath_profile='STANDARD' AND p.attachment_state='BOUND' JOIN kim.port_attachment_intents_current i ON i.port_id=p.port_id AND i.port_revision=p.port_revision AND i.workload_id=$3 AND i.intent_state='BOUND' JOIN kim.port_attachment_intent_evidence bound ON bound.attachment_intent_id=i.attachment_intent_id AND bound.attachment_generation=i.attachment_generation AND bound.placement_admission_id=$2 JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=$2 AND b.host_id=$4 AND b.binding_generation=bound.binding_generation AND b.binding_type='OVS' AND b.binding_state IN('RESERVED','ACTIVE') JOIN kim.network_ovn_state_current ovn ON ovn.port_id=p.port_id AND ovn.port_generation=p.port_generation AND ovn.binding_generation=b.binding_generation AND ovn.nb_state='MATCHED' WHERE d.dependency_snapshot_id=$1 AND d.port_ordinal=0 FOR UPDATE OF p,i,b`, snapshotID, admissionID, r.VMID, hostID).Scan(&portID, &portRevision, &portGeneration, &portIntentID, &portIntentGeneration, &portBindingGeneration, &retirementIntentGeneration); err != nil {
+				return ErrVMAggregateConflict
+			}
+		}
+		type deleteNetworkPort struct {
+			ordinal                                                                                       int
+			portID, intentID                                                                              string
+			portRevision, portGeneration, intentGeneration, bindingGeneration, retirementIntentGeneration uint64
+		}
+		var networkPorts []deleteNetworkPort
+		if portCount == 2 {
+			rows, err := tx.Query(ctx, `SELECT d.port_ordinal,d.port_id,d.port_revision,p.port_generation,i.attachment_intent_id,i.attachment_generation,b.binding_generation,ovn.intent_generation+1 FROM kim.vm_dependency_port_evidence d JOIN kim.network_ports_current p ON p.port_id=d.port_id AND p.port_revision=d.port_revision AND p.desired_digest=d.desired_digest AND p.placement_admission_id=$2 AND p.workload_id=$3 AND p.authority_source='PORT_RESOURCE' AND p.datapath_profile='STANDARD' AND p.attachment_state='BOUND' JOIN kim.port_attachment_intents_current i ON i.port_id=p.port_id AND i.port_revision=p.port_revision AND i.workload_id=$3 AND i.intent_state='BOUND' JOIN kim.port_attachment_intent_evidence bound ON bound.attachment_intent_id=i.attachment_intent_id AND bound.attachment_generation=i.attachment_generation AND bound.placement_admission_id=$2 JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=$2 AND b.host_id=$4 AND b.binding_generation=bound.binding_generation AND b.binding_type='OVS' AND b.binding_state IN('RESERVED','ACTIVE') JOIN kim.network_ovn_state_current ovn ON ovn.port_id=p.port_id AND ovn.port_generation=p.port_generation AND ovn.binding_generation=b.binding_generation AND ovn.nb_state='MATCHED' WHERE d.dependency_snapshot_id=$1 ORDER BY d.port_ordinal FOR UPDATE OF p,i,b`, snapshotID, admissionID, r.VMID, hostID)
+			if err != nil {
+				return ErrVMAggregateConflict
+			}
+			for rows.Next() {
+				var p deleteNetworkPort
+				if err := rows.Scan(&p.ordinal, &p.portID, &p.portRevision, &p.portGeneration, &p.intentID, &p.intentGeneration, &p.bindingGeneration, &p.retirementIntentGeneration); err != nil {
+					rows.Close()
+					return err
+				}
+				networkPorts = append(networkPorts, p)
+			}
+			rows.Close()
+			if len(networkPorts) != 2 || networkPorts[0].ordinal != 0 || networkPorts[1].ordinal != 1 {
 				return ErrVMAggregateConflict
 			}
 		}
@@ -312,6 +336,16 @@ func StartVMAggregateDelete(ctx context.Context, db TxBeginner, r VMAggregateDel
 			networkDigest := digestVMAggregate(map[string]any{"delete_operation_id": r.OperationID, "vm_id": r.VMID, "retire_revision": retireRevision, "runtime_generation": runtime, "dependency_snapshot_id": snapshotID, "admission_id": admissionID, "host_id": hostID, "port_id": portID, "port_revision": portRevision, "port_generation": portGeneration, "attachment_intent_id": portIntentID, "attachment_generation": portIntentGeneration, "binding_generation": portBindingGeneration, "retirement_operation_id": retirementOperationID, "retirement_intent_id": retirementIntentID, "retirement_intent_generation": retirementIntentGeneration})
 			if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_delete_network_operation_evidence(delete_operation_id,operation_generation,vm_id,retire_vm_revision,runtime_intent_generation,dependency_snapshot_id,admission_id,host_id,port_id,port_revision,port_generation,attachment_intent_id,attachment_generation,binding_generation,retirement_operation_id,retirement_intent_id,retirement_intent_generation,authority_digest) VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`, r.OperationID, r.VMID, retireRevision, runtime, snapshotID, admissionID, hostID, portID, portRevision, portGeneration, portIntentID, portIntentGeneration, portBindingGeneration, retirementOperationID, retirementIntentID, retirementIntentGeneration, networkDigest); err != nil {
 				return err
+			}
+		}
+		if portCount == 2 {
+			for _, p := range networkPorts {
+				retirementOperationID := fmt.Sprintf("vm-delete-port-retirement:%s:%d", r.OperationID, p.ordinal)
+				retirementIntentID := fmt.Sprintf("vm-delete-port-intent:%s:%d", r.OperationID, p.ordinal)
+				networkDigest := digestVMAggregate(map[string]any{"delete_operation_id": r.OperationID, "port_ordinal": p.ordinal, "vm_id": r.VMID, "retire_revision": retireRevision, "runtime_generation": runtime, "dependency_snapshot_id": snapshotID, "admission_id": admissionID, "host_id": hostID, "port_id": p.portID, "port_revision": p.portRevision, "port_generation": p.portGeneration, "attachment_intent_id": p.intentID, "attachment_generation": p.intentGeneration, "binding_generation": p.bindingGeneration, "retirement_operation_id": retirementOperationID, "retirement_intent_id": retirementIntentID, "retirement_intent_generation": p.retirementIntentGeneration})
+				if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_delete_network_port_operation_evidence(delete_operation_id,operation_generation,port_ordinal,vm_id,retire_vm_revision,runtime_intent_generation,dependency_snapshot_id,admission_id,host_id,port_id,port_revision,port_generation,attachment_intent_id,attachment_generation,binding_generation,retirement_operation_id,retirement_intent_id,retirement_intent_generation,authority_digest) VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`, r.OperationID, p.ordinal, r.VMID, retireRevision, runtime, snapshotID, admissionID, hostID, p.portID, p.portRevision, p.portGeneration, p.intentID, p.intentGeneration, p.bindingGeneration, retirementOperationID, retirementIntentID, p.retirementIntentGeneration, networkDigest); err != nil {
+					return err
+				}
 			}
 		}
 		if volumeCount == 2 {
@@ -489,6 +523,104 @@ func RecordVMAggregateDeleteNetworkAbsence(ctx context.Context, db TxBeginner, c
 	})
 }
 
+func AuthorizeVMAggregateDeletePortRetirementAt(ctx context.Context, db TxBeginner, claim VMAggregateClaim, domainAbsenceID string, portOrdinal int) (OVNPortBindingRetirementDecision, error) {
+	var out OVNPortBindingRetirementDecision
+	if domainAbsenceID == "" || portOrdinal < 0 || portOrdinal > 1 {
+		return out, ErrVMAggregateConflict
+	}
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := loadVMAggregateDeleteTx(ctx, tx, claim); err != nil {
+			return err
+		}
+		var operationID, intentID, portID, hostID string
+		var operationGeneration, intentGeneration, portGeneration, bindingGeneration uint64
+		if err := tx.QueryRow(ctx, `SELECT n.retirement_operation_id,n.retirement_intent_id,n.port_id,n.host_id,n.operation_generation,n.retirement_intent_generation,n.port_generation,n.binding_generation FROM kim.vm_delete_network_port_operation_evidence n JOIN kim.vm_delete_domain_absence_evidence d ON d.delete_operation_id=n.delete_operation_id AND d.operation_generation=n.operation_generation AND d.absence_evidence_id=$3 WHERE n.delete_operation_id=$1 AND n.operation_generation=$2 AND n.port_ordinal=$4`, claim.OperationID, claim.OperationGeneration, domainAbsenceID, portOrdinal).Scan(&operationID, &intentID, &portID, &hostID, &operationGeneration, &intentGeneration, &portGeneration, &bindingGeneration); err != nil {
+			return ErrVMAggregateConflict
+		}
+		decision, err := CommitOVNPortBindingRetirement(ctx, scopeTxBeginner{tx}, OVNPortBindingRetirementRequest{OperationID: operationID, OperationGeneration: operationGeneration, IntentID: intentID, IntentGeneration: intentGeneration, PortID: portID, PortGeneration: portGeneration, BindingGeneration: bindingGeneration, SourceHostID: hostID})
+		if err != nil {
+			return ErrVMAggregateConflict
+		}
+		out = decision
+		return nil
+	})
+	return out, err
+}
+
+func RecordVMAggregateDeleteNetworkPortAbsence(ctx context.Context, db TxBeginner, claim VMAggregateClaim, portOrdinal int, absenceEvidenceID, retirementEvidenceID string) error {
+	if portOrdinal < 0 || portOrdinal > 1 || absenceEvidenceID == "" || retirementEvidenceID == "" {
+		return ErrVMAggregateConflict
+	}
+	var replayRetirement string
+	if err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT retirement_evidence_id FROM kim.vm_delete_network_port_absence_evidence WHERE absence_evidence_id=$1 AND delete_operation_id=$2 AND operation_generation=$3 AND port_ordinal=$4`, absenceEvidenceID, claim.OperationID, claim.OperationGeneration, portOrdinal).Scan(&replayRetirement)
+	}); err == nil {
+		if replayRetirement != retirementEvidenceID {
+			return ErrVMAggregateConflict
+		}
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := loadVMAggregateDeleteTx(ctx, tx, claim); err != nil {
+			return err
+		}
+		var portID, hostID, retirementOperationID string
+		var portRevision, portGeneration, bindingGeneration uint64
+		var retirementDigest string
+		if err := tx.QueryRow(ctx, `SELECT n.port_id,n.port_revision,n.port_generation,n.binding_generation,n.host_id,n.retirement_operation_id,e.evidence_digest FROM kim.vm_delete_network_port_operation_evidence n JOIN kim.network_port_binding_retirement_evidence e ON e.evidence_id=$4 AND e.operation_id=n.retirement_operation_id AND e.operation_generation=n.operation_generation AND e.port_id=n.port_id AND e.port_generation=n.port_generation AND e.binding_generation=n.binding_generation AND e.source_host_id=n.host_id AND e.retirement_state='VERIFIED' AND e.ownership_marker_matches AND e.logical_port_preserved AND e.requested_chassis_absent AND e.source_chassis_inactive AND e.source_ovs_interface_absent JOIN kim.network_port_binding_retirements_current c ON c.operation_id=e.operation_id AND c.operation_generation=e.operation_generation AND c.port_id=e.port_id AND c.port_generation=e.port_generation AND c.binding_generation=e.binding_generation AND c.retirement_state='VERIFIED' AND c.terminal_evidence_id=e.evidence_id WHERE n.delete_operation_id=$1 AND n.operation_generation=$2 AND n.port_ordinal=$3`, claim.OperationID, claim.OperationGeneration, portOrdinal, retirementEvidenceID).Scan(&portID, &portRevision, &portGeneration, &bindingGeneration, &hostID, &retirementOperationID, &retirementDigest); err != nil {
+			return ErrVMAggregateConflict
+		}
+		digest := digestVMAggregate(map[string]any{"absence_evidence_id": absenceEvidenceID, "delete_operation_id": claim.OperationID, "port_ordinal": portOrdinal, "retirement_operation_id": retirementOperationID, "retirement_evidence_id": retirementEvidenceID, "retirement_digest": retirementDigest, "port_id": portID, "port_revision": portRevision, "port_generation": portGeneration, "binding_generation": bindingGeneration, "source_host_id": hostID})
+		_, err := tx.Exec(ctx, `INSERT INTO kim.vm_delete_network_port_absence_evidence(absence_evidence_id,delete_operation_id,operation_generation,port_ordinal,retirement_evidence_id,port_id,port_revision,port_generation,binding_generation,source_host_id,absence_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, absenceEvidenceID, claim.OperationID, claim.OperationGeneration, portOrdinal, retirementEvidenceID, portID, portRevision, portGeneration, bindingGeneration, hostID, digest)
+		return err
+	})
+}
+
+func FinalizeVMAggregateDeleteNetworkAbsenceSet(ctx context.Context, db TxBeginner, claim VMAggregateClaim, absenceSetEvidenceID string) error {
+	if absenceSetEvidenceID == "" {
+		return ErrVMAggregateConflict
+	}
+	var replayOperation string
+	if err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT delete_operation_id FROM kim.vm_delete_network_absence_set_evidence WHERE absence_set_evidence_id=$1`, absenceSetEvidenceID).Scan(&replayOperation)
+	}); err == nil {
+		if replayOperation != claim.OperationID {
+			return ErrVMAggregateConflict
+		}
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	return pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := loadVMAggregateDeleteTx(ctx, tx, claim); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT a.port_ordinal,a.port_id,a.absence_evidence_id,a.absence_digest FROM kim.vm_delete_network_port_absence_evidence a JOIN kim.vm_delete_network_port_operation_evidence n ON(n.delete_operation_id,n.operation_generation,n.port_ordinal)=(a.delete_operation_id,a.operation_generation,a.port_ordinal) AND n.port_id=a.port_id AND n.port_revision=a.port_revision AND n.port_generation=a.port_generation AND n.binding_generation=a.binding_generation AND n.host_id=a.source_host_id JOIN kim.network_port_binding_retirements_current c ON c.operation_id=n.retirement_operation_id AND c.operation_generation=n.operation_generation AND c.port_id=n.port_id AND c.port_generation=n.port_generation AND c.binding_generation=n.binding_generation AND c.retirement_state='VERIFIED' AND c.terminal_evidence_id=a.retirement_evidence_id WHERE a.delete_operation_id=$1 AND a.operation_generation=$2 ORDER BY a.port_ordinal`, claim.OperationID, claim.OperationGeneration)
+		if err != nil {
+			return err
+		}
+		members := make([]map[string]any, 0, 2)
+		for rows.Next() {
+			var ordinal int
+			var portID, evidenceID, digest string
+			if err := rows.Scan(&ordinal, &portID, &evidenceID, &digest); err != nil {
+				rows.Close()
+				return err
+			}
+			members = append(members, map[string]any{"ordinal": ordinal, "port_id": portID, "absence_evidence_id": evidenceID, "absence_digest": digest})
+		}
+		rows.Close()
+		if len(members) != 2 || members[0]["ordinal"] != 0 || members[1]["ordinal"] != 1 {
+			return ErrVMAggregateConflict
+		}
+		setDigest := digestVMAggregate(map[string]any{"delete_operation_id": claim.OperationID, "operation_generation": claim.OperationGeneration, "members": members})
+		_, err = tx.Exec(ctx, `INSERT INTO kim.vm_delete_network_absence_set_evidence(absence_set_evidence_id,delete_operation_id,operation_generation,expected_port_count,observed_port_count,member_set_digest) VALUES($1,$2,$3,2,2,$4)`, absenceSetEvidenceID, claim.OperationID, claim.OperationGeneration, setDigest)
+		return err
+	})
+}
+
 func CompleteVMAggregateDelete(ctx context.Context, db TxBeginner, claim VMAggregateClaim, domainAbsenceID, attachmentEvidenceID, storageAbsenceID, computeReleaseID, terminalID, tombstoneID string) (string, error) {
 	return completeVMAggregateDelete(ctx, db, claim, domainAbsenceID, attachmentEvidenceID, "", storageAbsenceID, computeReleaseID, terminalID, tombstoneID)
 }
@@ -524,7 +656,7 @@ func completeVMAggregateDeleteProfile(ctx context.Context, db TxBeginner, claim 
 	}
 	var replayDomain, replayNetwork, replayStorage, replayDataStorage, replayRelease string
 	if err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT domain_absence_evidence_id,COALESCE(network_absence_evidence_id,''),storage_absence_evidence_id,COALESCE(data_storage_absence_evidence_id,''),compute_release_evidence_id FROM kim.vm_delete_terminal_evidence WHERE terminal_evidence_id=$1 AND delete_operation_id=$2 AND operation_generation=$3`, terminalID, claim.OperationID, claim.OperationGeneration).Scan(&replayDomain, &replayNetwork, &replayStorage, &replayDataStorage, &replayRelease)
+		return tx.QueryRow(ctx, `SELECT domain_absence_evidence_id,COALESCE(network_absence_evidence_id,network_absence_set_evidence_id,''),storage_absence_evidence_id,COALESCE(data_storage_absence_evidence_id,''),compute_release_evidence_id FROM kim.vm_delete_terminal_evidence WHERE terminal_evidence_id=$1 AND delete_operation_id=$2 AND operation_generation=$3`, terminalID, claim.OperationID, claim.OperationGeneration).Scan(&replayDomain, &replayNetwork, &replayStorage, &replayDataStorage, &replayRelease)
 	}); err == nil {
 		if replayDomain != domainAbsenceID || replayNetwork != networkAbsenceID || replayStorage != storageAbsenceID || replayDataStorage != dataStorageAbsenceID || replayRelease != computeReleaseID {
 			return "", ErrVMAggregateConflict
@@ -543,12 +675,18 @@ func completeVMAggregateDeleteProfile(ctx context.Context, db TxBeginner, claim 
 			return ErrVMAggregateConflict
 		}
 		var expectedPorts, expectedVolumes int
-		if err := tx.QueryRow(ctx, `SELECT s.port_count,s.volume_count FROM kim.vm_delete_operation_evidence d JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=d.dependency_snapshot_id WHERE d.delete_operation_id=$1 AND d.operation_generation=$2`, claim.OperationID, claim.OperationGeneration).Scan(&expectedPorts, &expectedVolumes); err != nil || expectedPorts > 1 || expectedVolumes < 1 || expectedVolumes > 2 || (expectedPorts == 0) != (networkAbsenceID == "") || (expectedVolumes == 1) != (dataAttachmentEvidenceID == "" && dataStorageAbsenceID == "") {
+		if err := tx.QueryRow(ctx, `SELECT s.port_count,s.volume_count FROM kim.vm_delete_operation_evidence d JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=d.dependency_snapshot_id WHERE d.delete_operation_id=$1 AND d.operation_generation=$2`, claim.OperationID, claim.OperationGeneration).Scan(&expectedPorts, &expectedVolumes); err != nil || !((expectedPorts <= 1 && expectedVolumes >= 1 && expectedVolumes <= 2) || (expectedPorts == 2 && expectedVolumes == 1)) || (expectedPorts == 0) != (networkAbsenceID == "") || (expectedVolumes == 1) != (dataAttachmentEvidenceID == "" && dataStorageAbsenceID == "") {
 			return fmt.Errorf("VM delete profile evidence mismatch: %w", ErrVMAggregateConflict)
 		}
 		var networkDigest string
 		if expectedPorts == 1 {
 			if err := tx.QueryRow(ctx, `SELECT a.absence_digest FROM kim.vm_delete_network_absence_evidence a JOIN kim.vm_delete_network_operation_evidence n ON n.delete_operation_id=a.delete_operation_id AND n.operation_generation=a.operation_generation AND n.port_id=a.port_id AND n.port_revision=a.port_revision AND n.port_generation=a.port_generation AND n.binding_generation=a.binding_generation AND n.host_id=a.source_host_id JOIN kim.network_port_binding_retirements_current c ON c.operation_id=n.retirement_operation_id AND c.operation_generation=n.operation_generation AND c.port_id=n.port_id AND c.port_generation=n.port_generation AND c.binding_generation=n.binding_generation AND c.retirement_state='VERIFIED' AND c.terminal_evidence_id=a.retirement_evidence_id WHERE a.absence_evidence_id=$1 AND a.delete_operation_id=$2 AND a.operation_generation=$3`, networkAbsenceID, claim.OperationID, claim.OperationGeneration).Scan(&networkDigest); err != nil {
+				return ErrVMAggregateConflict
+			}
+		}
+		if expectedPorts == 2 {
+			var currentMembers int
+			if err := tx.QueryRow(ctx, `SELECT s.member_set_digest,count(*) FROM kim.vm_delete_network_absence_set_evidence s JOIN kim.vm_delete_network_port_absence_evidence a ON(a.delete_operation_id,a.operation_generation)=(s.delete_operation_id,s.operation_generation) JOIN kim.vm_delete_network_port_operation_evidence n ON(n.delete_operation_id,n.operation_generation,n.port_ordinal)=(a.delete_operation_id,a.operation_generation,a.port_ordinal) AND n.port_id=a.port_id AND n.port_revision=a.port_revision AND n.port_generation=a.port_generation AND n.binding_generation=a.binding_generation AND n.host_id=a.source_host_id JOIN kim.network_port_binding_retirements_current c ON c.operation_id=n.retirement_operation_id AND c.operation_generation=n.operation_generation AND c.port_id=n.port_id AND c.port_generation=n.port_generation AND c.binding_generation=n.binding_generation AND c.retirement_state='VERIFIED' AND c.terminal_evidence_id=a.retirement_evidence_id WHERE s.absence_set_evidence_id=$1 AND s.delete_operation_id=$2 AND s.operation_generation=$3 AND s.expected_port_count=2 AND s.observed_port_count=2 GROUP BY s.member_set_digest`, networkAbsenceID, claim.OperationID, claim.OperationGeneration).Scan(&networkDigest, &currentMembers); err != nil || currentMembers != 2 {
 				return ErrVMAggregateConflict
 			}
 		}
@@ -635,8 +773,48 @@ func completeVMAggregateDeleteProfile(ctx context.Context, db TxBeginner, claim 
 				return ErrVMAggregateConflict
 			}
 		}
+		if expectedPorts == 2 {
+			rows, err := tx.Query(ctx, `SELECT port_ordinal,port_id,port_revision,port_generation,attachment_intent_id,attachment_generation,binding_generation,admission_id,host_id FROM kim.vm_delete_network_port_operation_evidence WHERE delete_operation_id=$1 AND operation_generation=$2 ORDER BY port_ordinal`, claim.OperationID, claim.OperationGeneration)
+			if err != nil {
+				return err
+			}
+			type retirePort struct {
+				ordinal                                                           int
+				portID, intentID, admissionID, hostID                             string
+				portRevision, portGeneration, intentGeneration, bindingGeneration uint64
+			}
+			ports := make([]retirePort, 0, 2)
+			for rows.Next() {
+				var p retirePort
+				if err := rows.Scan(&p.ordinal, &p.portID, &p.portRevision, &p.portGeneration, &p.intentID, &p.intentGeneration, &p.bindingGeneration, &p.admissionID, &p.hostID); err != nil {
+					rows.Close()
+					return err
+				}
+				ports = append(ports, p)
+			}
+			rows.Close()
+			if len(ports) != 2 || ports[0].ordinal != 0 || ports[1].ordinal != 1 {
+				return ErrVMAggregateConflict
+			}
+			for _, p := range ports {
+				retiredPortIntentID := fmt.Sprintf("vm-delete-port-attachment-retirement:%s:%d", claim.OperationID, p.ordinal)
+				portIntentDigest := digestVMAggregate(map[string]any{"attachment_intent_id": retiredPortIntentID, "port_ordinal": p.ordinal, "port_id": p.portID, "port_revision": p.portRevision, "attachment_generation": p.intentGeneration + 1, "workload_id": d["vm_id"], "placement_admission_id": p.admissionID, "binding_generation": p.bindingGeneration, "intent_state": "RETIRED", "network_absence_digest": networkDigest})
+				if _, err := tx.Exec(ctx, `INSERT INTO kim.port_attachment_intent_evidence(attachment_intent_id,port_id,port_revision,attachment_generation,workload_id,intent_state,placement_admission_id,binding_generation,intent_digest) SELECT $1,port_id,port_revision,$2,workload_id,'RETIRED',placement_admission_id,binding_generation,$3 FROM kim.port_attachment_intent_evidence WHERE attachment_intent_id=$4 AND attachment_generation=$5`, retiredPortIntentID, p.intentGeneration+1, portIntentDigest, p.intentID, p.intentGeneration); err != nil {
+					return err
+				}
+				if tag, err := tx.Exec(ctx, `UPDATE kim.port_attachment_intents_current SET attachment_intent_id=$2,attachment_generation=$3,intent_state='RETIRED',updated_at=statement_timestamp() WHERE port_id=$1 AND port_revision=$4 AND attachment_intent_id=$5 AND attachment_generation=$6 AND workload_id=$7`, p.portID, retiredPortIntentID, p.intentGeneration+1, p.portRevision, p.intentID, p.intentGeneration, d["vm_id"]); err != nil || tag.RowsAffected() != 1 {
+					return ErrVMAggregateConflict
+				}
+				if tag, err := tx.Exec(ctx, `UPDATE kim.port_bindings_current SET binding_state='RELEASED' WHERE port_id=$1 AND placement_admission_id=$2 AND host_id=$3 AND binding_generation=$4 AND binding_state IN('RESERVED','ACTIVE')`, p.portID, p.admissionID, p.hostID, p.bindingGeneration); err != nil || tag.RowsAffected() != 1 {
+					return ErrVMAggregateConflict
+				}
+				if tag, err := tx.Exec(ctx, `UPDATE kim.network_ports_current SET placement_admission_id=NULL,workload_id=NULL,desired_state='ACTIVE',attachment_state='UNATTACHED',updated_at=statement_timestamp() WHERE port_id=$1 AND port_revision=$2 AND port_generation=$3 AND placement_admission_id=$4 AND workload_id=$5 AND attachment_state='BOUND'`, p.portID, p.portRevision, p.portGeneration, p.admissionID, d["vm_id"]); err != nil || tag.RowsAffected() != 1 {
+					return ErrVMAggregateConflict
+				}
+			}
+		}
 		terminalDigest := digestVMAggregate(map[string]any{"terminal_id": terminalID, "operation_id": claim.OperationID, "domain_absence_id": domainAbsenceID, "network_absence_id": networkAbsenceID, "storage_absence_id": storageAbsenceID, "data_storage_absence_id": dataStorageAbsenceID, "compute_release_id": computeReleaseID, "state": "VERIFIED"})
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_delete_terminal_evidence(terminal_evidence_id,delete_operation_id,operation_generation,domain_absence_evidence_id,network_absence_evidence_id,storage_absence_evidence_id,data_storage_absence_evidence_id,compute_release_evidence_id,terminal_state,terminal_digest) VALUES($1,$2,$3,$4,NULLIF($5,''),$6,NULLIF($7,''),$8,'VERIFIED',$9)`, terminalID, claim.OperationID, claim.OperationGeneration, domainAbsenceID, networkAbsenceID, storageAbsenceID, dataStorageAbsenceID, computeReleaseID, terminalDigest); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.vm_delete_terminal_evidence(terminal_evidence_id,delete_operation_id,operation_generation,domain_absence_evidence_id,network_absence_evidence_id,network_absence_set_evidence_id,storage_absence_evidence_id,data_storage_absence_evidence_id,compute_release_evidence_id,terminal_state,terminal_digest) VALUES($1,$2,$3,$4,CASE WHEN $10=1 THEN NULLIF($5,'') END,CASE WHEN $10=2 THEN NULLIF($5,'') END,$6,NULLIF($7,''),$8,'VERIFIED',$9)`, terminalID, claim.OperationID, claim.OperationGeneration, domainAbsenceID, networkAbsenceID, storageAbsenceID, dataStorageAbsenceID, computeReleaseID, terminalDigest, expectedPorts); err != nil {
 			return err
 		}
 		var retireRevision, runtime uint64
