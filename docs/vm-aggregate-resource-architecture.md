@@ -462,7 +462,7 @@ Mandatory negative coverage:
 | terminal | pure VM aggregate verification/terminal | larger dependency sets |
 | public API | `/api/v1/vms` bounded logical contract | attachment-specific actions |
 | Terraform | `kim_vm` logical state with Operation polling | production registry release |
-| mobility drift | Recovery/EVACUATE association and no-drift qualification | multi-Port/multi-Volume mobility |
+| mobility drift | Recovery/EVACUATE association, including two STANDARD Ports, and no-drift qualification | multi-Volume mobility |
 | delete | zero through two STANDARD Ports + ROOT with optional DATA verified delete | profiles beyond public create bounds |
 
 ## 23. Implemented internal profiles
@@ -491,13 +491,13 @@ one STANDARD Port profileではlogical Port revision/digestとrequested attachme
 
 Migration 084のmobility associationは、既存RecoveryまたはHost EVACUATEの`VERIFIED` terminalを消費するpost-terminal authorityです。mobility primitiveを再実装せず、terminalのexact source incarnationがaggregate runtime binding currentと一致し、destination Admission/plan/readiness/network/powerがcurrentである場合だけruntime pointerをCASで更新します。VM revision、runtime intent generation、dependency snapshot/digest、desired digest、logical Port revision/digestは更新しません。one STANDARD Port aggregateについて、Recovery A→Bと、その直後のplanned EVACUATE B→Cを同一logical authorityのassociation generation 1/2として実chainでqualification済みです。
 
-Migration 085ではSTANDARD Port集合を最大2件まで一般化します。create producerはcaller配列順をauthorityにせずlogical Port IDでsortし、denseなzero-based ordinal、exact revision/digest、attachment intentをsnapshotします。Placement compiler、Admission binding、OVS verification、terminal drift fenceはすべてsnapshot cardinalityとの完全一致を要求します。一部Portだけの成功、duplicate Port、stale revision、one-Port binding driftはaggregate成功へ縮約されません。qualified positive profileは2 Portであり、multi-Port mobilityは別qualificationです。
+Migration 085ではSTANDARD Port集合を最大2件まで一般化します。create producerはcaller配列順をauthorityにせずlogical Port IDでsortし、denseなzero-based ordinal、exact revision/digest、attachment intentをsnapshotします。Placement compiler、Admission binding、OVS verification、terminal drift fenceはすべてsnapshot cardinalityとの完全一致を要求します。一部Portだけの成功、duplicate Port、stale revision、one-Port binding driftはaggregate成功へ縮約されません。2 Port createに加え、planned EVACUATEでも両Portのsource retirement/quiescence、destination handoff/realization、child network evidence set、association時のexact cardinalityをpositive qualificationしています。logical VM/Port desiredは不変で、Host/Admission/planとPort/binding generationだけが新incarnationへ進みます。
 
 Migration 086ではVolume集合をone ROOT plus one DATAまで一般化します。ROOTは必ずordinal 0かつbootable、DATAはordinal 1かつnon-bootableです。両Volumeのexact revision/digest、requested attachment intentをdesired snapshotへ固定し、Final Admission後のphysical attachment、backend binding generation、VERIFIED materialization terminalは別のimmutable runtime evidence setへ保存します。VM boot readinessのROOT成功だけでDATA成功を推論せず、aggregate verificationとterminalは2件すべてのcurrent authority完全一致を要求します。multi-Volume Recovery/EVACUATE associationは未qualificationのためfail-closedです。
 
 Recovery network verification digestはNB/SB/OVS/dataplane/source-quiescence/handoff集合、EVACUATE network verification digestはdestination preboot OVS集合です。consumerは両者を同じdigest algorithmと誤認せず、Recovery terminal digestをcurrent readinessへexact bindしたうえで、logical Port revision/digestとdestination preboot evidenceを独立に再検証します。
 
-Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はROOT+DATA deleteを追加し、Migration 091はcanonical ordinal付きtwo-Port snapshot、per-Port absence、complete absence-setを追加しました。Migration 090/091を同じterminalで消費するtwo-Port+ROOT+DATA最大profileもschema追加なしでqualification済みです。OpenAPI `/api/v1/vms` と Terraform `kim_vm` のbounded create/delete matrixは対称になりました。未実装の主対象はmulti-Port/multi-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
+Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はROOT+DATA deleteを追加し、Migration 091はcanonical ordinal付きtwo-Port snapshot、per-Port absence、complete absence-setを追加しました。Migration 090/091を同じterminalで消費するtwo-Port+ROOT+DATA最大profileもschema追加なしでqualification済みです。OpenAPI `/api/v1/vms` と Terraform `kim_vm` のbounded create/delete matrixは対称で、two-Port planned EVACUATE no-driftもPASSです。未実装の主対象はmulti-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
 
 ## 24. Explicitly out of scope
 

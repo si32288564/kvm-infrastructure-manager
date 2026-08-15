@@ -350,13 +350,9 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		if _, err = AcceptPortRealizationObservation(ctx, db, boundClaim, matchedPortObservation(boundClaim, boundPlan, fmt.Sprintf("vm-port-bound-lsp-%d", i), "RECEIVED")); err != nil {
 			t.Fatal(err)
 		}
-		if portCount == 1 || deleteAfterCreate {
-			// Mobility qualification below additionally needs the ordinary OVN
-			// runtime incarnation. Multi-Port create-only qualification stops at
-			// its aggregate terminal; delete qualification needs the same exact
-			// OVN incarnation for per-Port retirement authority.
-			completeEvacuationOVNIntent(t, ctx, db, fmt.Sprintf("vm-port-runtime-intent-%d-%s", i, suffix), ports[i].PortID, fmt.Sprintf("vm-port-runtime-worker-%d-%s", i, suffix), fmt.Sprintf("aggregate-%d-%s", i, suffix), 1)
-		}
+		// Mobility and delete qualification need the ordinary OVN runtime
+		// incarnation so every Port can traverse exact retirement authority.
+		completeEvacuationOVNIntent(t, ctx, db, fmt.Sprintf("vm-port-runtime-intent-%d-%s", i, suffix), ports[i].PortID, fmt.Sprintf("vm-port-runtime-worker-%d-%s", i, suffix), fmt.Sprintf("aggregate-%d-%s", i, suffix), 1)
 	}
 	if _, err = BindVMAggregateAdmission(ctx, db, claim, admission.AdmissionID); err != nil {
 		t.Fatal(err)
@@ -454,9 +450,6 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 				t.Fatalf("immutable %s accepted UPDATE", table)
 			}
 		}
-		if !deleteAfterCreate {
-			return
-		}
 	}
 	if deleteAfterCreate {
 		if portCount == 2 {
@@ -483,6 +476,70 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 				t.Fatal(err)
 			}
 			qualifyVMAggregateOneStandardPortDelete(t, ctx, db, suffix, vmID, port.PortID, deletePortDigest)
+		}
+		return
+	}
+	if portCount == 2 {
+		logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
+		logicalPortDigests := make([]string, len(ports))
+		for i := range ports {
+			if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, ports[i].PortID).Scan(&logicalPortDigests[i]); err != nil {
+				t.Fatal(err)
+			}
+			convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, ports[i].PortID, network.NetworkID, segmentID, ports[i].MACAddress, fmt.Sprintf("aggregate-%d-%s", i, suffix), 1, 1, 1)
+		}
+		source := repeatedEvacuationIncarnation{Host: host, Admission: admission.AdmissionID, Plan: decision.PlanID, Volume: volume.VolumeID, Attachment: placementRequest.Storage[0].AttachmentID, Binding: volume.BindingID, LV: volume.LVUUID, Backend: backendID, VG: vgUUID, Materialization: 1, PortGeneration: 1, BindingGeneration: 1}
+		move := executeRepeatedEvacuationMove(t, ctx, db, suffix, "aggregate-two-port", vmID, imageID, imageDigest, network.NetworkID, segmentID, ports[0].PortID, ports[0].MACAddress, source, destinationHost, destinationBackend, destinationVG, 1, 1, 2, 3, 2, 3, nil, nil, repeatedEvacuationPort{PortID: ports[1].PortID, NetworkID: network.NetworkID, SegmentID: segmentID, MAC: ports[1].MACAddress, SourcePortGeneration: 1, SourceBindingGeneration: 1, RetirementIntentGeneration: 2, DestinationIntentGeneration: 3})
+		associationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-two-port-evacuation-association-" + suffix, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}
+		partialRollback := errors.New("rollback partial destination Port set")
+		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `DELETE FROM kim.vm_network_port_realizations_current WHERE vm_id=$1 AND port_id=$2`, vmID, ports[1].PortID); err != nil {
+				return err
+			}
+			if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID + "-partial", VMID: vmID, MobilityKind: associationRequest.MobilityKind, MobilityTerminalEvidenceID: associationRequest.MobilityTerminalEvidenceID}); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("partial destination Port set accepted: %v", err)
+			}
+			return partialRollback
+		})
+		if !errors.Is(err, partialRollback) {
+			t.Fatal(err)
+		}
+		bindingDriftRollback := errors.New("rollback destination Port binding drift")
+		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE kim.port_bindings_current SET binding_generation=binding_generation+1 WHERE port_id=$1`, ports[1].PortID); err != nil {
+				return err
+			}
+			if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID + "-drift", VMID: vmID, MobilityKind: associationRequest.MobilityKind, MobilityTerminalEvidenceID: associationRequest.MobilityTerminalEvidenceID}); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("destination Port binding drift accepted: %v", err)
+			}
+			return bindingDriftRollback
+		})
+		if !errors.Is(err, bindingDriftRollback) {
+			t.Fatal(err)
+		}
+		association, err := AssociateVMAggregateMobility(ctx, db, associationRequest)
+		if err != nil || association.AssociationGeneration != 1 || association.SourceHostID != host || association.DestinationHostID != destinationHost || association.SourcePlanID != decision.PlanID || association.DestinationPlanID != move.Destination.Plan || association.DependencyDigest != logicalDependency || association.DesiredDigest != logicalDesired {
+			t.Fatalf("two-Port EVACUATE association=%+v err=%v", association, err)
+		}
+		replayed, err := AssociateVMAggregateMobility(ctx, db, associationRequest)
+		if err != nil || replayed.AssociationDigest != association.AssociationDigest {
+			t.Fatalf("two-Port EVACUATE replay=%+v err=%v", replayed, err)
+		}
+		var currentRevision, currentRuntime, currentAssociationGeneration uint64
+		var currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociation string
+		if err = db.QueryRow(ctx, `SELECT r.vm_revision,r.runtime_intent_generation,s.dependency_digest,r.desired_digest,b.host_id,b.admission_id,b.plan_id,b.mobility_association_generation,b.mobility_association_id FROM kim.vm_resources_current r JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(r.vm_id,r.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id WHERE r.vm_id=$1`, vmID).Scan(&currentRevision, &currentRuntime, &currentDependency, &currentDesired, &currentHost, &currentAdmission, &currentPlan, &currentAssociationGeneration, &currentAssociation); err != nil || currentRevision != logicalRevision || currentRuntime != logicalRuntime || currentDependency != logicalDependency || currentDesired != logicalDesired || currentHost != destinationHost || currentAdmission != move.Destination.Admission || currentPlan != move.Destination.Plan || currentAssociationGeneration != 1 || currentAssociation != association.AssociationID {
+			t.Fatalf("two-Port post-mobility logical/runtime=%d/%d %s/%s physical=%s/%s/%s association=%d/%s err=%v", currentRevision, currentRuntime, currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociationGeneration, currentAssociation, err)
+		}
+		for i := range ports {
+			var currentDigest string
+			var portGeneration, bindingGeneration uint64
+			if err = db.QueryRow(ctx, `SELECT p.desired_digest,p.port_generation,b.binding_generation FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=p.placement_admission_id WHERE p.port_id=$1`, ports[i].PortID).Scan(&currentDigest, &portGeneration, &bindingGeneration); err != nil || currentDigest != logicalPortDigests[i] || portGeneration != 2 || bindingGeneration != 2 {
+				t.Fatalf("two-Port current[%d] digest=%s generation=%d/%d err=%v", i, currentDigest, portGeneration, bindingGeneration, err)
+			}
+		}
+		var associatedPorts int
+		if err = db.QueryRow(ctx, `SELECT port_count FROM kim.vm_aggregate_mobility_association_evidence WHERE association_id=$1`, association.AssociationID).Scan(&associatedPorts); err != nil || associatedPorts != 2 {
+			t.Fatalf("two-Port association cardinality=%d err=%v", associatedPorts, err)
 		}
 		return
 	}

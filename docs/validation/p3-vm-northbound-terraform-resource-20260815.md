@@ -26,9 +26,9 @@
 | `VM_DELETE_TWO_STANDARD_PORTS_ROOT_ONLY` | PASS (Migration 091 qualification) |
 | `VM_DELETE_TWO_STANDARD_PORTS_ROOT_PLUS_DATA` | PASS (Migration 090/091 composite qualification) |
 | `VM_CREATE_DELETE_PROFILE_SYMMETRY` | PASS |
-| `VM_DELETE_STANDARD_PORT_PROFILE` | NOT RUN / API rejects |
-| `VM_DELETE_MULTI_VOLUME_PROFILE` | NOT RUN / API rejects |
-| `VM_MULTI_PORT_MOBILITY` | NOT RUN |
+| `VM_DELETE_STANDARD_PORT_PROFILE` | PASS through two Ports |
+| `VM_DELETE_MULTI_VOLUME_PROFILE` | PASS for ROOT plus one DATA |
+| `VM_MULTI_PORT_MOBILITY` | PASS for two-Port planned EVACUATE |
 | `VM_MULTI_VOLUME_MOBILITY` | NOT RUN |
 | production VM qualification | BLOCKED |
 
@@ -36,7 +36,7 @@
 
 Create accepts exact immutable dependency revisions for Flavor, verified Image, Availability Policy, Placement Scope, one ROOT Volume, zero through two STANDARD Ports, and at most one DATA Volume. Initial desired power is `RUNNING`; PCI is not exposed. Port and DATA sets are canonicalized.
 
-Metadata/delete protection is a synchronous logical revision. Desired `RUNNING`/`SHUTOFF` is a separate Operation and cannot be mixed with metadata in one PATCH. Dependency changes are Terraform replacement boundaries. Public delete remains narrower than create: Migrations 087/089 require at most one STANDARD Port, one ROOT Volume, no PCI, delete protection disabled, and observed `SHUTOFF`.
+Metadata/delete protection is a synchronous logical revision. Desired `RUNNING`/`SHUTOFF` is a separate Operation and cannot be mixed with metadata in one PATCH. Dependency changes are Terraform replacement boundaries. Public delete matches the bounded create matrix after the Migration 089–091 qualifications: zero through two STANDARD Ports, one ROOT, optional one DATA, no PCI, delete protection disabled, and observed `SHUTOFF`.
 
 ## Evidence exercised
 
