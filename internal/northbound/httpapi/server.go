@@ -18,6 +18,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/availabilitypolicy"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/flavor"
 	imageapi "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/image"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/phase2"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/resource"
 )
@@ -34,6 +35,7 @@ type Server struct {
 	Flavors              flavor.Service
 	AvailabilityPolicies availabilitypolicy.Service
 	Images               imageapi.Service
+	Phase2               phase2.Service
 	Authenticator        auth.Authenticator
 	Logger               io.Writer
 	RequestTimeout       time.Duration
@@ -75,7 +77,116 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/images/{image_id}", s.deleteImage)
 	mux.HandleFunc("POST /api/v1/images/{image_id}/ingestions", s.ingestImage)
 	mux.HandleFunc("GET /api/v1/operations/{operation_id}", s.getOperation)
+	for _, binding := range []struct {
+		plural string
+		kind   phase2.Kind
+	}{{"networks", phase2.Network}, {"subnets", phase2.Subnet}, {"ports", phase2.Port}, {"volumes", phase2.Volume}} {
+		plural, kind := binding.plural, binding.kind
+		mux.HandleFunc("POST /api/v1/"+plural, func(w http.ResponseWriter, r *http.Request) { s.createPhase2(w, r, kind) })
+		mux.HandleFunc("GET /api/v1/"+plural, func(w http.ResponseWriter, r *http.Request) { s.listPhase2(w, r, kind) })
+		mux.HandleFunc("GET /api/v1/"+plural+"/{resource_id}", func(w http.ResponseWriter, r *http.Request) { s.getPhase2(w, r, kind) })
+		mux.HandleFunc("PATCH /api/v1/"+plural+"/{resource_id}", func(w http.ResponseWriter, r *http.Request) { s.patchPhase2(w, r, kind) })
+		mux.HandleFunc("DELETE /api/v1/"+plural+"/{resource_id}", func(w http.ResponseWriter, r *http.Request) { s.deletePhase2(w, r, kind) })
+	}
 	return s.requestContext(s.recover(mux))
+}
+
+func (s Server) createPhase2(w http.ResponseWriter, r *http.Request, k phase2.Kind) {
+	p, ok := s.authenticate(w, r, string(k)+"_CREATE")
+	if !ok {
+		return
+	}
+	var d phase2.Desired
+	if err := decodeJSON(r, &d); err != nil {
+		s.writeProblem(w, r, resource.ErrValidation)
+		return
+	}
+	out, _, err := s.Phase2.Create(r.Context(), p, k, phase2.CreateRequest{Desired: d, IdempotencyKey: r.Header.Get("Idempotency-Key"), RequestID: requestID(r), CanonicalPath: "/api/v1/" + k.Plural()})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	w.Header().Set("Location", "/api/v1/"+k.Plural()+"/"+out.ID)
+	writeJSON(w, 201, out)
+}
+func (s Server) getPhase2(w http.ResponseWriter, r *http.Request, k phase2.Kind) {
+	p, ok := s.authenticate(w, r, string(k)+"_READ")
+	if !ok {
+		return
+	}
+	out, err := s.Phase2.Get(r.Context(), p, k, r.PathValue("resource_id"), requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) listPhase2(w http.ResponseWriter, r *http.Request, k phase2.Kind) {
+	p, ok := s.authenticate(w, r, string(k)+"_LIST")
+	if !ok {
+		return
+	}
+	limit, after, err := parsePage(r, map[string]bool{"limit": true, "cursor": true, "projectId": true})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	page, err := s.Phase2.List(r.Context(), p, k, phase2.ListRequest{ProjectID: r.URL.Query().Get("projectId"), AfterID: after, Limit: limit}, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	response := struct {
+		Items      []phase2.Resource `json:"items"`
+		NextCursor string            `json:"nextCursor,omitempty"`
+	}{Items: page.Items}
+	if page.NextAfter != "" {
+		response.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.NextAfter))
+	}
+	writeJSON(w, 200, response)
+}
+func (s Server) patchPhase2(w http.ResponseWriter, r *http.Request, k phase2.Kind) {
+	p, ok := s.authenticate(w, r, string(k)+"_UPDATE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	patch, err := decodePhase2Patch(r)
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, err := s.Phase2.Patch(r.Context(), p, k, r.PathValue("resource_id"), revision, patch, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) deletePhase2(w http.ResponseWriter, r *http.Request, k phase2.Kind) {
+	p, ok := s.authenticate(w, r, string(k)+"_DELETE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	op, err := s.Phase2.Delete(r.Context(), p, k, r.PathValue("resource_id"), revision, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/operations/"+op.ID)
+	writeJSON(w, 202, op)
 }
 
 func (s Server) createImage(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +313,17 @@ func (s Server) getOperation(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.authenticate(w, r, "OPERATION_READ")
 	if !ok {
 		return
+	}
+	if s.Phase2.Store != nil {
+		out, err := s.Phase2.GetOperation(r.Context(), p, r.PathValue("operation_id"), requestID(r))
+		if err == nil {
+			writeJSON(w, 200, out)
+			return
+		}
+		if !errors.Is(err, resource.ErrNotFound) {
+			s.writeProblem(w, r, err)
+			return
+		}
 	}
 	out, err := s.Images.GetOperation(r.Context(), p, r.PathValue("operation_id"), requestID(r))
 	if err != nil {
@@ -901,6 +1023,42 @@ func decodeImagePatch(request *http.Request) (imageapi.Patch, error) {
 				return p, resource.ErrValidation
 			}
 			p.DeleteProtection = &v
+		default:
+			return p, resource.ErrValidation
+		}
+	}
+	return p, nil
+}
+
+func decodePhase2Patch(request *http.Request) (phase2.Patch, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(request, &fields); err != nil || len(fields) == 0 {
+		return phase2.Patch{}, resource.ErrValidation
+	}
+	var p phase2.Patch
+	for name, raw := range fields {
+		if string(raw) == "null" {
+			return p, resource.ErrValidation
+		}
+		switch name {
+		case "name":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Name = &v
+		case "deleteProtection":
+			var v bool
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.DeleteProtection = &v
+		case "mtu":
+			var v uint32
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.MTU = &v
 		default:
 			return p, resource.ErrValidation
 		}

@@ -1,5 +1,7 @@
 # KIM Architecture & Qualification Inventory Review
 
+> Phase 2 public-surface addendum (2026-08-15): Migration 081, Northbound endpoints, and `terraform-provider-kim` resources now qualify Network, Subnet, unattached Port, and backend-neutral Volume through real HTTP/PostgreSQL 17/Terraform 1.14.9 apply, verified Operation polling, no-op refresh, import, and destroy. Physical incarnation remains absent from state. VM Phase 3 remains separate. See [Phase 2 validation](../validation/p2-northbound-terraform-resource-contract-20260815.md).
+
 - Review date: 2026-08-13
 - Repository baseline: Migration 001–072
 - Baseline commit: `ce79b0189f97fb4e821f13cae30552dfb6e26ff2`

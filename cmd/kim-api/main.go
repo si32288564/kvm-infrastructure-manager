@@ -19,6 +19,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/flavor"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/httpapi"
 	imageapi "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/image"
+	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/phase2"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/persistence/postgres"
 )
@@ -67,6 +68,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flavorStore := postgres.NorthboundFlavorStore{DB: pool}
 	availabilityPolicyStore := postgres.NorthboundAvailabilityPolicyStore{DB: pool}
 	imageStore := postgres.NorthboundImageStore{DB: pool}
+	phase2Store := postgres.NorthboundPhase2Store{DB: pool}
 	if err := store.Ready(ctx); err != nil {
 		fmt.Fprintf(stderr, "kim-api readiness error: %v\n", err)
 		return 1
@@ -77,7 +79,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer listener.Close()
-	handler := httpapi.Server{Projects: project.Service{Store: store}, Flavors: flavor.Service{Store: flavorStore}, AvailabilityPolicies: availabilitypolicy.Service{Store: availabilityPolicyStore}, Images: imageapi.Service{Store: imageStore}, Authenticator: verifier, Logger: stderr, RequestTimeout: *requestTimeout}.Handler()
+	handler := httpapi.Server{Projects: project.Service{Store: store}, Flavors: flavor.Service{Store: flavorStore}, AvailabilityPolicies: availabilitypolicy.Service{Store: availabilityPolicyStore}, Images: imageapi.Service{Store: imageStore}, Phase2: phase2.Service{Store: phase2Store}, Authenticator: verifier, Logger: stderr, RequestTimeout: *requestTimeout}.Handler()
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
 	errorsFound := make(chan error, 1)
 	go func() {

@@ -1,5 +1,7 @@
 # KIM Northbound / Terraform Phase 2 Resource Contract Review
 
+> Completion addendum (2026-08-15): Migration 081 and the public/Provider vertical slice now implement and qualify all four resources through real HTTP, PostgreSQL 17, and Terraform 1.14.9. The review below is retained as the pre-implementation decision record. See [Phase 2 Northbound / Terraform Resource Contract Qualification](../validation/p2-northbound-terraform-resource-contract-20260815.md) and [ADR-0035](../adr/0035-phase2-northbound-logical-resource-contract.md).
+
 - Review date: 2026-08-14
 - Current implementation: Migrations 077–080; Volume decomposition baseline `9ebed2940a6bb000e6e038646de7d0a6bb940ecb`
 - Candidates: Network, Subnet, Port, Volume

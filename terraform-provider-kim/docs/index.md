@@ -19,7 +19,7 @@ provider "kim" {
 }
 ```
 
-Set the externally issued short-lived automation credential in `KIM_TOKEN`. Set a stable, non-secret automation identity with `client_id` or `KIM_CLIENT_ID`. `KIM_ENDPOINT` and `KIM_CA_CERTIFICATE` are also supported. Provider attributes `token` and `ca_certificate` are sensitive; no resource state contains them. `insecure_skip_verify` exists only for disposable development endpoints. Per-request timeout defaults to 30 seconds; Image Operation polling interval defaults to one second.
+Set the externally issued short-lived automation credential in `KIM_TOKEN`. Set a stable, non-secret automation identity with `client_id` or `KIM_CLIENT_ID`. `KIM_ENDPOINT` and `KIM_CA_CERTIFICATE` are also supported. Provider attributes `token` and `ca_certificate` are sensitive; no resource state contains them. `insecure_skip_verify` exists only for disposable development endpoints. Per-request timeout defaults to 30 seconds; asynchronous Operation polling defaults to one second.
 
 The provider sends `Authorization: Bearer`, decodes KIM Problem Details by stable `code`, and includes the KIM request ID in diagnostics. It does not acquire OIDC tokens or accept Agent/backend credentials.
 
@@ -52,6 +52,10 @@ terraform import kim_project.example project/<uuid>
 terraform import kim_flavor.example flavor/<uuid>
 terraform import kim_availability_policy.example availability-policy/<uuid>
 terraform import kim_image.example image/<uuid>
+terraform import kim_network.example network/<uuid>
+terraform import kim_subnet.example subnet/<uuid>
+terraform import kim_port.example port/<uuid>
+terraform import kim_volume.example volume/<uuid>
 ```
 
 Import performs authorized logical Read. It never adopts Host-local/backend objects. Configuration must still contain all required desired fields; a matching import produces a no-op plan.

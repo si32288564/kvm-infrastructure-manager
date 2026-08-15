@@ -177,7 +177,7 @@ KIM-owned runtime の例は exact pCPU/NUMA/HugePages/PMD/RxQ claim、vhost-user
 
 ### 6.1 Provider と module の分離
 
-`terraform-provider-kim/` Phase 1 は versioned KIM Resource API の thin lifecycle clientとして実装済みです。Project、Flavor、closed SYSTEM Availability Policy、Imageだけをexperimental resourceとして公開します。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。Network/Subnet/Port/Volumeはinternal contractが揃いましたが、public RBAC/idempotency/audit/OpenAPI/list/import/Operation projectionとProvider acceptanceが未実装のため未公開です。VMもPhase 2 public surfaceとaggregate lifecycleを待ちます。
+`terraform-provider-kim/` は versioned KIM Resource API の thin lifecycle clientとして、Project、Flavor、closed SYSTEM Availability Policy、Imageに加えて、Phase 2のNetwork、Subnet、unattached Port、backend-neutral Volumeをexperimental resourceとして公開します。Migration 081とpublic serviceはRBAC/idempotency/audit/OpenAPI/list/import/Operation projectionを提供し、Providerはverified terminalまでOperationをpollします。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。VM、Port attachment、Router/Floating IP、Volume resize/Cephは引き続き未公開です。
 
 Terraform module は organization の標準 VM、network、storage、availability、datapath profile の組み合わせを提供できます。module は physical Host identity、LV UUID、PCI BDF 等を入力に要求せず、Provider の lifecycle rule を上書きしません。
 

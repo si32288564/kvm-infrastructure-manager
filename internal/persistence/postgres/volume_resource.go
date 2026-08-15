@@ -269,6 +269,36 @@ func AllocateVolumeCapacity(ctx context.Context, db TxBeginner, r VolumeCapacity
 	return GetVolumeResource(ctx, db, r.VolumeID)
 }
 
+// AllocateVolumeCapacityAutomatically is the Northbound compiler for a
+// backend-neutral Volume desired revision. It selects a current eligible
+// backend deterministically; the exact backend/capacity generations are then
+// revalidated by AllocateVolumeCapacity. Callers never supply a Host, VG, LV,
+// or backend identity.
+func AllocateVolumeCapacityAutomatically(ctx context.Context, db TxBeginner, volumeID string, expectedRevision uint64) (VolumeResource, error) {
+	if volumeID == "" || expectedRevision == 0 {
+		return VolumeResource{}, errors.New("exact Volume revision is required")
+	}
+	var backendID string
+	var backendGeneration, capacityGeneration int64
+	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT b.backend_id,b.backend_generation,p.capacity_generation
+			FROM kim.volumes_current v
+			JOIN kim.storage_class_revision_evidence s ON(s.storage_class_id,s.class_revision)=(v.storage_class_id,v.storage_class_revision)
+			JOIN kim.storage_backends_current b ON b.backend_type=s.allowed_backend_type
+			JOIN kim.storage_capacity_projections_current p USING(backend_id)
+			JOIN kim.storage_capacity_observation_evidence o ON(o.observation_id,o.backend_id,o.capacity_generation)=(p.observation_id,p.backend_id,p.capacity_generation)
+			WHERE v.volume_id=$1 AND v.volume_revision=$2 AND v.authority_source='VOLUME_RESOURCE' AND v.lifecycle_state='ACTIVE'
+			  AND s.locality='HOST_LOCAL' AND b.lifecycle_state='ACTIVE' AND b.capability_state='CURRENT'
+			  AND p.projection_state='CURRENT' AND o.health_state='HEALTHY'
+			  AND LEAST(o.total_bytes-o.hard_reserve_bytes-COALESCE((SELECT sum(c.reserved_bytes) FROM kim.storage_capacity_claims c WHERE c.backend_id=b.backend_id AND c.claim_state IN('RESERVED','ALLOCATED','RELEASE_PENDING','QUARANTINED')),0),o.observed_free_bytes-o.external_or_unknown_bytes)>=v.size_bytes
+			ORDER BY b.backend_id LIMIT 1`, volumeID, expectedRevision).Scan(&backendID, &backendGeneration, &capacityGeneration)
+	})
+	if err != nil {
+		return VolumeResource{}, ErrPlacementConflict
+	}
+	return AllocateVolumeCapacity(ctx, db, VolumeCapacityAllocationRequest{VolumeID: volumeID, BackendID: backendID, ExpectedVolumeRevision: expectedRevision, ExpectedBackendGeneration: uint64(backendGeneration), ExpectedCapacityGeneration: uint64(capacityGeneration)})
+}
+
 func digestVolumeAuthority(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])

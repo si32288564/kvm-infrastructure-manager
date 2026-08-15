@@ -41,7 +41,7 @@ func (p *kimProvider) Schema(_ context.Context, _ provider.SchemaRequest, r *pro
 		"ca_certificate":                  schema.StringAttribute{Optional: true, Sensitive: true, Description: "Optional PEM trust anchor. KIM_CA_CERTIFICATE may be used."},
 		"insecure_skip_verify":            schema.BoolAttribute{Optional: true, Description: "Development-only TLS verification bypass."},
 		"request_timeout_seconds":         schema.Int64Attribute{Optional: true, Description: "Per-request timeout."},
-		"operation_poll_interval_seconds": schema.Int64Attribute{Optional: true, Description: "Bounded Image Operation poll interval."},
+		"operation_poll_interval_seconds": schema.Int64Attribute{Optional: true, Description: "Bounded asynchronous Operation poll interval."},
 	}}
 }
 func (p *kimProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
@@ -69,7 +69,7 @@ func (p *kimProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	resp.DataSourceData = c
 }
 func (p *kimProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{NewProjectResource, NewFlavorResource, NewAvailabilityPolicyResource, NewImageResource}
+	return []func() resource.Resource{NewProjectResource, NewFlavorResource, NewAvailabilityPolicyResource, NewImageResource, NewNetworkResource, NewSubnetResource, NewPortResource, NewVolumeResource}
 }
 func (p *kimProvider) DataSources(context.Context) []func() datasource.DataSource { return nil }
 func stringValue(v types.String, fallback string) string {
