@@ -16,18 +16,22 @@ import (
 )
 
 func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
-	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, false)
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, false, false)
 }
 
 func TestVMAggregateOneStandardPortDeletePostgreSQLIntegration(t *testing.T) {
-	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, true)
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, false, true)
+}
+
+func TestVMAggregateOneStandardPortDataVolumeDeletePostgreSQLIntegration(t *testing.T) {
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1, true, true)
 }
 
 func TestVMAggregateMultiStandardPortPostgreSQLIntegration(t *testing.T) {
-	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, false)
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, false, false)
 }
 
-func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount int, deleteAfterCreate bool) {
+func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount int, withData, deleteAfterCreate bool) {
 	url := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if url == "" {
 		t.Skip("KIM_POSTGRES_TEST_URL is not set")
@@ -222,8 +226,15 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	if err != nil {
 		t.Fatal(err)
 	}
+	var dataVolume VolumeResource
+	if withData {
+		dataVolume = materializeVMAggregateStandardPortDataVolume(t, ctx, db, suffix, projectID, classID, backendID, vgUUID)
+	}
 
 	create := VMAggregateCreateRequest{RequestID: "vm-port-create-request-" + suffix, OperationID: "vm-port-create-operation-" + suffix, VMID: vmID, ProjectID: projectID, Name: "standard-port-vm", FlavorID: flavorID, FlavorRevision: 1, ImageID: imageID, ImageRevision: 1, AvailabilityPolicyID: policyID, AvailabilityPolicyRevision: 1, PlacementScopeID: scopeID, PlacementScopeGeneration: 1, RootVolumeID: volume.VolumeID, RootVolumeRevision: 1, DesiredPowerState: "RUNNING"}
+	if withData {
+		create.DataVolumes = []VMAggregateVolumeRequest{{VolumeID: dataVolume.VolumeID, VolumeRevision: 1}}
+	}
 	if portCount == 1 {
 		create.PortID, create.PortRevision = port.PortID, 1 // legacy one-Port compatibility
 	} else {
@@ -283,7 +294,11 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		t.Fatal(err)
 	}
 	placementRequest, err := CompileVMAggregatePlacement(ctx, db, claim)
-	if err != nil || len(placementRequest.Network) != portCount {
+	expectedStorage := 1
+	if withData {
+		expectedStorage = 2
+	}
+	if err != nil || len(placementRequest.Network) != portCount || len(placementRequest.Storage) != expectedStorage {
 		t.Fatalf("placement=%+v err=%v", placementRequest, err)
 	}
 	for i := range ports {
@@ -437,7 +452,11 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, port.PortID).Scan(&deletePortDigest); err != nil {
 			t.Fatal(err)
 		}
-		qualifyVMAggregateOneStandardPortDelete(t, ctx, db, suffix, vmID, port.PortID, deletePortDigest)
+		if withData {
+			qualifyVMAggregateOneStandardPortDataVolumeDelete(t, ctx, db, suffix, vmID, port.PortID, deletePortDigest, volume, dataVolume)
+		} else {
+			qualifyVMAggregateOneStandardPortDelete(t, ctx, db, suffix, vmID, port.PortID, deletePortDigest)
+		}
 		return
 	}
 	logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
@@ -600,6 +619,50 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	}
 }
 
+func materializeVMAggregateStandardPortDataVolume(t *testing.T, ctx context.Context, db *pgxpool.Pool, suffix, projectID, classID, backendID, vgUUID string) VolumeResource {
+	t.Helper()
+	volume, err := CreateVolumeResource(ctx, db, VolumeResourceRequest{VolumeID: "vm-port-data-" + suffix, ProjectID: projectID, Name: "data", StorageClassID: classID, StorageClassRevision: 1, SizeBytes: 8 << 20, Bootable: false, SourceType: "BLANK"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume, err = AllocateVolumeCapacity(ctx, db, VolumeCapacityAllocationRequest{VolumeID: volume.VolumeID, BackendID: backendID, ExpectedVolumeRevision: 1, ExpectedBackendGeneration: 1, ExpectedCapacityGeneration: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &volumeResourceLVMClient{vgUUID: vgUUID, lvUUID: "lv-vm-port-data-" + suffix}
+	mutation := locallvm.Backend{Client: client, VolumeGroups: map[string]string{vgUUID: "kim_test_vg"}}
+	readOnly := locallvm.ReadBackBackend{Backend: mutation}
+	claim, err := ClaimVolumeMaterialization(ctx, db, volume.OperationID, "vm-port-data-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply, err := AuthorizeVolumeMaterializationCommand(ctx, db, claim, "vm-port-data-job-"+suffix, "vm-port-data-command-"+suffix, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runVolumeBackendWithLostResponse(t, ctx, db, apply.CommandID, 1, CommandLeaseScopeMutation, mutation)
+	if err = MarkVolumeMaterializationDispatchUnknown(ctx, db, claim); err != nil {
+		t.Fatal(err)
+	}
+	claim, err = ClaimVolumeMaterialization(ctx, db, volume.OperationID, "vm-port-data-successor", time.Minute)
+	if err != nil || claim.ClaimMode != "READ_BACK_FIRST" {
+		t.Fatalf("DATA successor=%+v err=%v", claim, err)
+	}
+	read, err := AuthorizeVolumeMaterializationCommand(ctx, db, claim, "vm-port-data-read-job-"+suffix, "vm-port-data-read-command-"+suffix, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verification := observeVolumeBackendAfterLostResponse(t, ctx, db, read.CommandID, "vm-port-data-verification-"+suffix, 1, readOnly)
+	if _, err = CompleteVolumeMaterialization(ctx, db, claim, CompleteVolumeMaterializationRequest{OperationID: claim.OperationID, OperationGeneration: claim.OperationGeneration, ClaimGeneration: claim.ClaimGeneration, ObservationID: "vm-port-data-observation-" + suffix, VerificationID: verification}); err != nil {
+		t.Fatal(err)
+	}
+	volume, err = GetVolumeResource(ctx, db, volume.VolumeID)
+	if err != nil || volume.Lifecycle != "AVAILABLE" || volume.MaterializationState != "VERIFIED" || volume.Bootable {
+		t.Fatalf("DATA volume=%+v err=%v", volume, err)
+	}
+	return volume
+}
+
 func qualifyVMAggregateOneStandardPortDelete(t *testing.T, ctx context.Context, db *pgxpool.Pool, suffix, vmID, portID, logicalPortDigest string) {
 	var host string
 	var vmRevision, vmGeneration, powerObservationGeneration uint64
@@ -720,5 +783,162 @@ func qualifyVMAggregateOneStandardPortDelete(t *testing.T, ctx context.Context, 
 		if _, err = db.Exec(ctx, `UPDATE kim.`+table+` SET recorded_at=recorded_at`); err == nil {
 			t.Fatalf("immutable UPDATE succeeded: %s", table)
 		}
+	}
+}
+
+func qualifyVMAggregateOneStandardPortDataVolumeDelete(t *testing.T, ctx context.Context, db *pgxpool.Pool, suffix, vmID, portID, logicalPortDigest string, rootVolume, dataVolume VolumeResource) {
+	t.Helper()
+	var host string
+	var vmRevision, vmGeneration, powerObservationGeneration uint64
+	if err := db.QueryRow(ctx, `SELECT r.vm_revision,b.host_id,b.vm_generation,p.observation_generation FROM kim.vm_resources_current r JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id JOIN kim.vm_power_state_current p ON p.vm_id=b.vm_id AND p.vm_generation=b.vm_generation WHERE r.vm_id=$1`, vmID).Scan(&vmRevision, &host, &vmGeneration, &powerObservationGeneration); err != nil {
+		t.Fatal(err)
+	}
+	var rootDigest, dataDigest string
+	if err := db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$1),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2)`, rootVolume.VolumeID, dataVolume.VolumeID).Scan(&rootDigest, &dataDigest); err != nil {
+		t.Fatal(err)
+	}
+	shutdownCommand := "vm-port-data-delete-shutoff-command-" + suffix
+	if err := AuthorizeVMPowerOff(ctx, db, vmID, vmGeneration, host, "vm-port-data-delete-shutoff-job-"+suffix, shutdownCommand); err != nil {
+		t.Fatal(err)
+	}
+	acceptEvacuationCommand(t, ctx, db, host, shutdownCommand, "vm-port-data-delete-shutoff-verification-"+suffix, powerObservationGeneration+1, map[string]any{"domain_uuid": vmID, "desired_state": "SHUTOFF", "observed_state": "SHUTOFF", "source": "libvirt_domain_state"}, "SUCCEEDED")
+
+	deleting, err := StartVMAggregateDelete(ctx, db, VMAggregateDeleteRequest{RequestID: "vm-port-data-delete-request-" + suffix, OperationID: "vm-port-data-delete-operation-" + suffix, VMID: vmID, ExpectedRevision: vmRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ClaimVMAggregateLifecycle(ctx, db, deleting.OperationID, "vm-port-data-delete-worker-"+suffix, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	domainCommand := "vm-port-data-delete-domain-command-" + suffix
+	if _, err = AuthorizeVMAggregateDeleteDomainCommand(ctx, db, claim, "vm-port-data-delete-domain-job-"+suffix, domainCommand); err != nil {
+		t.Fatal(err)
+	}
+	var planDigest, backendDigest string
+	var materializationGeneration uint64
+	if err = db.QueryRow(ctx, `SELECT payload->>'source_plan_digest',(payload->>'source_materialization_generation')::bigint,payload->>'backend_identity_digest' FROM kim.execution_commands WHERE command_id=$1`, domainCommand).Scan(&planDigest, &materializationGeneration, &backendDigest); err != nil {
+		t.Fatal(err)
+	}
+	domainVerification := "vm-port-data-delete-domain-verification-" + suffix
+	domainAttempt := recordCleanupLeaseLossVerification(t, ctx, db, host, domainCommand, domainVerification, "MATCHED", 1, map[string]any{"cleanup_operation_id": deleting.OperationID, "cleanup_generation": 1, "domain_uuid": vmID, "vm_generation": vmGeneration, "source_host_id": host, "source_plan_digest": planDigest, "source_materialization_generation": materializationGeneration, "backend_identity_digest": backendDigest, "domain_present": false, "domain_running": false, "identity_matches": true})
+	domainAbsenceID := "vm-port-data-delete-domain-absence-" + suffix
+	if err = RecordVMAggregateDeleteDomainAbsence(ctx, db, claim, domainAbsenceID, domainCommand, domainVerification, uint32(domainAttempt), 1, digestBytes([]byte(domainCommand+"/observation")), digestBytes([]byte(domainCommand+"/verifier"))); err != nil {
+		t.Fatal(err)
+	}
+
+	retirement, err := AuthorizeVMAggregateDeletePortRetirement(ctx, db, claim, domainAbsenceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retirementOwner := "vm-port-data-delete-network-worker-" + suffix
+	claims, err := ClaimOVNRuntimeWork(ctx, db, OVNRuntimeClaimRequest{Owner: retirementOwner, Limit: 1, Lease: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retirementClaim OVNRuntimeClaim
+	for _, candidate := range claims {
+		if candidate.WorkID == retirement.WorkID {
+			retirementClaim = OVNRuntimeClaim{WorkID: candidate.WorkID, Owner: retirementOwner, ClaimGeneration: candidate.ClaimGeneration}
+		}
+	}
+	if retirementClaim.WorkID == "" {
+		t.Fatalf("combined delete retirement work not claimed: %+v", claims)
+	}
+	retirementEvidenceID := "vm-port-data-delete-retirement-evidence-" + suffix
+	if err = CompleteOVNPortBindingRetirement(ctx, db, retirementClaim, OVNPortBindingRetirementObservation{EvidenceID: retirementEvidenceID, IntentID: retirement.IntentID, IntentGeneration: retirement.IntentGeneration, PortID: retirement.PortID, PortGeneration: retirement.PortGeneration, BindingGeneration: retirement.BindingGeneration, SourceHostID: retirement.SourceHostID, OperationGeneration: retirement.OperationGeneration, NBObservationGeneration: 2, SBObservationGeneration: 2, OVSObservationGeneration: 2, NBObservationDigest: digestBytes([]byte(retirementEvidenceID + "/nb")), SBObservationDigest: digestBytes([]byte(retirementEvidenceID + "/sb")), OVSObservationDigest: digestBytes([]byte(retirementEvidenceID + "/ovs")), AdapterArtifactDigest: digestBytes([]byte(retirementEvidenceID + "/adapter")), ApplyResponseState: "RECEIVED", Observation: verifiedOVNRetirementObservation()}); err != nil {
+		t.Fatal(err)
+	}
+	networkAbsenceID := "vm-port-data-delete-network-absence-" + suffix
+	if err = RecordVMAggregateDeleteNetworkAbsence(ctx, db, claim, networkAbsenceID, retirementEvidenceID); err != nil {
+		t.Fatal(err)
+	}
+
+	type detachAuthority struct {
+		commandID, verificationID, evidenceID, volumeID, attachmentID, bindingID, lvUUID string
+		attachmentGeneration, bindingGeneration                                          uint64
+	}
+	readDetach := func(label string, authorize func(string, string) (VMAggregateDeleteCommand, error)) detachAuthority {
+		t.Helper()
+		a := detachAuthority{commandID: "vm-port-data-delete-" + label + "-command-" + suffix, verificationID: "vm-port-data-delete-" + label + "-verification-" + suffix, evidenceID: "vm-port-data-delete-" + label + "-observation-" + suffix}
+		if _, err := authorize("vm-port-data-delete-"+label+"-job-"+suffix, a.commandID); err != nil {
+			t.Fatal(err)
+		}
+		query := `SELECT root_volume_id,root_attachment_id,root_attachment_generation,root_binding_id,root_binding_generation,(SELECT lv_uuid FROM kim.volume_backend_bindings_current WHERE binding_id=root_binding_id AND binding_generation=root_binding_generation) FROM kim.vm_delete_operation_evidence WHERE delete_operation_id=$1`
+		target := "vda"
+		if label == "data" {
+			query = `SELECT volume_id,physical_attachment_id,physical_attachment_generation,binding_id,binding_generation,(SELECT lv_uuid FROM kim.volume_backend_bindings_current WHERE binding_id=kim.vm_delete_data_volume_operation_evidence.binding_id AND binding_generation=kim.vm_delete_data_volume_operation_evidence.binding_generation) FROM kim.vm_delete_data_volume_operation_evidence WHERE delete_operation_id=$1`
+			target = "vdb"
+		}
+		if err := db.QueryRow(ctx, query, deleting.OperationID).Scan(&a.volumeID, &a.attachmentID, &a.attachmentGeneration, &a.bindingID, &a.bindingGeneration, &a.lvUUID); err != nil {
+			t.Fatal(err)
+		}
+		attempt := recordCleanupLeaseLossVerification(t, ctx, db, host, a.commandID, a.verificationID, "MATCHED", 1, map[string]any{"attachment_id": a.attachmentID, "volume_id": a.volumeID, "domain_uuid": vmID, "target_device": target, "observed_lv_uuid": a.lvUUID, "desired_state": libvirtvolume.StateDetached, "device_present": false, "device_identity_matches": false, "source_identity_matches": false, "holder_open": false, "read_only": false})
+		if err := AcceptLocalLVMAttachmentObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: a.evidenceID, AttachmentID: a.attachmentID, VolumeID: a.volumeID, BindingID: a.bindingID, HostID: host, DomainUUID: vmID, TargetDevice: target, ObservedLVUUID: a.lvUUID, DesiredState: libvirtvolume.StateDetached, CommandID: a.commandID, VerificationID: a.verificationID, ObservationDigest: digestBytes([]byte(a.commandID + "/observation")), VerifierDigest: digestBytes([]byte(a.commandID + "/verifier")), EvidenceState: "MATCHED", AttachmentGeneration: a.attachmentGeneration, BindingGeneration: a.bindingGeneration, ObservationGeneration: 1, AttemptIndex: uint32(attempt)}); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	root := readDetach("root", func(jobID, commandID string) (VMAggregateDeleteCommand, error) {
+		return AuthorizeVMAggregateDeleteRootAbsenceReadBack(ctx, db, claim, domainAbsenceID, jobID, commandID)
+	})
+	data := readDetach("data", func(jobID, commandID string) (VMAggregateDeleteCommand, error) {
+		return AuthorizeVMAggregateDeleteDataAbsenceReadBack(ctx, db, claim, domainAbsenceID, jobID, commandID)
+	})
+	rootAbsenceID, dataAbsenceID := "vm-port-data-delete-root-absence-"+suffix, "vm-port-data-delete-data-absence-"+suffix
+	releaseID := "vm-port-data-delete-compute-release-" + suffix
+	terminalID, tombstoneID := "vm-port-data-delete-terminal-"+suffix, "vm-port-data-delete-tombstone-"+suffix
+	if _, err = CompleteVMAggregateDeleteWithData(ctx, db, claim, domainAbsenceID, root.evidenceID, data.evidenceID, rootAbsenceID+"-missing-network", dataAbsenceID+"-missing-network", releaseID+"-missing-network", terminalID+"-missing-network", tombstoneID+"-missing-network"); !errors.Is(err, ErrVMAggregateConflict) {
+		t.Fatalf("combined delete accepted without network absence: %v", err)
+	}
+	if _, err = CompleteVMAggregateDeleteWithNetwork(ctx, db, claim, domainAbsenceID, root.evidenceID, networkAbsenceID, rootAbsenceID+"-missing-data", releaseID+"-missing-data", terminalID+"-missing-data", tombstoneID+"-missing-data"); !errors.Is(err, ErrVMAggregateConflict) {
+		t.Fatalf("combined delete accepted without DATA absence: %v", err)
+	}
+	driftRollback := errors.New("rollback combined Port and DATA drift")
+	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.port_bindings_current SET binding_state='RELEASE_PENDING' WHERE port_id=$1`, portID); err != nil {
+			return err
+		}
+		if _, err := CompleteVMAggregateDeleteWithNetworkAndData(ctx, scopeTxBeginner{tx}, claim, domainAbsenceID, root.evidenceID, networkAbsenceID, data.evidenceID, rootAbsenceID+"-drift", dataAbsenceID+"-drift", releaseID+"-drift", terminalID+"-drift", tombstoneID+"-drift"); !errors.Is(err, ErrVMAggregateConflict) {
+			return fmt.Errorf("combined terminal Port drift accepted: %v", err)
+		}
+		return driftRollback
+	})
+	if !errors.Is(err, driftRollback) {
+		t.Fatal(err)
+	}
+	dataDriftRollback := errors.New("rollback combined DATA binding drift")
+	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1 AND binding_generation=$2`, data.bindingID, data.bindingGeneration); err != nil {
+			return err
+		}
+		if _, err := CompleteVMAggregateDeleteWithNetworkAndData(ctx, scopeTxBeginner{tx}, claim, domainAbsenceID, root.evidenceID, networkAbsenceID, data.evidenceID, rootAbsenceID+"-data-drift", dataAbsenceID+"-data-drift", releaseID+"-data-drift", terminalID+"-data-drift", tombstoneID+"-data-drift"); !errors.Is(err, ErrVMAggregateConflict) {
+			return fmt.Errorf("combined terminal DATA drift accepted: %v", err)
+		}
+		return dataDriftRollback
+	})
+	if !errors.Is(err, dataDriftRollback) {
+		t.Fatal(err)
+	}
+	if terminal, err := CompleteVMAggregateDeleteWithNetworkAndData(ctx, db, claim, domainAbsenceID, root.evidenceID, networkAbsenceID, data.evidenceID, rootAbsenceID, dataAbsenceID, releaseID, terminalID, tombstoneID); err != nil || terminal != terminalID {
+		t.Fatalf("combined delete terminal=%s err=%v", terminal, err)
+	}
+	if terminal, err := CompleteVMAggregateDeleteWithNetworkAndData(ctx, db, claim, domainAbsenceID, root.evidenceID, networkAbsenceID, data.evidenceID, rootAbsenceID, dataAbsenceID, releaseID, terminalID, tombstoneID); err != nil || terminal != terminalID {
+		t.Fatalf("combined delete replay=%s err=%v", terminal, err)
+	}
+
+	var portAttachment, portBinding, resultingPortDigest string
+	var workloadID, admissionID *string
+	if err = db.QueryRow(ctx, `SELECT p.attachment_state,b.binding_state,p.desired_digest,p.workload_id,p.placement_admission_id FROM kim.network_ports_current p JOIN kim.port_bindings_current b USING(port_id) WHERE p.port_id=$1`, portID).Scan(&portAttachment, &portBinding, &resultingPortDigest, &workloadID, &admissionID); err != nil || portAttachment != "UNATTACHED" || portBinding != "RELEASED" || resultingPortDigest != logicalPortDigest || workloadID != nil || admissionID != nil {
+		t.Fatalf("combined logical Port attachment=%s binding=%s digest=%s workload=%v admission=%v err=%v", portAttachment, portBinding, resultingPortDigest, workloadID, admissionID, err)
+	}
+	var retired, available, verified, capacityHeld int
+	var resultingRootDigest, resultingDataDigest, computeState string
+	if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.volume_attachment_intents_current WHERE workload_id=$1 AND intent_state='RETIRED'),(SELECT count(*) FROM kim.volumes_current WHERE volume_id IN($2,$3) AND lifecycle_state='AVAILABLE'),(SELECT count(*) FROM kim.volume_materializations_current WHERE volume_id IN($2,$3) AND materialization_state='VERIFIED'),(SELECT count(*) FROM kim.storage_capacity_claims WHERE volume_id IN($2,$3) AND claim_state IN('RESERVED','ALLOCATED')),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3),(SELECT claim_state FROM kim.compute_allocation_claims WHERE workload_id=$1)`, vmID, root.volumeID, data.volumeID).Scan(&retired, &available, &verified, &capacityHeld, &resultingRootDigest, &resultingDataDigest, &computeState); err != nil || retired != 2 || available != 2 || verified != 2 || capacityHeld != 2 || resultingRootDigest != rootDigest || resultingDataDigest != dataDigest || computeState != "RELEASED" {
+		t.Fatalf("combined storage retired=%d available=%d verified=%d capacity=%d compute=%s err=%v", retired, available, verified, capacityHeld, computeState, err)
+	}
+	deleted, err := GetVMAggregate(ctx, db, vmID)
+	if err != nil || deleted.LifecycleState != "DELETED" || deleted.ConvergenceState != "CONVERGED" || deleted.OperationState != "VERIFIED" {
+		t.Fatalf("combined deleted aggregate=%+v err=%v", deleted, err)
 	}
 }

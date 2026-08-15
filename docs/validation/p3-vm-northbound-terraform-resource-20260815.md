@@ -22,6 +22,7 @@
 | `VM_DELETE_ZERO_PORT_ONE_ROOT` | PASS (Migration 087 regression) |
 | `VM_DELETE_ONE_STANDARD_PORT_ONE_ROOT` | PASS (Migration 089 qualification) |
 | `VM_DELETE_ROOT_PLUS_DATA` | PASS (Migration 090 qualification) |
+| `VM_DELETE_ONE_STANDARD_PORT_ROOT_PLUS_DATA` | PASS (Migration 089/090 composite qualification) |
 | `VM_DELETE_STANDARD_PORT_PROFILE` | NOT RUN / API rejects |
 | `VM_DELETE_MULTI_VOLUME_PROFILE` | NOT RUN / API rejects |
 | `VM_MULTI_PORT_MOBILITY` | NOT RUN |
