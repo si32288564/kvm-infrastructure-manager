@@ -1,6 +1,6 @@
 # ADR-0036: VM is a logical aggregate over physical incarnations
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-15
 
 ## Context

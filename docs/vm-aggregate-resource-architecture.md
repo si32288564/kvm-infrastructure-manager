@@ -1,6 +1,6 @@
 # VM Aggregate Resource Architecture
 
-- 状態: Proposed
+- 状態: Accepted（internal authority initial slice implemented）
 - 更新日: 2026-08-15
 - 対象: Phase 3 logical VM、Northbound API、Terraform Provider、Placement、Materialization、Power、Recovery、EVACUATE
 
@@ -56,7 +56,7 @@ Northbound caller は Host、Admission、allocation、plan、binding、LV UUID�
 
 ### 3.2 Missing authority
 
-現在は次が存在しません。
+Migration 082 より前は次が存在しませんでした。
 
 - Project-owned logical VM revision evidence と current projection
 - public VM desired と exact dependency revisions の immutable snapshot
@@ -67,7 +67,7 @@ Northbound caller は Host、Admission、allocation、plan、binding、LV UUID�
 - Recovery/EVACUATE が logical desired を変更しなかったことを示す stable association
 - Terraform VM schema、import、no-drift acceptance
 
-したがって `virtual_machines_current` を直接 `/api/v1/vms` として公開してはいけません。
+Migration 082 は logical revision、dependency snapshot、runtime intent、aggregate Operation、Admission/materialization binding、verification/terminal と rebuildable runtime binding を追加しました。`virtual_machines_current` は引き続き internal physical runtime projection であり、直接 `/api/v1/vms` として公開してはいけません。
 
 ## 4. Target authority model
 
@@ -459,9 +459,33 @@ Mandatory negative coverage:
 | mobility drift | architecture invariant only | explicit aggregate association and acceptance test |
 | delete | no public aggregate contract | quiescence/detach/absence/tombstone authority |
 
-## 23. Explicitly out of scope
+## 23. Implemented initial slice
 
-- Migration、Go implementation、OpenAPI endpoint、Provider code in this design change;
+Migration 082 と `internal/persistence/postgres/vm_aggregate.go` は、次の限定profileを実装・qualificationしました。
+
+```text
+logical VM revision 1
++ exact Flavor/Image/AvailabilityPolicy/PlacementScope snapshot
++ one exact VERIFIED boot Volume
++ zero Port
++ zero PCI
++ desired RUNNING
+→ compiled ordinary Placement request
+→ Availability-aware Final Admission
+→ generic VM materialization
+→ definition/image/zero-Port readiness
+→ RUNNING read-back
+→ aggregate verification VERIFIED
+→ aggregate terminal VERIFIED
+```
+
+callerはHost、Admission、backend、Binding、LV、READY、RUNNINGを供給しません。Final Admission後にattachment intentのcurrent evidence IDが進んでも、snapshotのREQUESTED evidenceとrequested attachment identityからimmutable lineageを検証します。
+
+未実装のまま残るものは Northbound/OpenAPI/Terraform、logical update/delete、one-Port profile、複数Volume、Recovery/EVACUATE no-drift aggregate associationです。initial internal sliceのqualification詳細は [Phase 3 VM Aggregate Internal Authority Qualification](validation/p3-vm-aggregate-internal-authority-20260815.md) を参照してください。
+
+## 24. Explicitly out of scope
+
+- Northbound/OpenAPI endpoint、Terraform Provider code、public RBAC/idempotency contract;
 - production VM/Host/backend mutation;
 - arbitrary Host pinning or physical resource selectors;
 - live resize、live attach/detach、reimage、rescue、snapshot、console implementation;
@@ -474,7 +498,7 @@ Mandatory negative coverage:
 - Recovery、EVACUATE、Cleanup authority rewrite;
 - existing historical evidence rewrite or automatic backend adoption.
 
-## 24. Related documents
+## 25. Related documents
 
 - [ADR-0036: VM is a logical aggregate over physical incarnations](adr/0036-vm-logical-aggregate-over-physical-incarnations.md)
 - [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md)
