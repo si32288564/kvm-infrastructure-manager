@@ -1,5 +1,7 @@
 # KIM VM Aggregate Phase 3 Readiness Review
 
+> Public contract completion addendum (2026-08-15): Migration 088, `/api/v1/vms`, and Terraform `kim_vm` now expose the qualified aggregate profile without physical incarnation fields. Create/replay/read/list/metadata/stale/delete fencing are qualified on PostgreSQL 17; Terraform 1.14.9 qualifies apply/no-op/power/import/no-physical-drift/destroy contract behavior. Port-attached and multi-Volume delete remain fail-closed. See [VM Northbound / Terraform qualification](../validation/p3-vm-northbound-terraform-resource-20260815.md) and [ADR-0037](../adr/0037-vm-northbound-and-terraform-contract.md).
+
 > Completion addendum (2026-08-15): Migration 082 implements and qualifies the first internal aggregate slice: exact logical revision/dependency snapshot/runtime intent, KIM-compiled zero-Port/one-root Placement, Availability-aware Final Admission, generic materialization, READY/RUNNING read-back verification and immutable aggregate terminal. Northbound VM and Terraform VM remain blocked. See [Phase 3 internal qualification](../validation/p3-vm-aggregate-internal-authority-20260815.md).
 
 > STANDARD Port addendum (2026-08-15): Migration 083 qualifies one logical STANDARD Port through exact dependency snapshot, Final Admission binding, attached OVN realization, typed OVS preboot observation and aggregate terminal drift fencing. Physical Port incarnation remains outside logical VM desired state. See [one STANDARD Port qualification](../validation/p3-vm-aggregate-one-standard-port-20260815.md).
@@ -24,8 +26,8 @@ PHASE3_VM_AGGREGATE_DESIGN          = ACCEPTED
 PHASE3_VM_INTERNAL_INITIAL_SLICE    = IMPLEMENTED
 VM_AGGREGATE_EVACUATE_NO_DRIFT      = PASS
 VM_AGGREGATE_RECOVERY_NO_DRIFT      = PASS
-NORTHBOUND_VM_RESOURCE     = BLOCKED
-TERRAFORM_VM_RESOURCE      = BLOCKED
+NORTHBOUND_VM_RESOURCE     = PASS (bounded qualified profile)
+TERRAFORM_VM_RESOURCE      = PASS (bounded qualified profile)
 ```
 
 Implementation did not serialize `virtual_machines_current`. Migration 082 added the logical aggregate producer and terminal while retaining that table as an internal runtime projection. The remaining public resource work must preserve the same boundary.

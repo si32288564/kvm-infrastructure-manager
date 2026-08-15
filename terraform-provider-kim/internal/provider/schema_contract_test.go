@@ -28,6 +28,7 @@ func TestResourceSchemasMatchNorthboundContract(t *testing.T) {
 		{"kim_subnet", NewSubnetResource(), []string{"client_reference", "project_id", "network_id", "name", "ip_family", "cidr", "gateway_policy", "allocation_policy", "dhcp_enabled"}, []string{"gateway_address", "allocation_start", "allocation_end", "reserved_addresses", "dns_servers", "delete_protection"}, []string{"id", "revision", "realization_state", "created_at", "updated_at"}},
 		{"kim_port", NewPortResource(), []string{"client_reference", "project_id", "network_id", "name", "mac_policy", "ip_allocation_mode", "attachment_policy", "datapath_profile"}, []string{"requested_mac", "subnet_id", "requested_ip", "delete_protection"}, []string{"id", "revision", "realization_state", "created_at", "updated_at"}},
 		{"kim_volume", NewVolumeResource(), []string{"client_reference", "project_id", "name", "size_bytes", "storage_class_id", "storage_class_revision", "bootable", "source_type"}, []string{"source_image_id", "source_image_revision", "source_artifact_digest", "delete_protection"}, []string{"id", "revision", "realization_state", "created_at", "updated_at"}},
+		{"kim_vm", NewVMResource(), []string{"client_reference", "project_id", "name", "flavor_id", "flavor_revision", "image_id", "image_revision", "availability_policy_id", "availability_policy_revision", "placement_scope_id", "placement_scope_generation", "root_volume", "ports", "data_volumes", "desired_power_state"}, []string{"delete_protection"}, []string{"id", "revision", "runtime_intent_generation", "lifecycle_state", "convergence_state", "created_at", "updated_at"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,7 +77,7 @@ func TestOpenAPIImportFormatsAndImageRevisionPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	schemas := document["components"].(map[string]any)["schemas"].(map[string]any)
-	wantImports := map[string]string{"Project": "project/<uuid>", "Flavor": "flavor/<uuid>", "AvailabilityPolicy": "availability-policy/<uuid>", "Image": "image/<uuid>", "Network": "network/<uuid>", "Subnet": "subnet/<uuid>", "Port": "port/<uuid>", "Volume": "volume/<uuid>"}
+	wantImports := map[string]string{"Project": "project/<uuid>", "Flavor": "flavor/<uuid>", "AvailabilityPolicy": "availability-policy/<uuid>", "Image": "image/<uuid>", "Network": "network/<uuid>", "Subnet": "subnet/<uuid>", "Port": "port/<uuid>", "Volume": "volume/<uuid>", "VM": "vm/<uuid>"}
 	for name, want := range wantImports {
 		resourceContract := schemas[name].(map[string]any)["x-kim-resource"].(map[string]any)
 		if got := resourceContract["importIdentifierFormat"]; got != want {

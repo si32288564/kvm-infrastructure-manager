@@ -177,7 +177,7 @@ KIM-owned runtime の例は exact pCPU/NUMA/HugePages/PMD/RxQ claim、vhost-user
 
 ### 6.1 Provider と module の分離
 
-`terraform-provider-kim/` は versioned KIM Resource API の thin lifecycle clientとして、Project、Flavor、closed SYSTEM Availability Policy、Imageに加えて、Phase 2のNetwork、Subnet、unattached Port、backend-neutral Volumeを公開します。Migration 081とpublic serviceはRBAC/idempotency/audit/OpenAPI/list/import/Operation projectionを提供し、Providerはverified terminalまでOperationをpollします。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。VM、Port attachment、Router/Floating IP、Volume resize/Cephは引き続き未公開です。VMの次期aggregate contractは [VM Aggregate Resource Architecture](vm-aggregate-resource-architecture.md) に定義します。
+`terraform-provider-kim/` は versioned KIM Resource API の thin lifecycle clientとして、Project、Flavor、closed SYSTEM Availability Policy、Image、Phase 2のNetwork、Subnet、unattached Port、backend-neutral Volume、およびbounded Phase 3 `kim_vm` を公開します。Migration 081/088とpublic serviceはRBAC/idempotency/audit/OpenAPI/list/import/Operation projectionを提供し、Providerはverified terminalまでOperationをpollします。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。VM Port attachmentの独立mutation、Router/Floating IP、Volume resize/Cephは引き続き未公開です。VM aggregate contractは [VM Aggregate Resource Architecture](vm-aggregate-resource-architecture.md) と [ADR-0037](adr/0037-vm-northbound-and-terraform-contract.md) に定義します。
 
 Terraform module は organization の標準 VM、network、storage、availability、datapath profile の組み合わせを提供できます。module は physical Host identity、LV UUID、PCI BDF 等を入力に要求せず、Provider の lifecycle rule を上書きしません。
 
@@ -218,7 +218,7 @@ immutable field の変更が replacement を必要とするか、in-place asynch
 
 Phase 1 ProviderはTerraform Plugin Framework v1.19.0を使用し、Bearer automation token、TLS trust、request timeout、Problem Details、ETag/If-Match、cross-process Create idempotency、authorized refresh、contract importを共通clientへ集約します。provider `client_id`とresourceごとのwrite-only `client_reference`からstable Idempotency-Keyを再構成し、KIMがcanonical desired digestへbindします。display nameはrecovery identityではなく、client referenceもKIM resource authorityではありません。Imageだけはmetadata commit後にseparate ingestion Operationを作り、`UNKNOWN`をnon-terminalとしてverified `SUCCEEDED`までbounded pollします。Operation/Attempt/evidence identityはresource stateへ保存しません。
 
-Terraform CLI acceptanceはlocal filesystem mirrorからprovider binaryをロードし、実HTTP KIM handlerとPostgreSQL 17へ接続します。Phase 1はProject/Flavor/Availability/Image、Phase 2はNetwork/Subnet/unattached Port/backend-neutral Volumeについてcreate、no-op、revision update、remote drift、stale ETag fail-closed、import no-op、destroy、async read-back、physical-state非漏洩を検証済みです。VMおよびproduction Registry releaseはqualifyしていません。
+Terraform CLI acceptanceはlocal filesystem mirrorからprovider binaryをロードします。Phase 1はProject/Flavor/Availability/Image、Phase 2はNetwork/Subnet/unattached Port/backend-neutral Volumeについて実HTTP/PostgreSQL 17 campaignを検証済みです。Phase 3 `kim_vm` はPostgreSQL 17 public adapter campaignとTerraform 1.14.9 deterministic HTTP lifecycle campaignを分離して、create replay、no-op、power、stale fencing、import、destroy、physical-state非漏洩を検証済みです。production Registry releaseとproduction VMはqualifyしていません。
 
 ## 7. Persistent Resource and Operation Separation
 

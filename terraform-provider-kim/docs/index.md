@@ -56,6 +56,7 @@ terraform import kim_network.example network/<uuid>
 terraform import kim_subnet.example subnet/<uuid>
 terraform import kim_port.example port/<uuid>
 terraform import kim_volume.example volume/<uuid>
+terraform import kim_vm.example vm/<uuid>
 ```
 
 Import performs authorized logical Read. It never adopts Host-local/backend objects. Configuration must still contain all required desired fields; a matching import produces a no-op plan.

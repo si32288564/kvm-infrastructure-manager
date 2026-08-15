@@ -8,4 +8,4 @@ Create recovery is process-safe: a stable provider `client_id` plus each resourc
 
 The local source address is `registry.terraform.io/kvm-infrastructure-manager/kim`. Registry publication is out of scope; qualification installs the local binary through a Terraform filesystem mirror.
 
-See [provider usage](docs/index.md), the [Phase 1 example](examples/phase1/main.tf), the [Phase 2 example](examples/phase2/main.tf), and the [Phase 2 validation report](../docs/validation/p2-northbound-terraform-resource-contract-20260815.md).
+See [provider usage](docs/index.md), the [Phase 1 example](examples/phase1/main.tf), the [Phase 2 example](examples/phase2/main.tf), the [VM resource](docs/resources/vm.md), and the [Phase 3 VM validation report](../docs/validation/p3-vm-northbound-terraform-resource-20260815.md).

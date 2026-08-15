@@ -52,4 +52,5 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0033: Port identity、attachment、realization authority を分離する](0033-independent-port-identity-attachment-and-realization-authority.md)
 - [ADR-0034: Volume、capacity、materialization、attachment authority を分離する](0034-independent-volume-capacity-materialization-and-attachment-authority.md)
 - [ADR-0035: Phase 2 Northbound logical resource contract](0035-phase2-northbound-logical-resource-contract.md)
-- [ADR-0036: VM is a logical aggregate over physical incarnations](0036-vm-logical-aggregate-over-physical-incarnations.md)（Proposed）
+- [ADR-0036: VM is a logical aggregate over physical incarnations](0036-vm-logical-aggregate-over-physical-incarnations.md)
+- [ADR-0037: VM public contract consumes the verified aggregate authority](0037-vm-northbound-and-terraform-contract.md)

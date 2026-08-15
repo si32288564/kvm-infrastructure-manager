@@ -21,6 +21,7 @@ import (
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/phase2"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/project"
 	"github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/resource"
+	vmapi "github.com/kvm-infrastructure-manager/kvm-infrastructure-manager/internal/northbound/vm"
 )
 
 const (
@@ -36,6 +37,7 @@ type Server struct {
 	AvailabilityPolicies availabilitypolicy.Service
 	Images               imageapi.Service
 	Phase2               phase2.Service
+	VMs                  vmapi.Service
 	Authenticator        auth.Authenticator
 	Logger               io.Writer
 	RequestTimeout       time.Duration
@@ -77,6 +79,11 @@ func (s Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/images/{image_id}", s.deleteImage)
 	mux.HandleFunc("POST /api/v1/images/{image_id}/ingestions", s.ingestImage)
 	mux.HandleFunc("GET /api/v1/operations/{operation_id}", s.getOperation)
+	mux.HandleFunc("POST /api/v1/vms", s.createVM)
+	mux.HandleFunc("GET /api/v1/vms", s.listVMs)
+	mux.HandleFunc("GET /api/v1/vms/{vm_id}", s.getVM)
+	mux.HandleFunc("PATCH /api/v1/vms/{vm_id}", s.patchVM)
+	mux.HandleFunc("DELETE /api/v1/vms/{vm_id}", s.deleteVM)
 	for _, binding := range []struct {
 		plural string
 		kind   phase2.Kind
@@ -89,6 +96,109 @@ func (s Server) Handler() http.Handler {
 		mux.HandleFunc("DELETE /api/v1/"+plural+"/{resource_id}", func(w http.ResponseWriter, r *http.Request) { s.deletePhase2(w, r, kind) })
 	}
 	return s.requestContext(s.recover(mux))
+}
+
+func (s Server) createVM(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "VM_CREATE")
+	if !ok {
+		return
+	}
+	var desired vmapi.Desired
+	if err := decodeJSON(r, &desired); err != nil {
+		s.writeProblem(w, r, resource.ErrValidation)
+		return
+	}
+	out, _, err := s.VMs.Create(r.Context(), p, vmapi.CreateRequest{Desired: desired, IdempotencyKey: r.Header.Get("Idempotency-Key"), RequestID: requestID(r), CanonicalPath: "/api/v1/vms"})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	w.Header().Set("Location", "/api/v1/vms/"+out.ID)
+	writeJSON(w, 201, out)
+}
+func (s Server) getVM(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "VM_READ")
+	if !ok {
+		return
+	}
+	out, err := s.VMs.Get(r.Context(), p, r.PathValue("vm_id"), requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	writeJSON(w, 200, out)
+}
+func (s Server) listVMs(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "VM_LIST")
+	if !ok {
+		return
+	}
+	limit, after, err := parsePage(r, map[string]bool{"limit": true, "cursor": true, "projectId": true})
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	page, err := s.VMs.List(r.Context(), p, vmapi.ListRequest{ProjectID: r.URL.Query().Get("projectId"), AfterID: after, Limit: limit}, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	response := struct {
+		Items      []vmapi.Resource `json:"items"`
+		NextCursor string           `json:"nextCursor,omitempty"`
+	}{Items: page.Items}
+	if page.NextAfter != "" {
+		response.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(page.NextAfter))
+	}
+	writeJSON(w, 200, response)
+}
+func (s Server) patchVM(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "VM_UPDATE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	patch, err := decodeVMPatch(r)
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	out, err := s.VMs.Patch(r.Context(), p, r.PathValue("vm_id"), revision, patch, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("ETag", etag(out.Revision))
+	if out.OperationID != "" && out.ConvergenceState != "CONVERGED" {
+		w.Header().Set("Location", "/api/v1/operations/"+out.OperationID)
+		writeJSON(w, 202, out)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+func (s Server) deleteVM(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authenticate(w, r, "VM_DELETE")
+	if !ok {
+		return
+	}
+	revision, err := parseIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	op, err := s.VMs.Delete(r.Context(), p, r.PathValue("vm_id"), revision, requestID(r))
+	if err != nil {
+		s.writeProblem(w, r, err)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/operations/"+op.ID)
+	writeJSON(w, 202, op)
 }
 
 func (s Server) createPhase2(w http.ResponseWriter, r *http.Request, k phase2.Kind) {
@@ -313,6 +423,17 @@ func (s Server) getOperation(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.authenticate(w, r, "OPERATION_READ")
 	if !ok {
 		return
+	}
+	if s.VMs.Store != nil {
+		out, err := s.VMs.GetOperation(r.Context(), p, r.PathValue("operation_id"), requestID(r))
+		if err == nil {
+			writeJSON(w, 200, out)
+			return
+		}
+		if !errors.Is(err, resource.ErrNotFound) {
+			s.writeProblem(w, r, err)
+			return
+		}
 	}
 	if s.Phase2.Store != nil {
 		out, err := s.Phase2.GetOperation(r.Context(), p, r.PathValue("operation_id"), requestID(r))
@@ -1059,6 +1180,42 @@ func decodePhase2Patch(request *http.Request) (phase2.Patch, error) {
 				return p, resource.ErrValidation
 			}
 			p.MTU = &v
+		default:
+			return p, resource.ErrValidation
+		}
+	}
+	return p, nil
+}
+
+func decodeVMPatch(request *http.Request) (vmapi.Patch, error) {
+	var fields map[string]json.RawMessage
+	if err := decodeJSON(request, &fields); err != nil || len(fields) == 0 {
+		return vmapi.Patch{}, resource.ErrValidation
+	}
+	var p vmapi.Patch
+	for name, raw := range fields {
+		if string(raw) == "null" {
+			return p, resource.ErrValidation
+		}
+		switch name {
+		case "name":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.Name = &v
+		case "deleteProtection":
+			var v bool
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.DeleteProtection = &v
+		case "desiredPowerState":
+			var v string
+			if json.Unmarshal(raw, &v) != nil {
+				return p, resource.ErrValidation
+			}
+			p.DesiredPowerState = &v
 		default:
 			return p, resource.ErrValidation
 		}

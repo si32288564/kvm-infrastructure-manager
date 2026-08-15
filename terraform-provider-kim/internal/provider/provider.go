@@ -69,7 +69,7 @@ func (p *kimProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	resp.DataSourceData = c
 }
 func (p *kimProvider) Resources(context.Context) []func() resource.Resource {
-	return []func() resource.Resource{NewProjectResource, NewFlavorResource, NewAvailabilityPolicyResource, NewImageResource, NewNetworkResource, NewSubnetResource, NewPortResource, NewVolumeResource}
+	return []func() resource.Resource{NewProjectResource, NewFlavorResource, NewAvailabilityPolicyResource, NewImageResource, NewNetworkResource, NewSubnetResource, NewPortResource, NewVolumeResource, NewVMResource}
 }
 func (p *kimProvider) DataSources(context.Context) []func() datasource.DataSource { return nil }
 func stringValue(v types.String, fallback string) string {

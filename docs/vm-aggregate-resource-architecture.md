@@ -336,6 +336,8 @@ Providerはverified delete terminalまたはcontract-defined tombstone/not-found
 
 ## 15. Northbound API contract
 
+Migration 088 and ADR-0037 implement this surface for the bounded qualified profile. The public projection remains logical-only; the physical-incarnation exclusions below are enforced by OpenAPI and Provider contract tests.
+
 Proposed initial surface:
 
 ```text
@@ -449,19 +451,19 @@ Mandatory negative coverage:
 - delete before SHUTOFF/detach/domain absence;
 - immutable evidence UPDATE rejection.
 
-## 22. Current vs proposed
+## 22. Current implementation and remaining expansion
 
-| Area | Current | Proposed Phase 3 |
+| Area | Implemented | Remaining expansion |
 |---|---|---|
-| logical VM producer | absent | immutable Project-owned revisions/current/tombstone |
-| VM current state | internal runtime row mixes desired and physical pointer | logical desired and runtime binding separated |
-| dependencies | embedded across Admission/plan/current tables | exact immutable aggregate snapshot |
-| create orchestration | fixture/internal callers invoke each producer | one aggregate Operation consumes existing producers |
-| terminal | subsystem-specific readiness/power/Recovery/EVACUATE terminals | pure VM aggregate verification/terminal |
-| public API | absent | `/api/v1/vms` logical contract |
-| Terraform | absent | `kim_vm` logical state with Operation polling |
-| mobility drift | architecture invariant only | explicit aggregate association and acceptance test |
-| delete | zero-Port/one-ROOT internal authority | Port/multi-Volume拡張後にpublic quiescence/detach/absence/tombstone contract |
+| logical VM producer | immutable Project-owned revisions/current/tombstone | live dependency mutation |
+| VM current state | logical desired and runtime binding separated | none for the qualified profile |
+| dependencies | exact immutable aggregate snapshot | cardinality/profile expansion |
+| create orchestration | one aggregate Operation consumes existing producers | HIGH_PERFORMANCE/DIRECT_IO |
+| terminal | pure VM aggregate verification/terminal | larger dependency sets |
+| public API | `/api/v1/vms` bounded logical contract | attachment-specific actions |
+| Terraform | `kim_vm` logical state with Operation polling | production registry release |
+| mobility drift | Recovery/EVACUATE association and no-drift qualification | multi-Port/multi-Volume mobility |
+| delete | public zero-Port/one-ROOT verified delete | Port/multi-Volume delete |
 
 ## 23. Implemented internal profiles
 
@@ -495,11 +497,10 @@ Migration 086ではVolume集合をone ROOT plus one DATAまで一般化します
 
 Recovery network verification digestはNB/SB/OVS/dataplane/source-quiescence/handoff集合、EVACUATE network verification digestはdestination preboot OVS集合です。consumerは両者を同じdigest algorithmと誤認せず、Recovery terminal digestをcurrent readinessへexact bindしたうえで、logical Port revision/digestとdestination preboot evidenceを独立に再検証します。
 
-未実装のまま残るものは Northbound/OpenAPI/Terraform、logical update/delete、multi-Port/multi-Volume mobilityです。qualification詳細は [Phase 3 VM Aggregate Internal Authority Qualification](validation/p3-vm-aggregate-internal-authority-20260815.md)、[one STANDARD Port qualification](validation/p3-vm-aggregate-one-standard-port-20260815.md)、[multi STANDARD Port qualification](validation/p3-vm-aggregate-multi-standard-port-20260815.md)、[DATA Volume qualification](validation/p3-vm-aggregate-data-volume-20260815.md)、[planned EVACUATE no-drift qualification](validation/p3-vm-aggregate-evacuate-no-drift-20260815.md)、[Recovery no-drift qualification](validation/p3-vm-aggregate-recovery-no-drift-20260815.md) を参照してください。
+Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。OpenAPI `/api/v1/vms` と Terraform `kim_vm` もbounded profileでqualification済みです。未実装のまま残るものはPort付き/multi-Volume deleteとmulti-Port/multi-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
 
 ## 24. Explicitly out of scope
 
-- Northbound/OpenAPI endpoint、Terraform Provider code、public RBAC/idempotency contract;
 - production VM/Host/backend mutation;
 - arbitrary Host pinning or physical resource selectors;
 - live resize、live attach/detach、reimage、rescue、snapshot、console implementation;
@@ -515,6 +516,7 @@ Recovery network verification digestはNB/SB/OVS/dataplane/source-quiescence/han
 ## 25. Related documents
 
 - [ADR-0036: VM is a logical aggregate over physical incarnations](adr/0036-vm-logical-aggregate-over-physical-incarnations.md)
+- [ADR-0037: VM public contract consumes the verified aggregate authority](adr/0037-vm-northbound-and-terraform-contract.md)
 - [Infrastructure Lifecycle and IaC Architecture](infrastructure-lifecycle-iac-architecture.md)
 - [API Design Principles](api-principles.md)
 - [Placement Architecture](placement-architecture.md)
