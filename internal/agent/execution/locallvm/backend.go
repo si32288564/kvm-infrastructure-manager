@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	CommandType   = "LOCAL_LVM_VOLUME_ENSURE"
-	SchemaVersion = "kim.command.local-lvm-volume-ensure/v1"
-	StatePresent  = "PRESENT"
-	MiB           = uint64(1024 * 1024)
+	CommandType           = "LOCAL_LVM_VOLUME_ENSURE"
+	SchemaVersion         = "kim.command.local-lvm-volume-ensure/v1"
+	ReadBackCommandType   = "LOCAL_LVM_VOLUME_READ_BACK"
+	ReadBackSchemaVersion = "kim.command.local-lvm-volume-read-back/v1"
+	StatePresent          = "PRESENT"
+	MiB                   = uint64(1024 * 1024)
 )
 
 var volumeTargetPattern = regexp.MustCompile(`^volume:([a-zA-Z0-9][a-zA-Z0-9._-]{0,127})$`)
@@ -48,6 +50,44 @@ type request struct {
 type Backend struct {
 	Client       Client
 	VolumeGroups map[string]string // immutable admin mapping: VG UUID -> VG name
+}
+
+// ReadBackBackend has the same closed identity contract as Backend but never
+// creates an LV. It is the only permitted successor action after an unknown
+// ensure response.
+type ReadBackBackend struct{ Backend }
+
+func (ReadBackBackend) CommandType() string   { return ReadBackCommandType }
+func (ReadBackBackend) SchemaVersion() string { return ReadBackSchemaVersion }
+
+func (backend ReadBackBackend) Execute(ctx context.Context, lease contract.CommandLease) (agentexecution.BackendResult, error) {
+	decoded, err := backend.decode(lease.TargetResourceID, lease.CommandPayload)
+	if err != nil {
+		return agentexecution.BackendResult{}, err
+	}
+	if err := backend.Client.VerifyVolumeGroup(ctx, decoded.vgName, decoded.request.VGUUID); err != nil {
+		return agentexecution.BackendResult{}, err
+	}
+	observation, err := backend.observe(ctx, decoded, lease.TargetResourceID, lease.AttemptIndex)
+	if err != nil {
+		return agentexecution.BackendResult{}, err
+	}
+	outcome := "UNKNOWN"
+	if observation.State == "MATCHED" {
+		outcome = "SUCCEEDED"
+	}
+	return agentexecution.BackendResult{Outcome: outcome, Result: observation.Evidence, Observation: observation}, nil
+}
+
+func (backend ReadBackBackend) Observe(ctx context.Context, request contract.VerificationRequest) (contract.Observation, error) {
+	decoded, err := backend.decode(request.TargetResourceID, request.CommandPayload)
+	if err != nil {
+		return contract.Observation{}, err
+	}
+	if err := backend.Client.VerifyVolumeGroup(ctx, decoded.vgName, decoded.request.VGUUID); err != nil {
+		return contract.Observation{}, err
+	}
+	return backend.observe(ctx, decoded, request.TargetResourceID, request.AttemptIndex)
 }
 
 func (Backend) CommandType() string   { return CommandType }

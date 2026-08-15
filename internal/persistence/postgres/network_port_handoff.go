@@ -96,6 +96,7 @@ func AcceptNetworkPortSourceQuiescence(ctx context.Context, db TxBeginner, o Net
 func isReadOnlyVerificationCommand(commandType, schemaVersion string) bool {
 	return (commandType == SourceRootSafetyReadBackCommandType && schemaVersion == SourceRootSafetyReadBackSchema) ||
 		(commandType == ovsnetwork.DataplaneCommandType && schemaVersion == ovsnetwork.DataplaneSchemaVersion) ||
+		(commandType == locallvm.ReadBackCommandType && schemaVersion == locallvm.ReadBackSchemaVersion) ||
 		(commandType == locallvm.DeleteReadBackType && schemaVersion == locallvm.DeleteReadBackSchema)
 }
 

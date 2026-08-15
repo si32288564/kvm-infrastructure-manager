@@ -414,6 +414,16 @@
 | STO-027 | Storage capacityをPostgreSQL reserved/allocated ledgerとbackend observed/external usageへ分離し、Final Admissionで不可分claimしbackend delete確認まで再利用しない | Must |
 | STO-028 | Local LVM create は closed typed Command と KIM-owned LV key のみを使用し、実 LVM read-back の VG/LV UUID evidence が一致した場合だけ current Backend Binding を BOUND にする | Must |
 | STO-029 | Local LVM attach/detach は closed typed libvirt Command を使用し、current BOUND Binding、SINGLE_WRITER Claim、Domain device identity、LVM open-holder evidence が一致した場合だけ ATTACHED/DETACHED と Claim transition を確定する | Must |
+| STO-030 | VolumeをPlacement Admissionから独立したstable ID、Project ownership、immutable desired revision、current projectionとして管理する | Must |
+| STO-031 | Volume desiredにHost/backend/VG/LV/path、Binding/Attachment/Materialization/Copy/Cleanup generationを含めない | Must |
+| STO-032 | capacity allocationをexact Volume revision、Storage Class revision、backend/capacity observationにbindしたKIM immutable decisionとする | Must |
+| STO-033 | standalone Volume materializationをclosed typed Operation/Claim/Attempt/Observation/Terminalで収束させ、response loss後はread-back firstとする | Must |
+| STO-034 | persistent Volume existenceとworkload Attachment Intent/physical Attachmentを別authority/generationとし、unattached AVAILABLEを正当とする | Must |
+| STO-035 | Final Admissionはexisting Volumeのexact current revision/allocation/materialization/binding/attachment intentだけをconsumeし、不一致をfail closedにする | Must |
+| STO-036 | exact同一Volumeの予約bytesだけをFinal Admission追加需要から控除し、capacity claim自体をfree/releaseしない | Must |
+| STO-037 | Local LVM relocationでphysical Binding/LV UUIDが変わってもlogical Volume ID/revisionをdesired driftにしない | Must |
+| STO-038 | logical delete、backend retire、exact absence、capacity release、tombstoneを順序付け、backend responseだけでcapacityを再利用しない | Must |
+| STO-039 | Image-backed Volumeはexact VERIFIED Image revision/digestをsource intentに固定し、後続Image revisionをretrofitしない | Must |
 
 ### 2.15 Operation、Event、Notification
 

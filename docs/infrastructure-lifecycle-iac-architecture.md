@@ -8,7 +8,7 @@
 
 本書は KIM を IaC-first な KVM Infrastructure Control Plane として利用するための将来設計 SSOT です。Terraform、Ansible、管理 UI、KIM、Host Agent、各 backend の責務を分離し、同じ resource lifecycle contract から API、Terraform Provider、UI を構成します。
 
-`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073–075 の Project、Flavor、SYSTEM Availability Policy API はcurrent multi-resource referenceです。Provider、UI、Image/他resource API、backend Operation projectionは引き続きproposedまたはblockedです。
+`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073–076 の Project、Flavor、SYSTEM Availability Policy、Image APIとPhase 1 Providerはcurrent referenceです。Migration 077–080でNetwork/Subnet/Port/Volumeのinternal Resource Contractは`CONTRACT_READY`ですが、これらのpublic API/Provider、UI、VM aggregateは引き続proposedまたはblockedです。
 
 ## 2. 中核原則
 
@@ -177,7 +177,7 @@ KIM-owned runtime の例は exact pCPU/NUMA/HugePages/PMD/RxQ claim、vhost-user
 
 ### 6.1 Provider と module の分離
 
-`terraform-provider-kim/` Phase 1 は versioned KIM Resource API の thin lifecycle clientとして実装済みです。Project、Flavor、closed SYSTEM Availability Policy、Imageだけをexperimental resourceとして公開します。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。Network、Volume、VM等はResource Contract未完了のため未実装です。
+`terraform-provider-kim/` Phase 1 は versioned KIM Resource API の thin lifecycle clientとして実装済みです。Project、Flavor、closed SYSTEM Availability Policy、Imageだけをexperimental resourceとして公開します。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。Network/Subnet/Port/Volumeはinternal contractが揃いましたが、public RBAC/idempotency/audit/OpenAPI/list/import/Operation projectionとProvider acceptanceが未実装のため未公開です。VMもPhase 2 public surfaceとaggregate lifecycleを待ちます。
 
 Terraform module は organization の標準 VM、network、storage、availability、datapath profile の組み合わせを提供できます。module は physical Host identity、LV UUID、PCI BDF 等を入力に要求せず、Provider の lifecycle rule を上書きしません。
 

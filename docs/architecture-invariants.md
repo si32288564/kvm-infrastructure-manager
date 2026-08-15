@@ -255,6 +255,15 @@
 | INV-STO-019 | Storage capacityはtransactional ledgerでclaimし、stale/UNKNOWN backend usageを空きへ丸めずbackend absence前に再利用しない | FI-STORAGE-017 |
 | INV-STO-020 | Local LVM の予約名を LV identity とみなさず、typed read-back の Host/VG/LV UUID、size、Binding generation が一致した immutable evidence だけを current BOUND authority へ昇格する | FI-STORAGE-018 |
 | INV-STO-021 | libvirt attach/detach response 単独では Attachment authority を変更せず、current generation の Binding/Claim と device identity/LVM holder の typed read-back が一致してから ATTACHED/DETACHED と ACTIVE/RELEASED を不可分に確定し、stale observation は current authority を変更できない | FI-STORAGE-019 |
+| INV-STO-022 | logical Volume ID/revisionはimmutable desiredだけを表し、Host/backend/VG/LV/pathまたはphysical generation変化で進めない | AT-STO-026 |
+| INV-STO-023 | capacity allocationはexact Volume/Class/backend/capacity generationのimmutable decisionであり、reservationはfree capacityではない | AT-STO-027 |
+| INV-STO-024 | materializationはexact typed read-back terminalだけをVERIFIED/ABSENTとし、response/exit statusまたは予約名をconvergenceにしない | AT-STO-028 |
+| INV-STO-025 | VolumeはAttachmentなしでAVAILABLEになれ、Attachment intentとphysical Attachmentは独立generationを持つ | AT-STO-029 |
+| INV-STO-026 | Final Admissionはexact current Volume revision/allocation/materialization/binding/intentだけをconsumeし、stale/released/conflicting/superseded authorityをadoptしない | AT-STO-030 |
+| INV-STO-027 | Final Admissionの追加需要は同一Volumeのexact current reservationだけを控除し、ledger claimをreleaseまたはfreeに戻さない | AT-STO-030 |
+| INV-STO-028 | physical relocation/copy/cleanupはlogical Volume desired revisionを更新せず、Migrations 068–072のexact incarnation evidenceを再利用する | AT-STO-031 |
+| INV-STO-029 | exact backend ABSENT terminalの前にcapacity release/tombstoneを行わず、old cleanupがnew/foreign LVを削除しない | AT-STO-032 |
+| INV-STO-030 | Image-backed Volumeはcreate時のexact VERIFIED Image revision/digestを保持し、Image current更新でsilent retrofitしない | AT-STO-033 |
 
 ### NFV Dataplane
 

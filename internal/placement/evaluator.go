@@ -54,12 +54,17 @@ type NetworkRequirement struct {
 
 type StorageRequirement struct {
 	VolumeID, AttachmentID, BackendID, VGUUID, StorageClassID string
+	CapacityAllocationID                                      string
 	BackendGeneration, StorageClassRevision                   uint64
 	CapacityGeneration, AttachmentGeneration                  uint64
+	CapacityAllocationGeneration                              uint64
+	AttachmentIntentGeneration                                uint64
 	FencingPolicyRevision                                     uint64
 	SizeBytes                                                 uint64
 	AccessMode                                                string
 	Bootable                                                  bool
+	VolumeRevision                                            uint64
+	AttachmentIntentID                                        string
 }
 
 type PCIDeviceAuthority struct {
@@ -99,6 +104,7 @@ type StorageAuthority struct {
 	SingleWriterAllowed                                          bool
 	ThinProvisioning, EncryptionRequired                         bool
 	VolumeConflict, AttachmentConflict                           bool
+	ResourceConsumerReady                                        bool
 }
 
 type AuthoritySnapshot struct {
@@ -198,7 +204,8 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 	sort.Slice(request.Storage, func(i, j int) bool { return request.Storage[i].VolumeID < request.Storage[j].VolumeID })
 	attachments := map[string]struct{}{}
 	for index, required := range request.Storage {
-		if required.VolumeID == "" || required.AttachmentID == "" || required.BackendID == "" || required.VGUUID == "" || required.BackendGeneration == 0 || required.StorageClassID == "" || required.StorageClassRevision == 0 || required.CapacityGeneration == 0 || required.AttachmentGeneration == 0 || required.FencingPolicyRevision == 0 || required.SizeBytes == 0 || required.AccessMode != "SINGLE_WRITER" || (index > 0 && request.Storage[index-1].VolumeID == required.VolumeID) {
+		resourceContract := (required.VolumeRevision == 0 && required.AttachmentIntentID == "" && required.AttachmentIntentGeneration == 0 && required.CapacityAllocationID == "" && required.CapacityAllocationGeneration == 0) || (required.VolumeRevision > 0 && required.AttachmentIntentID != "" && required.AttachmentIntentGeneration > 0 && required.CapacityAllocationID != "" && required.CapacityAllocationGeneration > 0)
+		if required.VolumeID == "" || required.AttachmentID == "" || required.BackendID == "" || required.VGUUID == "" || required.BackendGeneration == 0 || required.StorageClassID == "" || required.StorageClassRevision == 0 || required.CapacityGeneration == 0 || required.AttachmentGeneration == 0 || required.FencingPolicyRevision == 0 || required.SizeBytes == 0 || required.AccessMode != "SINGLE_WRITER" || !resourceContract || (index > 0 && request.Storage[index-1].VolumeID == required.VolumeID) {
 			return Evaluation{}, fmt.Errorf("invalid or duplicate Storage requirement for Volume %q", required.VolumeID)
 		}
 		if _, duplicate := attachments[required.AttachmentID]; duplicate {
@@ -289,6 +296,7 @@ func Evaluate(request Request, authority AuthoritySnapshot) (Evaluation, error) 
 		addReason(ledgerAvailable < required.SizeBytes, prefix+"insufficient_capacity")
 		addReason(storage.VolumeConflict, prefix+"volume_conflict")
 		addReason(storage.AttachmentConflict, prefix+"attachment_conflict")
+		addReason(required.VolumeRevision > 0 && !storage.ResourceConsumerReady, prefix+"volume_resource_not_ready")
 	}
 
 	capacity, capacityReasons := extractCapacity(authority.Inventory, request)

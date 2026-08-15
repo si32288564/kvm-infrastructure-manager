@@ -236,6 +236,7 @@ RequirementからArchitecture、ADR、Invariant、Acceptance/Fault/Conformance T
 | STO-025 | storage-attachment-fencing-architecture, failure-model | ADR-0010, ADR-0019 | INV-STO-017 | AT-STO-018, FI-STORAGE-014, XCT-STO-002, XCT-STO-004 | Planned |
 | STO-026 | storage-attachment-fencing-architecture, security | ADR-0019 | INV-STO-018 | AT-STO-019, FI-STORAGE-015, FI-STORAGE-016, XCT-STO-003 | Planned |
 | STO-027 | storage-attachment-fencing-architecture, placement-architecture | ADR-0006, ADR-0019 | INV-STO-019, INV-PLC-004 | AT-STO-023, FI-STORAGE-017 | Partial (reserved ledger and observed/external capacity admission implemented; verified release/reuse pending) |
+| STO-030, STO-031, STO-032, STO-033, STO-034, STO-035, STO-036, STO-037, STO-038, STO-039 | storage-attachment-fencing-architecture, infrastructure-lifecycle-iac-architecture, placement-architecture, execution-architecture | ADR-0019, ADR-0025, ADR-0027, ADR-0034 | INV-STO-022, INV-STO-023, INV-STO-024, INV-STO-025, INV-STO-026, INV-STO-027, INV-STO-028, INV-STO-029, INV-STO-030 | AT-STO-026, AT-STO-027, AT-STO-028, AT-STO-029, AT-STO-030, AT-STO-031, AT-STO-032, AT-STO-033 | Implemented (Migration 080; PostgreSQL 17 synthetic desired/capacity/materialization/Final Admission/retirement; Migrations 068–072 regression; public API/provider and real two-Host campaign pending) |
 
 ### NFV Dataplane
 

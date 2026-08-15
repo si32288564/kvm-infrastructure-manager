@@ -622,7 +622,7 @@ func evaluatePlacementTx(ctx context.Context, row QueryRower, request PlacementA
 		}
 	}
 	for _, required := range request.Storage {
-		storage, found, err := loadStorageAuthority(ctx, row, hostID, required)
+		storage, found, err := loadStorageAuthority(ctx, row, request.ProjectID, request.WorkloadID, hostID, required)
 		if err != nil {
 			return placement.Evaluation{}, err
 		}
@@ -1072,7 +1072,7 @@ func advancePortResourceHandoffTx(ctx context.Context, tx pgx.Tx, admissionID, d
 	return insertPortRealizationOperationTx(ctx, tx, desired, portRevision, uint64(networkRevision), uint64(subnetRevision), mac, ip, uint64(realizationGeneration+1), "REALIZE", "PRESENT", required.DestinationBindingGeneration, chassis)
 }
 
-func loadStorageAuthority(ctx context.Context, row QueryRower, hostID string, required placement.StorageRequirement) (placement.StorageAuthority, bool, error) {
+func loadStorageAuthority(ctx context.Context, row QueryRower, projectID, workloadID, hostID string, required placement.StorageRequirement) (placement.StorageAuthority, bool, error) {
 	var authority placement.StorageAuthority
 	err := row.QueryRow(ctx, `
 		SELECT $3, $4, backend.backend_id, backend.backend_type,
@@ -1130,6 +1130,136 @@ func loadStorageAuthority(ctx context.Context, row QueryRower, hostID string, re
 	if err != nil {
 		return placement.StorageAuthority{}, false, err
 	}
+	if required.VolumeRevision > 0 {
+		var reservedBytes uint64
+		err = row.QueryRow(ctx, `
+			WITH exact_authority AS (
+				SELECT claim.reserved_bytes
+				FROM kim.volumes_current volume
+				JOIN kim.volume_resource_revision_evidence revision
+				  ON revision.volume_id=volume.volume_id
+				 AND revision.volume_revision=volume.volume_revision
+				JOIN kim.volume_capacity_allocation_decision_evidence allocation
+				  ON allocation.allocation_id=$11
+				 AND allocation.allocation_generation=$12
+				 AND allocation.volume_id=volume.volume_id
+				 AND allocation.volume_revision=volume.volume_revision
+				JOIN kim.storage_capacity_claims claim
+				  ON claim.allocation_decision_id=allocation.allocation_id
+				 AND claim.allocation_generation=allocation.allocation_generation
+				 AND claim.volume_id=volume.volume_id
+				 AND claim.volume_revision=volume.volume_revision
+				JOIN kim.volume_backend_binding_intents binding_intent
+				  ON binding_intent.volume_id=volume.volume_id
+				 AND binding_intent.volume_revision=volume.volume_revision
+				 AND binding_intent.capacity_allocation_id=allocation.allocation_id
+				 AND binding_intent.capacity_allocation_generation=allocation.allocation_generation
+				JOIN kim.volume_backend_bindings_current binding
+				  ON binding.binding_id=binding_intent.binding_id
+				 AND binding.binding_generation=binding_intent.binding_generation
+				JOIN kim.volume_materializations_current materialization
+				  ON materialization.volume_id=volume.volume_id
+				 AND materialization.volume_revision=volume.volume_revision
+				 AND materialization.materialization_generation=binding_intent.materialization_generation
+				 AND materialization.binding_id=binding_intent.binding_id
+				 AND materialization.binding_generation=binding_intent.binding_generation
+				JOIN kim.volume_materialization_operation_evidence operation
+				  ON operation.operation_id=materialization.operation_id
+				 AND operation.operation_generation=materialization.operation_generation
+				JOIN kim.volume_materialization_terminal_evidence terminal
+				  ON terminal.terminal_evidence_id=materialization.terminal_evidence_id
+				 AND terminal.operation_id=materialization.operation_id
+				 AND terminal.operation_generation=materialization.operation_generation
+				 AND terminal.volume_id=volume.volume_id
+				 AND terminal.volume_revision=volume.volume_revision
+				 AND terminal.materialization_generation=materialization.materialization_generation
+				 AND terminal.binding_id=binding_intent.binding_id
+				 AND terminal.binding_generation=binding_intent.binding_generation
+				JOIN kim.volume_attachment_intents_current attachment
+				  ON attachment.volume_id=volume.volume_id
+				 AND attachment.volume_revision=volume.volume_revision
+				WHERE volume.volume_id=$1
+				  AND volume.volume_revision=$2
+				  AND volume.project_id=$3
+				  AND volume.storage_class_id=$4
+				  AND volume.storage_class_revision=$5
+				  AND volume.size_bytes=$6
+				  AND volume.access_mode='SINGLE_WRITER'
+				  AND volume.lifecycle_state='AVAILABLE'
+				  AND volume.authority_source='VOLUME_RESOURCE'
+				  AND allocation.storage_class_id=$4
+				  AND allocation.storage_class_revision=$5
+				  AND allocation.requested_bytes=$6
+				  AND allocation.backend_id=$7
+				  AND allocation.backend_generation=$8
+				  AND allocation.host_id=$9
+				  AND allocation.vg_uuid=$10
+				  AND allocation.capacity_generation=$13
+				  AND allocation.decision_state='ALLOCATED'
+				  AND claim.backend_id=$7
+				  AND claim.capacity_generation=$13
+				  AND claim.reserved_bytes=$6
+				  AND claim.claim_state IN('RESERVED','ALLOCATED')
+				  AND claim.authority_source='VOLUME_RESOURCE'
+				  AND binding_intent.backend_id=$7
+				  AND binding_intent.host_id=$9
+				  AND binding_intent.vg_uuid=$10
+				  AND binding_intent.binding_state='BOUND'
+				  AND binding_intent.authority_source='VOLUME_RESOURCE'
+				  AND binding.binding_state='BOUND'
+				  AND binding.host_id=$9
+				  AND binding.vg_uuid=$10
+				  AND materialization.materialization_state='VERIFIED'
+				  AND materialization.terminal_evidence_id IS NOT NULL
+				  AND operation.volume_revision=volume.volume_revision
+				  AND operation.allocation_id=allocation.allocation_id
+				  AND operation.allocation_generation=allocation.allocation_generation
+				  AND operation.binding_id=binding_intent.binding_id
+				  AND operation.binding_generation=binding_intent.binding_generation
+				  AND operation.materialization_generation=materialization.materialization_generation
+				  AND operation.backend_id=$7
+				  AND operation.backend_generation=$8
+				  AND operation.host_id=$9
+				  AND operation.vg_uuid=$10
+				  AND terminal.terminal_state='VERIFIED'
+				  AND attachment.attachment_intent_id=$14
+				  AND attachment.attachment_generation=$15
+				  AND attachment.requested_attachment_id=$16
+				  AND attachment.requested_physical_attachment_generation=$17
+				  AND attachment.workload_id=$18
+				  AND attachment.intent_state='REQUESTED'
+				  AND NOT EXISTS (
+					SELECT 1 FROM kim.volume_capacity_allocation_decision_evidence newer
+					WHERE newer.volume_id=volume.volume_id
+					  AND newer.allocation_generation>allocation.allocation_generation
+				  )
+				  AND NOT EXISTS (
+					SELECT 1 FROM kim.volume_materializations_current newer
+					WHERE newer.volume_id=volume.volume_id
+					  AND newer.materialization_generation>materialization.materialization_generation
+				  )
+			)
+			SELECT EXISTS(SELECT 1 FROM exact_authority),
+			       COALESCE((SELECT reserved_bytes FROM exact_authority),0)
+		`, required.VolumeID, required.VolumeRevision, projectID,
+			required.StorageClassID, required.StorageClassRevision, required.SizeBytes,
+			required.BackendID, required.BackendGeneration, hostID, required.VGUUID,
+			required.CapacityAllocationID, required.CapacityAllocationGeneration,
+			required.CapacityGeneration, required.AttachmentIntentID,
+			required.AttachmentIntentGeneration, required.AttachmentID,
+			required.AttachmentGeneration, workloadID).Scan(&authority.ResourceConsumerReady, &reservedBytes)
+		if err != nil {
+			return placement.StorageAuthority{}, false, err
+		}
+		if authority.ResourceConsumerReady {
+			if reservedBytes > authority.ClaimedBytes {
+				return placement.StorageAuthority{}, false, ErrPlacementConflict
+			}
+			authority.ClaimedBytes -= reservedBytes
+			authority.VolumeConflict = false
+			authority.AttachmentConflict = false
+		}
+	}
 	return authority, true, nil
 }
 
@@ -1176,6 +1306,9 @@ func lockStorageAuthorityRows(ctx context.Context, tx pgx.Tx, hostID string, req
 }
 
 func claimLocalLVMStorageTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.StorageRequirement) error {
+	if required.VolumeRevision > 0 {
+		return claimVolumeResourceStorageTx(ctx, tx, admissionID, request, current, required)
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO kim.volumes_current (
 			volume_id, placement_admission_id, project_id, storage_class_id,
@@ -1229,6 +1362,117 @@ func claimLocalLVMStorageTx(ctx context.Context, tx pgx.Tx, admissionID string, 
 		current.HostID, required.AttachmentGeneration, required.AccessMode,
 		required.FencingPolicyRevision); err != nil {
 		return fmt.Errorf("reserve single-writer Attachment Claim %s: %w", required.AttachmentID, err)
+	}
+	return nil
+}
+
+// claimVolumeResourceStorageTx consumes an already-reserved standalone Volume.
+// It binds, but never releases or reduces, the exact capacity allocation.
+func claimVolumeResourceStorageTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.StorageRequirement) error {
+	var volumeID, capacityClaimID, bindingID, intentID string
+	if err := tx.QueryRow(ctx, `SELECT volume_id FROM kim.volumes_current
+		WHERE volume_id=$1 AND volume_revision=$2 AND project_id=$3
+		  AND lifecycle_state='AVAILABLE' AND authority_source='VOLUME_RESOURCE'
+		  AND placement_admission_id IS NULL FOR UPDATE`, required.VolumeID,
+		required.VolumeRevision, request.ProjectID).Scan(&volumeID); err != nil {
+		return ErrPlacementConflict
+	}
+	if err := tx.QueryRow(ctx, `SELECT capacity_claim_id FROM kim.storage_capacity_claims
+		WHERE volume_id=$1 AND volume_revision=$2 AND allocation_decision_id=$3
+		  AND allocation_generation=$4 AND backend_id=$5 AND capacity_generation=$6
+		  AND reserved_bytes=$7 AND claim_state IN('RESERVED','ALLOCATED')
+		  AND authority_source='VOLUME_RESOURCE' AND placement_admission_id IS NULL
+		FOR UPDATE`, required.VolumeID, required.VolumeRevision,
+		required.CapacityAllocationID, required.CapacityAllocationGeneration,
+		required.BackendID, required.CapacityGeneration, required.SizeBytes).Scan(&capacityClaimID); err != nil {
+		return ErrPlacementConflict
+	}
+	if err := tx.QueryRow(ctx, `SELECT binding_id FROM kim.volume_backend_binding_intents
+		WHERE volume_id=$1 AND volume_revision=$2 AND capacity_allocation_id=$3
+		  AND capacity_allocation_generation=$4 AND backend_id=$5 AND host_id=$6
+		  AND vg_uuid=$7 AND binding_state='BOUND' AND authority_source='VOLUME_RESOURCE'
+		  AND placement_admission_id IS NULL FOR UPDATE`, required.VolumeID,
+		required.VolumeRevision, required.CapacityAllocationID,
+		required.CapacityAllocationGeneration, required.BackendID, current.HostID,
+		required.VGUUID).Scan(&bindingID); err != nil {
+		return ErrPlacementConflict
+	}
+	var bindingGeneration uint64
+	if err := tx.QueryRow(ctx, `SELECT binding_generation FROM kim.volume_backend_bindings_current
+		WHERE binding_id=$1 AND volume_id=$2 AND binding_state='BOUND'
+		  AND host_id=$3 AND vg_uuid=$4 FOR UPDATE`, bindingID, required.VolumeID,
+		current.HostID, required.VGUUID).Scan(&bindingGeneration); err != nil {
+		return ErrPlacementConflict
+	}
+	if err := tx.QueryRow(ctx, `SELECT attachment_intent_id FROM kim.volume_attachment_intents_current
+		WHERE volume_id=$1 AND volume_revision=$2 AND attachment_intent_id=$3
+		  AND attachment_generation=$4 AND requested_attachment_id=$5
+		  AND requested_physical_attachment_generation=$6
+		  AND workload_id=$7 AND intent_state='REQUESTED' FOR UPDATE`, required.VolumeID,
+		required.VolumeRevision, required.AttachmentIntentID,
+		required.AttachmentIntentGeneration, required.AttachmentID,
+		required.AttachmentGeneration, request.WorkloadID).Scan(&intentID); err != nil {
+		return ErrPlacementConflict
+	}
+	// Re-evaluate after all mutable current projections are locked. This exact
+	// check includes immutable allocation, materialization, terminal, binding,
+	// and attachment provenance plus supersession fencing.
+	authority, found, err := loadStorageAuthority(ctx, tx, request.ProjectID,
+		request.WorkloadID, current.HostID, required)
+	if err != nil || !found || !authority.ResourceConsumerReady {
+		return ErrPlacementConflict
+	}
+
+	if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachments_current(
+		attachment_id,placement_admission_id,volume_id,workload_id,desired_host_id,
+		attachment_generation,access_mode,desired_state
+	) VALUES($1,$2,$3,$4,$5,$6,'SINGLE_WRITER','RESERVED')`, required.AttachmentID,
+		admissionID, required.VolumeID, request.WorkloadID, current.HostID,
+		required.AttachmentGeneration); err != nil {
+		return ErrPlacementConflict
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachment_claims(
+		attachment_claim_id,placement_admission_id,attachment_id,volume_id,workload_id,
+		host_id,attachment_generation,access_mode,fencing_policy_revision,claim_state
+	) VALUES($1,$2,$3,$4,$5,$6,$7,'SINGLE_WRITER',$8,'RESERVED')`,
+		"storage-attachment-claim:"+request.RequestID+":"+required.AttachmentID,
+		admissionID, required.AttachmentID, required.VolumeID, request.WorkloadID,
+		current.HostID, required.AttachmentGeneration, required.FencingPolicyRevision); err != nil {
+		return ErrPlacementConflict
+	}
+	attachedIntentID := intentID + ":attached:" + admissionID
+	attachedGeneration := required.AttachmentIntentGeneration + 1
+	intentDigest := digestVolumeAuthority(fmt.Sprintf("%s/%s/%d/%d/%s/%s/%s/%d",
+		attachedIntentID, required.VolumeID, required.VolumeRevision, attachedGeneration,
+		request.WorkloadID, required.AttachmentID, bindingID, bindingGeneration))
+	if _, err := tx.Exec(ctx, `INSERT INTO kim.volume_attachment_intent_evidence(
+		attachment_intent_id,volume_id,volume_revision,attachment_generation,workload_id,
+		requested_attachment_id,requested_physical_attachment_generation,intent_state,
+		placement_admission_id,physical_attachment_id,binding_id,binding_generation,intent_digest
+	) VALUES($1,$2,$3,$4,$5,$6,$7,'ATTACHED',$8,$6,$9,$10,$11)`, attachedIntentID,
+		required.VolumeID, required.VolumeRevision, attachedGeneration, request.WorkloadID,
+		required.AttachmentID, required.AttachmentGeneration, admissionID, bindingID,
+		bindingGeneration, intentDigest); err != nil {
+		return err
+	}
+	updated, err := tx.Exec(ctx, `UPDATE kim.volume_attachment_intents_current SET
+		attachment_intent_id=$2,attachment_generation=$3,intent_state='ATTACHED',updated_at=statement_timestamp()
+		WHERE volume_id=$1 AND attachment_intent_id=$4 AND attachment_generation=$5
+		  AND intent_state='REQUESTED'`, required.VolumeID, attachedIntentID,
+		attachedGeneration, intentID, required.AttachmentIntentGeneration)
+	if err != nil || updated.RowsAffected() != 1 {
+		return ErrPlacementConflict
+	}
+	updates := []struct{ query, id string }{
+		{`UPDATE kim.volumes_current SET placement_admission_id=$2,updated_at=statement_timestamp() WHERE volume_id=$1 AND placement_admission_id IS NULL`, required.VolumeID},
+		{`UPDATE kim.storage_capacity_claims SET placement_admission_id=$2,updated_at=statement_timestamp() WHERE capacity_claim_id=$1 AND placement_admission_id IS NULL`, capacityClaimID},
+		{`UPDATE kim.volume_backend_binding_intents SET placement_admission_id=$2,updated_at=statement_timestamp() WHERE binding_id=$1 AND placement_admission_id IS NULL`, bindingID},
+	}
+	for _, update := range updates {
+		tag, err := tx.Exec(ctx, update.query, update.id, admissionID)
+		if err != nil || tag.RowsAffected() != 1 {
+			return ErrPlacementConflict
+		}
 	}
 	return nil
 }

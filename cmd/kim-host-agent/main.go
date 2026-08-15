@@ -119,7 +119,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		volumeGroups := map[string]string{*localLVMVGUUID: *localLVMVGName}
-		executionBackends = append(executionBackends, locallvm.Backend{Client: client, VolumeGroups: volumeGroups})
+		volumeBackend := locallvm.Backend{Client: client, VolumeGroups: volumeGroups}
+		executionBackends = append(executionBackends,
+			volumeBackend,
+			locallvm.ReadBackBackend{Backend: volumeBackend},
+			locallvm.DeleteBackend{Client: client, VolumeGroups: volumeGroups},
+			locallvm.DeleteBackend{Client: client, VolumeGroups: volumeGroups, ReadBackOnly: true},
+		)
 		if *localLVMTransportListen != "" || *localLVMTransportEndpoints != "" {
 			if *localLVMTransportListen == "" || *localLVMTransportEndpoints == "" {
 				fmt.Fprintln(stderr, "kim-host-agent Local LVM transport error: listen address and endpoint registry are required together")

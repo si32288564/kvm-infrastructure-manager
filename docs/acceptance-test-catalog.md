@@ -371,6 +371,14 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-STO-023 | Storage Capacity Poolがreserved/allocated/observed/external usageとthin data/metadata healthを分離しtransactional claim/releaseする |
 | AT-STO-024 | closed typed Local LVM create を実 Host で実行し、Agent kill 後も同じ LV UUID を標準 LVM read-back で確認して immutable evidence と current BOUND Binding へ収束する |
 | AT-STO-025 | current BOUND Local LVM Volume を実 Domain へ typed attach/detach し、各 Agent kill 後に libvirt device と LVM holder の一致/absence を確認して ATTACHED/DETACHED Claim authority へ収束し、遅延した旧 observation が current state を巻き戻さない |
+| AT-STO-026 | standalone Volume create/replay/safe metadata revisionがstable ID、immutable history、unattached state、physical identity非漏洩を維持する |
+| AT-STO-027 | exact Storage Class/backend capacityからallocation/claimをserializableに作り、replay、insufficient capacity、stale generation、release orderingを検証する |
+| AT-STO-028 | standalone Local LVM materialization/retireがtyped Command、LOST、Lease expiry、READ_BACK_FIRST、exact VG/LV/sizeまたはABSENT terminalへ収束する |
+| AT-STO-029 | AVAILABLE unattached Volumeにexplicit attachment intentを作り、Volume existenceとworkload/physical Attachment generationが独立することを検証する |
+| AT-STO-030 | Final Admissionがexact existing Volume revision/allocation/materialization/binding/intentだけをconsumeし、同予約の二重計上なし、claim保持、concurrent single consumer、stale replay拒否を検証する |
+| AT-STO-031 | Local LVM relocation/copy/cleanup regressionがphysical incarnation historyを進めてもlogical desired revisionをdriftにしない |
+| AT-STO-032 | active dependency/delete protectionをfenceし、exact backend ABSENT後だけcapacity release evidenceとlogical tombstoneをcommitする |
+| AT-STO-033 | Image-backed Volumeがexact VERIFIED Image revision/digestだけを受理し、wrong/stale digestを拒否し、後続Image revisionでretrofitしない |
 
 ## 13. NFV Dataplane
 

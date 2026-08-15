@@ -1,8 +1,10 @@
 # Storage, Attachment, and Fencing Architecture
 
-## Northbound Phase 2 authority boundary (2026-08-14)
+## Northbound Phase 2 authority boundary (2026-08-15)
 
-Current Volume authority is created inside Final Admission with exact capacity, Local LVM backend/VG/Host binding and workload attachment. Relocation/content preservation/source cleanup evidence proves physical mobility, but it is not an admission-independent backend-neutral Volume lifecycle. `kim_volume` remains BLOCKED until a logical immutable revision, storage-class request compiler, standalone allocation/materialization Operation, verified availability and dependency/tombstone semantics exist. Attachment remains with the Phase 3 VM aggregate. Host, VG/LV UUID, device path, binding/copy/cleanup generations remain internal physical incarnations and cannot be Terraform drift. See [Phase 2 Resource Contract Review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md).
+Migration 080 closes the internal Volume resource gap. `volume_resource_revision_evidence` and the `VOLUME_RESOURCE` current projection own a stable backend-neutral logical Volume; capacity allocation, backend materialization, workload attachment, copy/transport, and cleanup remain separate identities and generations. A valid Volume may be `AVAILABLE` and unattached. Final Admission consumes only an exact current revision/allocation/verified binding/attachment intent and leaves the capacity claim reserved. Historical Admission-created rows remain `LEGACY_ADMISSION` compatibility authority.
+
+Local LVM is one typed materialization implementation and remains planned-mobility-only. Host, VG/LV UUID, path, binding/materialization/copy/cleanup generations are computed physical incarnations and cannot be Terraform desired drift. Migrations 068–072 remain the source of truth for content-preserving relocation and exact source reclamation. Public `/api/v1/volumes`, Terraform `kim_volume`, public Attachment, Ceph RBD, and VM Phase 3 are not implemented. See [ADR-0034](adr/0034-independent-volume-capacity-materialization-and-attachment-authority.md) and the [Phase 2 review](reviews/kim-northbound-phase2-resource-contract-review-20260814.md).
 
 - 状態: Baseline
 - 更新日: 2026-08-09
@@ -66,7 +68,7 @@ StorageCapacityPool
 
 capabilityはbackend type名だけで推測せず、versioned factsとして公開します。最低限、create/delete/expand、snapshot/clone、online expansion、access mode、shared/local、exclusive lock/client fencing、discard、encryption、migration handoff、consistency levelを表します。未対応機能へ別backendや別access modeでsilent fallbackしません。
 
-KIMが管理するreserved/allocated容量はPostgreSQL ledgerをauthorityとし、backend total/used/free、thin pool data/metadata、外部/未知使用量はgeneration付きobservationとして安全余裕とeligibilityへ反映します。stale/UNKNOWN health/capacityを楽観的な空き容量へ丸めません。Final AdmissionはStorage Capacity Claimを他resource/Quotaと不可分commitします。Volume deleteではbackend absence verificationまでphysical capacity claimを再利用せず、論理Quota release policyとbackend capacity releaseを分離します。
+KIMが管理するreserved/allocated容量はPostgreSQL ledgerをauthorityとし、backend total/used/free、thin pool data/metadata、外部/未知使用量はgeneration付きobservationとして安全余裕とeligibilityへ反映します。stale/UNKNOWN health/capacityを楽観的な空き容量へ丸めません。Final Admissionはlegacy producerではStorage Capacity Claimを他resource/Quotaと不可分commitします。standalone Volume consumerでは同一Volumeのexact current claimだけを追加需要から控除し、claim自体は解放・減算しません。別Volume、stale/released allocation、別backend、replacementは控除対象外です。Volume deleteではbackend absence verificationまでphysical capacity claimを再利用せず、論理Quota release policyとbackend capacity releaseを分離します。
 
 ## 3. Core Resource Model
 
