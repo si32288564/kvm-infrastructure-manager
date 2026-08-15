@@ -20,6 +20,7 @@
 | `TERRAFORM_VM_POWER_OPERATION` | PASS |
 | `TERRAFORM_VM_PHYSICAL_INCARNATION_NO_DRIFT` | PASS by schema/state exclusion |
 | `VM_DELETE_ZERO_PORT_ONE_ROOT` | PASS (Migration 087 regression) |
+| `VM_DELETE_ONE_STANDARD_PORT_ONE_ROOT` | PASS (Migration 089 qualification) |
 | `VM_DELETE_STANDARD_PORT_PROFILE` | NOT RUN / API rejects |
 | `VM_DELETE_MULTI_VOLUME_PROFILE` | NOT RUN / API rejects |
 | `VM_MULTI_PORT_MOBILITY` | NOT RUN |
@@ -30,7 +31,7 @@
 
 Create accepts exact immutable dependency revisions for Flavor, verified Image, Availability Policy, Placement Scope, one ROOT Volume, zero through two STANDARD Ports, and at most one DATA Volume. Initial desired power is `RUNNING`; PCI is not exposed. Port and DATA sets are canonicalized.
 
-Metadata/delete protection is a synchronous logical revision. Desired `RUNNING`/`SHUTOFF` is a separate Operation and cannot be mixed with metadata in one PATCH. Dependency changes are Terraform replacement boundaries. Public delete remains the narrower Migration 087 profile and therefore requires zero Ports, one ROOT Volume, no PCI, delete protection disabled, and observed `SHUTOFF`.
+Metadata/delete protection is a synchronous logical revision. Desired `RUNNING`/`SHUTOFF` is a separate Operation and cannot be mixed with metadata in one PATCH. Dependency changes are Terraform replacement boundaries. Public delete remains narrower than create: Migrations 087/089 require at most one STANDARD Port, one ROOT Volume, no PCI, delete protection disabled, and observed `SHUTOFF`.
 
 ## Evidence exercised
 
