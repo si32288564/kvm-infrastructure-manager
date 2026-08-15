@@ -80,6 +80,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"northbound_flavor_idempotency_evidence",
 		"northbound_availability_policy_idempotency_evidence",
 		"northbound_phase2_idempotency_evidence",
+		"vm_aggregate_port_binding_evidence",
+		"vm_aggregate_network_port_verification_evidence",
 		"agent_message_receipts",
 		"agent_resync_checkpoints",
 		"host_inventory_snapshots",

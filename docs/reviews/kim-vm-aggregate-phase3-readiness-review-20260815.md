@@ -2,6 +2,8 @@
 
 > Completion addendum (2026-08-15): Migration 082 implements and qualifies the first internal aggregate slice: exact logical revision/dependency snapshot/runtime intent, KIM-compiled zero-Port/one-root Placement, Availability-aware Final Admission, generic materialization, READY/RUNNING read-back verification and immutable aggregate terminal. Northbound VM and Terraform VM remain blocked. See [Phase 3 internal qualification](../validation/p3-vm-aggregate-internal-authority-20260815.md).
 
+> STANDARD Port addendum (2026-08-15): Migration 083 qualifies one logical STANDARD Port through exact dependency snapshot, Final Admission binding, attached OVN realization, typed OVS preboot observation and aggregate terminal drift fencing. Physical Port incarnation remains outside logical VM desired state. See [one STANDARD Port qualification](../validation/p3-vm-aggregate-one-standard-port-20260815.md).
+
 - Date: 2026-08-15
 - Baseline: `eb9f8ae3096e135bf7446b01dd92d19e72d0f837`
 - Scope: repository architecture and authority inventory only

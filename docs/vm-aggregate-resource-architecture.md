@@ -459,29 +459,31 @@ Mandatory negative coverage:
 | mobility drift | architecture invariant only | explicit aggregate association and acceptance test |
 | delete | no public aggregate contract | quiescence/detach/absence/tombstone authority |
 
-## 23. Implemented initial slice
+## 23. Implemented internal profiles
 
-Migration 082 と `internal/persistence/postgres/vm_aggregate.go` は、次の限定profileを実装・qualificationしました。
+Migration 082/083 と `internal/persistence/postgres/vm_aggregate.go` は、次の限定profileを実装・qualificationしました。
 
 ```text
 logical VM revision 1
 + exact Flavor/Image/AvailabilityPolicy/PlacementScope snapshot
 + one exact VERIFIED boot Volume
-+ zero Port
++ zero Port または one STANDARD Port
 + zero PCI
 + desired RUNNING
 → compiled ordinary Placement request
 → Availability-aware Final Admission
 → generic VM materialization
-→ definition/image/zero-Port readiness
+→ definition/image/network readiness
 → RUNNING read-back
 → aggregate verification VERIFIED
 → aggregate terminal VERIFIED
 ```
 
-callerはHost、Admission、backend、Binding、LV、READY、RUNNINGを供給しません。Final Admission後にattachment intentのcurrent evidence IDが進んでも、snapshotのREQUESTED evidenceとrequested attachment identityからimmutable lineageを検証します。
+callerはHost、Admission、backend、Binding、LV、READY、RUNNINGを供給しません。Final Admission後にVolume/Port attachment intentのcurrent evidence IDが進んでも、snapshotのREQUESTED evidenceからimmutable lineageを検証します。
 
-未実装のまま残るものは Northbound/OpenAPI/Terraform、logical update/delete、one-Port profile、複数Volume、Recovery/EVACUATE no-drift aggregate associationです。initial internal sliceのqualification詳細は [Phase 3 VM Aggregate Internal Authority Qualification](validation/p3-vm-aggregate-internal-authority-20260815.md) を参照してください。
+one STANDARD Port profileではlogical Port revision/digestとrequested attachment intentだけをdesired snapshotへ保存します。Host、binding generation、OVN backend UUID、OVS interface identityは保存しません。compilerはexact current Network/Subnet/segment/identity authorityからordinary Network requirementを導出し、Final AdmissionがHost binding incarnationを作成します。aggregate verificationは、そのbindingとexact VM planに一致するtyped OVS preboot observationを別のimmutable provenance rowとして消費します。
+
+未実装のまま残るものは Northbound/OpenAPI/Terraform、logical update/delete、multi-Port、data Volume、Recovery/EVACUATE no-drift aggregate associationです。qualification詳細は [Phase 3 VM Aggregate Internal Authority Qualification](validation/p3-vm-aggregate-internal-authority-20260815.md) と [one STANDARD Port qualification](validation/p3-vm-aggregate-one-standard-port-20260815.md) を参照してください。
 
 ## 24. Explicitly out of scope
 
