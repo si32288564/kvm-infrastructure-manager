@@ -106,7 +106,7 @@ func AssociateVMAggregateMobility(ctx context.Context, db TxBeginner, r VMAggreg
 			return ErrVMAggregateConflict
 		}
 		var portCount int
-		if err := tx.QueryRow(ctx, `SELECT port_count FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, dependencyID).Scan(&portCount); err != nil || portCount < 0 || portCount > 1 {
+		if err := tx.QueryRow(ctx, `SELECT port_count FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, dependencyID).Scan(&portCount); err != nil || portCount < 0 || portCount > maxVMAggregatePorts {
 			return ErrVMAggregateConflict
 		}
 		portSet := ""
@@ -115,7 +115,8 @@ func AssociateVMAggregateMobility(ctx context.Context, db TxBeginner, r VMAggreg
 				return ErrVMAggregateConflict
 			}
 		} else {
-			if err := tx.QueryRow(ctx, `SELECT current.evidence_id||':'||e.observation_digest FROM kim.vm_dependency_port_evidence d JOIN kim.network_ports_current p ON p.port_id=d.port_id AND p.port_revision=d.port_revision AND p.desired_digest=d.desired_digest AND p.placement_admission_id=$2 AND p.desired_state='RESERVED' JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=$2 AND b.host_id=$3 AND b.binding_state='RESERVED' JOIN kim.vm_network_port_realizations_current current ON current.vm_id=$4 AND current.vm_generation=$5 AND current.port_id=p.port_id AND current.binding_generation=b.binding_generation AND current.preboot_state='REALIZED' JOIN kim.vm_network_port_realization_evidence e ON e.evidence_id=current.evidence_id AND e.plan_id=$6 AND e.host_id=$3 AND e.binding_generation=b.binding_generation AND e.preboot_state='REALIZED' WHERE d.dependency_snapshot_id=$1`, dependencyID, terminal.destinationAdmission, terminal.destinationHost, r.VMID, terminal.destinationVMGeneration, terminal.destinationPlan).Scan(&portSet); err != nil {
+			var matched int
+			if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(string_agg(current.evidence_id||':'||e.observation_digest,',' ORDER BY d.port_ordinal),'') FROM kim.vm_dependency_port_evidence d JOIN kim.network_ports_current p ON p.port_id=d.port_id AND p.port_revision=d.port_revision AND p.desired_digest=d.desired_digest AND p.placement_admission_id=$2 AND p.desired_state='RESERVED' JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=$2 AND b.host_id=$3 AND b.binding_state='RESERVED' JOIN kim.vm_network_port_realizations_current current ON current.vm_id=$4 AND current.vm_generation=$5 AND current.port_id=p.port_id AND current.binding_generation=b.binding_generation AND current.preboot_state='REALIZED' JOIN kim.vm_network_port_realization_evidence e ON e.evidence_id=current.evidence_id AND e.plan_id=$6 AND e.host_id=$3 AND e.binding_generation=b.binding_generation AND e.preboot_state='REALIZED' WHERE d.dependency_snapshot_id=$1`, dependencyID, terminal.destinationAdmission, terminal.destinationHost, r.VMID, terminal.destinationVMGeneration, terminal.destinationPlan).Scan(&matched, &portSet); err != nil || matched != portCount {
 				return ErrVMAggregateConflict
 			}
 			// EVACUATE child verification uses the exact preboot OVS set as its

@@ -6,6 +6,8 @@
 
 > Planned mobility addendum (2026-08-15): Migration 084 adds a pure post-terminal aggregate association consumer and qualifies one STANDARD Port Host EVACUATE A→B with unchanged logical VM/Port desired authority. Aggregate-origin Recovery remains NOT RUN. See [planned EVACUATE no-drift qualification](../validation/p3-vm-aggregate-evacuate-no-drift-20260815.md).
 
+> Multi-Port addendum (2026-08-15): Migration 085 qualifies a two STANDARD Port aggregate through canonical logical dependency ordering, ordinary Final Admission, exact per-Port binding/OVS evidence and all-Port terminal drift fencing. Multi-Port mobility remains NOT RUN. See [multi STANDARD Port qualification](../validation/p3-vm-aggregate-multi-standard-port-20260815.md).
+
 > Recovery mobility addendum (2026-08-15): the Migration 084 `RECOVERY` consumer is now qualified by an aggregate-origin Recovery A→B followed by planned EVACUATE B→C. Both associations preserve the same logical VM/Port revision and desired digests while advancing runtime association generation 0→1→2. See [Recovery no-drift qualification](../validation/p3-vm-aggregate-recovery-no-drift-20260815.md).
 
 - Date: 2026-08-15

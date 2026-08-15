@@ -14,6 +14,14 @@ import (
 )
 
 func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 1)
+}
+
+func TestVMAggregateMultiStandardPortPostgreSQLIntegration(t *testing.T) {
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2)
+}
+
+func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount int) {
 	url := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if url == "" {
 		t.Skip("KIM_POSTGRES_TEST_URL is not set")
@@ -128,21 +136,26 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	if err = UpsertHostNetworkMapping(ctx, db, HostNetworkMapping{HostID: evacuationHost, SegmentClaimID: segmentID, Generation: 1, State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS"}, OVNChassisName: "chassis-" + evacuationHost}); err != nil {
 		t.Fatal(err)
 	}
-	port, err := CreatePortResource(ctx, db, PortResourceRequest{PortID: "vm-port-resource-" + suffix, ProjectID: projectID, NetworkID: network.NetworkID, Name: "eth0", MACPolicy: "AUTO", SubnetID: subnet.SubnetID, IPAllocationMode: "AUTO", AttachmentPolicy: "ON_DEMAND", DatapathProfile: "STANDARD"})
-	if err != nil {
-		t.Fatal(err)
+	ports := make([]PortResource, 0, portCount)
+	for i := 0; i < portCount; i++ {
+		port, err := CreatePortResource(ctx, db, PortResourceRequest{PortID: fmt.Sprintf("vm-port-resource-%d-%s", i, suffix), ProjectID: projectID, NetworkID: network.NetworkID, Name: fmt.Sprintf("eth%d", i), MACPolicy: "AUTO", SubnetID: subnet.SubnetID, IPAllocationMode: "AUTO", AttachmentPolicy: "ON_DEMAND", DatapathProfile: "STANDARD"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pc, err := ClaimPortRealization(ctx, db, port.OperationID, fmt.Sprintf("vm-port-resource-worker-%d", i), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, portPlan, _ := ovnadapter.RestoreStoredPortResourcePlan(pc.CanonicalPlan, pc.PlanDigest)
+		if err = AuthorizePortRealizationApply(ctx, db, pc); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = AcceptPortRealizationObservation(ctx, db, pc, matchedPortObservation(pc, portPlan, fmt.Sprintf("vm-port-lsp-%d", i), "RECEIVED")); err != nil {
+			t.Fatal(err)
+		}
+		ports = append(ports, port)
 	}
-	pc, err := ClaimPortRealization(ctx, db, port.OperationID, "vm-port-resource-worker", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, portPlan, _ := ovnadapter.RestoreStoredPortResourcePlan(pc.CanonicalPlan, pc.PlanDigest)
-	if err = AuthorizePortRealizationApply(ctx, db, pc); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = AcceptPortRealizationObservation(ctx, db, pc, matchedPortObservation(pc, portPlan, "vm-port-lsp", "RECEIVED")); err != nil {
-		t.Fatal(err)
-	}
+	port := ports[0]
 
 	backendID, vgUUID, classID := "vm-port-backend-"+suffix, "vm-port-vg-"+suffix, "vm-port-class-"+suffix
 	if err = RegisterLocalLVMFoundation(ctx, db, LocalLVMFoundation{BackendID: backendID, HostID: host, VGUUID: vgUUID, BackendState: "ACTIVE", CapabilityState: "CURRENT", SupportTier: "VALIDATED", BackendGeneration: 1, HostCapabilityGeneration: 1, StorageClassID: classID, ClassState: "ACTIVE", StorageClassRevision: 1, FencingPolicyRevision: 1, CapacityObservationID: "vm-port-capacity-" + suffix, CapacityState: "CURRENT", HealthState: "HEALTHY", CapacityGeneration: 1, TotalBytes: 64 << 20, ObservedFreeBytes: 64 << 20, ObservedAt: time.Now().UTC()}); err != nil {
@@ -204,18 +217,56 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	create := VMAggregateCreateRequest{RequestID: "vm-port-create-request-" + suffix, OperationID: "vm-port-create-operation-" + suffix, VMID: vmID, ProjectID: projectID, Name: "standard-port-vm", FlavorID: flavorID, FlavorRevision: 1, ImageID: imageID, ImageRevision: 1, AvailabilityPolicyID: policyID, AvailabilityPolicyRevision: 1, PlacementScopeID: scopeID, PlacementScopeGeneration: 1, RootVolumeID: volume.VolumeID, RootVolumeRevision: 1, PortID: port.PortID, PortRevision: 1, DesiredPowerState: "RUNNING"}
+	create := VMAggregateCreateRequest{RequestID: "vm-port-create-request-" + suffix, OperationID: "vm-port-create-operation-" + suffix, VMID: vmID, ProjectID: projectID, Name: "standard-port-vm", FlavorID: flavorID, FlavorRevision: 1, ImageID: imageID, ImageRevision: 1, AvailabilityPolicyID: policyID, AvailabilityPolicyRevision: 1, PlacementScopeID: scopeID, PlacementScopeGeneration: 1, RootVolumeID: volume.VolumeID, RootVolumeRevision: 1, DesiredPowerState: "RUNNING"}
+	if portCount == 1 {
+		create.PortID, create.PortRevision = port.PortID, 1 // legacy one-Port compatibility
+	} else {
+		// Reverse caller order; the producer must canonicalize by logical Port ID.
+		for i := len(ports) - 1; i >= 0; i-- {
+			create.Ports = append(create.Ports, VMAggregatePortRequest{PortID: ports[i].PortID, PortRevision: 1})
+		}
+	}
 	stale := create
+	stale.Ports = append([]VMAggregatePortRequest(nil), create.Ports...)
 	stale.RequestID += "-stale"
 	stale.OperationID += "-stale"
 	stale.VMID = "83000002-0000-4000-8000-" + suffix
-	stale.PortRevision = 2
+	if portCount == 1 {
+		stale.PortRevision = 2
+	} else {
+		stale.Ports[0].PortRevision = 2
+	}
 	if _, err = CreateVMAggregate(ctx, db, stale); !errors.Is(err, ErrVMAggregateConflict) {
 		t.Fatalf("stale Port revision accepted: %v", err)
 	}
+	if portCount > 1 {
+		oversized := create
+		oversized.RequestID += "-oversized"
+		oversized.OperationID += "-oversized"
+		oversized.VMID = "83000004-0000-4000-8000-" + suffix
+		oversized.Ports = append(append([]VMAggregatePortRequest(nil), create.Ports...), create.Ports[0])
+		if _, err = CreateVMAggregate(ctx, db, oversized); !errors.Is(err, ErrVMAggregateConflict) {
+			t.Fatalf("unqualified Port cardinality accepted: %v", err)
+		}
+
+		duplicate := create
+		duplicate.Ports = append([]VMAggregatePortRequest(nil), create.Ports...)
+		duplicate.RequestID += "-duplicate"
+		duplicate.OperationID += "-duplicate"
+		duplicate.VMID = "83000003-0000-4000-8000-" + suffix
+		duplicate.Ports[1] = duplicate.Ports[0]
+		if _, err = CreateVMAggregate(ctx, db, duplicate); !errors.Is(err, ErrVMAggregateConflict) {
+			t.Fatalf("duplicate Port accepted: %v", err)
+		}
+	}
 	aggregate, err := CreateVMAggregate(ctx, db, create)
-	if err != nil || aggregate.PortID != port.PortID || aggregate.PortRevision != 1 {
+	if err != nil || len(aggregate.Ports) != portCount || aggregate.PortID != ports[0].PortID || aggregate.PortRevision != 1 {
 		t.Fatalf("aggregate=%+v err=%v", aggregate, err)
+	}
+	for i := range aggregate.Ports {
+		if aggregate.Ports[i].PortID != ports[i].PortID {
+			t.Fatalf("non-canonical Ports=%+v", aggregate.Ports)
+		}
 	}
 	var desiredHasPhysical bool
 	if err = db.QueryRow(ctx, `SELECT dependency_payload::text ~ '"(host_id|binding_generation|backend_uuid|ovn_chassis_name|ovs_uuid)"' FROM kim.vm_dependency_snapshot_evidence WHERE dependency_snapshot_id=$1`, aggregate.DependencySnapshotID).Scan(&desiredHasPhysical); err != nil || desiredHasPhysical {
@@ -226,8 +277,13 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	placementRequest, err := CompileVMAggregatePlacement(ctx, db, claim)
-	if err != nil || len(placementRequest.Network) != 1 || placementRequest.Network[0].PortID != port.PortID || placementRequest.Network[0].AttachmentIntentID == "" || placementRequest.Network[0].IPAddress != port.IPAddress || placementRequest.Network[0].MACAddress != port.MACAddress {
+	if err != nil || len(placementRequest.Network) != portCount {
 		t.Fatalf("placement=%+v err=%v", placementRequest, err)
+	}
+	for i := range ports {
+		if placementRequest.Network[i].PortID != ports[i].PortID || placementRequest.Network[i].AttachmentIntentID == "" || placementRequest.Network[i].IPAddress != ports[i].IPAddress || placementRequest.Network[i].MACAddress != ports[i].MACAddress {
+			t.Fatalf("placement[%d]=%+v", i, placementRequest.Network[i])
+		}
 	}
 	dry, err := DryEvaluateAvailabilityPlacementScope(ctx, db, placementRequest)
 	if err != nil || dry.Status != "READY" || len(dry.Candidates) != 3 {
@@ -249,25 +305,29 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	if err != nil || admission.HostID != host {
 		t.Fatalf("admission=%+v err=%v", admission, err)
 	}
-	bound, err := GetPortResource(ctx, db, port.PortID)
-	if err != nil || bound.RealizationState != "PENDING" || bound.RealizationGeneration != 2 {
-		t.Fatalf("bound Port=%+v err=%v", bound, err)
+	for i := range ports {
+		bound, err := GetPortResource(ctx, db, ports[i].PortID)
+		if err != nil || bound.RealizationState != "PENDING" || bound.RealizationGeneration != 2 {
+			t.Fatalf("bound Port[%d]=%+v err=%v", i, bound, err)
+		}
+		boundClaim, err := ClaimPortRealization(ctx, db, bound.OperationID, fmt.Sprintf("vm-port-bound-worker-%d", i), time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, boundPlan, _ := ovnadapter.RestoreStoredPortResourcePlan(boundClaim.CanonicalPlan, boundClaim.PlanDigest)
+		if err = AuthorizePortRealizationApply(ctx, db, boundClaim); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = AcceptPortRealizationObservation(ctx, db, boundClaim, matchedPortObservation(boundClaim, boundPlan, fmt.Sprintf("vm-port-bound-lsp-%d", i), "RECEIVED")); err != nil {
+			t.Fatal(err)
+		}
+		if portCount == 1 {
+			// Mobility qualification below additionally needs the ordinary OVN
+			// runtime incarnation.  The multi-Port aggregate gate stops at its
+			// own terminal and consumes typed OVS preboot evidence per Port.
+			completeEvacuationOVNIntent(t, ctx, db, fmt.Sprintf("vm-port-runtime-intent-%d-%s", i, suffix), ports[i].PortID, fmt.Sprintf("vm-port-runtime-worker-%d-%s", i, suffix), fmt.Sprintf("aggregate-%d-%s", i, suffix), 1)
+		}
 	}
-	boundClaim, err := ClaimPortRealization(ctx, db, bound.OperationID, "vm-port-bound-worker", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, boundPlan, _ := ovnadapter.RestoreStoredPortResourcePlan(boundClaim.CanonicalPlan, boundClaim.PlanDigest)
-	if err = AuthorizePortRealizationApply(ctx, db, boundClaim); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = AcceptPortRealizationObservation(ctx, db, boundClaim, matchedPortObservation(boundClaim, boundPlan, "vm-port-bound-lsp", "RECEIVED")); err != nil {
-		t.Fatal(err)
-	}
-	// The aggregate Port producer owns the logical resource realization.  The
-	// ordinary VM runtime still records the exact bound OVN incarnation that a
-	// later retirement/handoff consumer must be able to read back.
-	completeEvacuationOVNIntent(t, ctx, db, "vm-port-runtime-intent-"+suffix, port.PortID, "vm-port-runtime-worker-"+suffix, "aggregate-"+suffix, 1)
 	if _, err = BindVMAggregateAdmission(ctx, db, claim, admission.AdmissionID); err != nil {
 		t.Fatal(err)
 	}
@@ -308,8 +368,25 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("missing OVS observation accepted: %v", err)
 	}
 	powerCommand := "vm-port-power-command-" + suffix
-	realizeEvacuationOVSPort(t, ctx, db, host, vmID, decision.PlanID, port.PortID, network.NetworkID, segmentID, port.MACAddress, "aggregate-"+suffix, "vm-port-power-job-"+suffix, powerCommand, 1, 1, 1)
+	for i := range ports {
+		realizeEvacuationOVSPort(t, ctx, db, host, vmID, decision.PlanID, ports[i].PortID, network.NetworkID, segmentID, ports[i].MACAddress, fmt.Sprintf("aggregate-%d-%s", i, suffix), "vm-port-power-job-"+suffix, powerCommand, 1, 1, 1)
+	}
 	acceptEvacuationLostReadBack(t, ctx, db, host, powerCommand, "vm-port-power-verification-"+suffix, 1, map[string]any{"domain_uuid": vmID, "desired_state": "RUNNING", "observed_state": "RUNNING", "source": "libvirt_domain_state"})
+	if portCount > 1 {
+		partialRollback := errors.New("rollback partial Port evidence")
+		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `DELETE FROM kim.vm_network_port_realizations_current WHERE vm_id=$1 AND port_id=$2`, vmID, ports[1].PortID); err != nil {
+				return err
+			}
+			if _, err := EvaluateVMAggregateEvidence(ctx, scopeTxBeginner{tx}, claim, "vm-port-partial-network-verification-"+suffix); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("partial Port evidence accepted: %v", err)
+			}
+			return partialRollback
+		})
+		if !errors.Is(err, partialRollback) {
+			t.Fatal(err)
+		}
+	}
 	verificationID := "vm-port-verification-" + suffix
 	verification, err := EvaluateVMAggregateEvidence(ctx, db, claim, verificationID)
 	if err != nil || verification.VerificationState != "VERIFIED" {
@@ -335,6 +412,19 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	aggregate, err = GetVMAggregate(ctx, db, vmID)
 	if err != nil || aggregate.LifecycleState != "ACTIVE" || aggregate.ConvergenceState != "CONVERGED" {
 		t.Fatalf("terminal aggregate=%+v err=%v", aggregate, err)
+	}
+	var bindingCount, verificationCount int
+	if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.vm_aggregate_port_binding_evidence WHERE operation_id=$1),(SELECT count(*) FROM kim.vm_aggregate_network_port_verification_evidence WHERE verification_id=$2)`, aggregate.OperationID, verificationID).Scan(&bindingCount, &verificationCount); err != nil || bindingCount != portCount || verificationCount != portCount {
+		t.Fatalf("Port evidence cardinality binding=%d verification=%d err=%v", bindingCount, verificationCount, err)
+	}
+	if portCount > 1 {
+		updates := map[string]string{"vm_dependency_port_evidence": "desired_digest=desired_digest", "vm_aggregate_port_binding_evidence": "binding_digest=binding_digest", "vm_aggregate_network_port_verification_evidence": "verification_digest=verification_digest"}
+		for table, assignment := range updates {
+			if _, err = db.Exec(ctx, fmt.Sprintf(`UPDATE kim.%s SET %s WHERE true`, table, assignment)); err == nil {
+				t.Fatalf("immutable %s accepted UPDATE", table)
+			}
+		}
+		return
 	}
 	logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
 	var logicalPortDigest string
