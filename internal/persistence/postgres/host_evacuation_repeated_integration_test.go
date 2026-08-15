@@ -91,7 +91,7 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		t.Fatalf("%s snapshot=%s/%s/%s mat=%d Port=%d/%d err=%v", label, snapshotHost, snapshotAdmission, snapshotPlan, snapshotMaterialization, snapshotPort, snapshotBinding, err)
 	}
 	if err := EvaluateHostEvacuationEligibility(ctx, db, move.Operation); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s eligibility: %v", label, err)
 	}
 	claim, err := ClaimHostEvacuationWorkload(ctx, db, move.Operation, "repeated-worker-"+label, time.Minute)
 	if err != nil || claim.ClaimGeneration != 1 {
@@ -115,16 +115,16 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		}
 	}
 	if err := AuthorizeHostEvacuationSourceShutdown(ctx, db, claim, move.ShutdownAuthority, "evacuation-repeated-shutdown-job-"+label+"-"+suffix, move.ShutdownCommand); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s shutdown authorization: %v", label, err)
 	}
 	acceptEvacuationLostReadBack(t, ctx, db, source.Host, move.ShutdownCommand, "evacuation-repeated-shutdown-verification-"+label+"-"+suffix, sourcePowerObservation, map[string]any{"domain_uuid": vmID, "desired_state": "SHUTOFF", "observed_state": "SHUTOFF", "source": "libvirt_domain_state"})
 	move.PlannedQuiescence = "evacuation-repeated-planned-quiescence-" + label + "-" + suffix
 	if _, err := RecordPlannedSourceQuiescence(ctx, db, claim, move.PlannedQuiescence); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s planned quiescence: %v", label, err)
 	}
 	rootCommand, rootVerification := "evacuation-repeated-root-command-"+label+"-"+suffix, "evacuation-repeated-root-verification-"+label+"-"+suffix
 	if err := CreateExecutionCommand(ctx, db, ExecutionCommandRequest{JobID: "evacuation-repeated-root-job-" + label + "-" + suffix, CommandID: rootCommand, HostID: source.Host, ResourceType: "VOLUME_ATTACHMENT", ResourceID: source.Attachment, DesiredRevision: int64(source.Materialization), CommandType: SourceRootSafetyReadBackCommandType, SchemaVersion: SourceRootSafetyReadBackSchema, TargetResourceID: "attachment:" + source.Attachment, Payload: map[string]any{"desired_state": "OBSERVE"}}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s root safety command: %v", label, err)
 	}
 	rootEvidence := map[string]any{"attachment_id": source.Attachment, "volume_id": source.Volume, "binding_id": source.Binding, "domain_uuid": vmID, "target_device": "vda", "observed_lv_uuid": source.LV, "device_present": true, "device_identity_matches": true, "source_identity_matches": true, "holder_open": false}
 	rootObservationGeneration := source.Materialization
@@ -137,11 +137,11 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 	}
 	rootAttempt := acceptEvacuationCommand(t, ctx, db, source.Host, rootCommand, rootVerification, rootObservationGeneration, rootEvidence, "SUCCEEDED")
 	if err := AcceptSourceRootSafetyObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: "evacuation-repeated-root-evidence-" + label + "-" + suffix, AttachmentID: source.Attachment, VolumeID: source.Volume, AttachmentGeneration: 1, BindingID: source.Binding, BindingGeneration: 1, HostID: source.Host, DomainUUID: vmID, TargetDevice: "vda", ObservedLVUUID: source.LV, CommandID: rootCommand, VerificationID: rootVerification, AttemptIndex: uint32(rootAttempt), ObservationGeneration: rootObservationGeneration, ObservationDigest: digestBytes([]byte(rootCommand + "/observation")), VerifierDigest: digestBytes([]byte(rootCommand + "/verifier")), EvidenceState: "MATCHED", DevicePresent: true, DeviceIdentityMatches: true, SourceIdentityMatches: true}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s source root safety observation: %v", label, err)
 	}
 	move.StorageSafety = "evacuation-repeated-storage-safety-" + label + "-" + suffix
 	if err := EvaluateHostEvacuationSourceStorageSafety(ctx, db, claim, move.StorageSafety); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s source storage safety: %v", label, err)
 	}
 	move.NetworkRetirementAuthority = "evacuation-repeated-retirement-authority-" + label + "-" + suffix
 	retirementOperation, retirementIntent := "evacuation-repeated-retirement-"+label+"-"+suffix, "evacuation-repeated-retirement-intent-"+label+"-"+suffix
@@ -155,25 +155,25 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 	}
 	retirementClaim := OVNRuntimeClaim{WorkID: retirement.WorkID, Owner: "repeated-retirement-worker-" + label + "-" + suffix, ClaimGeneration: work[0].ClaimGeneration}
 	if err := AuthorizeOVNRuntimeApply(ctx, db, retirementClaim); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s retirement apply authorization: %v", label, err)
 	}
 	move.RetirementEvidence = "evacuation-repeated-retirement-evidence-" + label + "-" + suffix
 	if err := CompleteOVNPortBindingRetirement(ctx, db, retirementClaim, OVNPortBindingRetirementObservation{EvidenceID: move.RetirementEvidence, IntentID: retirementIntent, IntentGeneration: retirementIntentGeneration, PortID: portID, PortGeneration: sourcePortGeneration, BindingGeneration: sourceBindingGeneration, SourceHostID: source.Host, OperationGeneration: 1, NBObservationGeneration: retirementIntentGeneration, SBObservationGeneration: retirementIntentGeneration, OVSObservationGeneration: retirementIntentGeneration, NBObservationDigest: digestBytes([]byte("retirement-nb-" + label + "-" + suffix)), SBObservationDigest: digestBytes([]byte("retirement-sb-" + label + "-" + suffix)), OVSObservationDigest: digestBytes([]byte("retirement-ovs-" + label + "-" + suffix)), AdapterArtifactDigest: digestBytes([]byte("retirement-adapter-" + label + "-" + suffix)), ApplyResponseState: "RECEIVED", Observation: ovnadapter.PortBindingRetirementObservation{OwnershipMarkerMatches: true, ObjectSetDigestMatches: true, LogicalSwitchPresent: true, LogicalSwitchPortPresent: true, RequestedChassisAbsent: true, SourceChassisInactive: true, SourceOVSInterfaceAbsent: true}}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s retirement completion: %v", label, err)
 	}
 	networkQuiescence, err := PrepareHostEvacuationNetworkPortSourceQuiescence(ctx, db, claim, HostEvacuationNetworkQuiescenceRequest{PortID: portID, JobID: "evacuation-repeated-network-quiescence-job-" + label + "-" + suffix, CommandID: "evacuation-repeated-network-quiescence-command-" + label + "-" + suffix})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s source network quiescence preparation: %v", label, err)
 	}
 	networkVerification := "evacuation-repeated-network-quiescence-verification-" + label + "-" + suffix
 	networkAttempt := acceptEvacuationCommand(t, ctx, db, source.Host, networkQuiescence.CommandID, networkVerification, sourcePortGeneration, map[string]any{"domain_uuid": vmID, "vm_generation": float64(1), "port_id": portID, "port_generation": float64(sourcePortGeneration), "binding_generation": float64(sourceBindingGeneration), "domain_running": false, "interface_present": false}, "SUCCEEDED")
 	move.NetworkQuiescence = "evacuation-repeated-network-quiescence-evidence-" + label + "-" + suffix
 	if err := AcceptHostEvacuationNetworkPortSourceQuiescence(ctx, db, claim, HostEvacuationNetworkQuiescenceObservation{EvidenceID: move.NetworkQuiescence, PortID: portID, SourceHostID: source.Host, VMID: vmID, CommandID: networkQuiescence.CommandID, VerificationID: networkVerification, PortGeneration: sourcePortGeneration, BindingGeneration: sourceBindingGeneration, VMGeneration: 1, ObservationGeneration: sourcePortGeneration, AttemptIndex: uint32(networkAttempt), ObservationDigest: digestBytes([]byte(networkQuiescence.CommandID + "/observation")), VerifierDigest: digestBytes([]byte(networkQuiescence.CommandID + "/verifier"))}); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s source network quiescence observation: %v", label, err)
 	}
 	releaseID := "evacuation-repeated-release-" + label + "-" + suffix
 	if err := ReleaseHostEvacuationSourcePlacement(ctx, db, claim, releaseID, move.StorageSafety); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s source placement release: %v", label, err)
 	}
 	destinationRequest, err := BuildHostEvacuationDestinationPlacementRequest(ctx, db, claim, "evacuation-repeated-destination-"+label+"-"+suffix, destinationHost)
 	if err != nil || len(destinationRequest.Network) != 1 || destinationRequest.Network[0].PortID != portID || destinationRequest.Network[0].SourcePortGeneration != sourcePortGeneration || destinationRequest.Network[0].SourceBindingGeneration != sourceBindingGeneration {
@@ -214,7 +214,31 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 	}
 	destinationAdmission, err := FinalAdmitPlacement(ctx, db, destinationRequest, dry)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s destination final request=%+v dry=%+v: %v", label, destinationRequest, dry, err)
+	}
+	var portAuthoritySource string
+	if err := db.QueryRow(ctx, `SELECT authority_source FROM kim.network_ports_current WHERE port_id=$1`, portID).Scan(&portAuthoritySource); err != nil {
+		t.Fatalf("%s Port authority source: %v", label, err)
+	}
+	if portAuthoritySource == "PORT_RESOURCE" {
+		resource, err := GetPortResource(ctx, db, portID)
+		if err != nil || resource.RealizationState != "PENDING" {
+			t.Fatalf("%s destination Port realization=%+v err=%v", label, resource, err)
+		}
+		resourceClaim, err := ClaimPortRealization(ctx, db, resource.OperationID, "repeated-port-resource-worker-"+label+"-"+suffix, time.Minute)
+		if err != nil {
+			t.Fatalf("%s destination Port claim: %v", label, err)
+		}
+		_, resourcePlan, err := ovnadapter.RestoreStoredPortResourcePlan(resourceClaim.CanonicalPlan, resourceClaim.PlanDigest)
+		if err != nil {
+			t.Fatalf("%s destination Port plan: %v", label, err)
+		}
+		if err := AuthorizePortRealizationApply(ctx, db, resourceClaim); err != nil {
+			t.Fatalf("%s destination Port apply authorization: %v", label, err)
+		}
+		if _, err := AcceptPortRealizationObservation(ctx, db, resourceClaim, matchedPortObservation(resourceClaim, resourcePlan, "repeated-port-resource-lsp-"+label+"-"+suffix, "RECEIVED")); err != nil {
+			t.Fatalf("%s destination Port observation: %v", label, err)
+		}
 	}
 	if foreign != nil {
 		if _, err := PrepareVMMaterialization(ctx, db, VMMaterializationRequest{VMID: vmID, AdmissionID: destinationAdmission.AdmissionID, PlanID: "foreign-relocation-plan-" + label + "-" + suffix, JobID: "foreign-relocation-job-" + label + "-" + suffix, CommandID: "foreign-relocation-command-" + label + "-" + suffix, RelocationAuthorityID: foreign["operation"], MaterializationGeneration: source.Materialization + 1}); err == nil {
@@ -230,7 +254,7 @@ func executeRepeatedEvacuationMove(t *testing.T, ctx context.Context, db recover
 		}
 	}
 	if err := AuthorizeHostEvacuationRelocation(ctx, db, claim, move.Relocation, destinationAdmission.AdmissionID, move.StorageSafety, releaseID); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s relocation authorization: %v", label, err)
 	}
 	destinationPlan := "evacuation-repeated-destination-plan-" + label + "-" + suffix
 	if old != nil {

@@ -34,7 +34,7 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	suffix := fmt.Sprintf("%012x", uint64(time.Now().UnixNano())&0xffffffffffff)
 	projectID := "83000000-0000-4000-8000-" + suffix
 	vmID := "83000001-0000-4000-8000-" + suffix
-	host, group := "vm-port-host-"+suffix, "vm-port-pool-"+suffix
+	host, destinationHost, group := "vm-port-host-"+suffix, "vm-port-destination-"+suffix, "vm-port-pool-"+suffix
 	projectDigest := digestBytes([]byte("vm-port-project-" + suffix))
 	if _, err = db.Exec(ctx, `INSERT INTO kim.project_revision_evidence(project_id,project_revision,project_name,delete_protection,lifecycle_state,desired_digest,actor_issuer,actor_subject,request_id) VALUES($1,1,$2,false,'ACTIVE',$3,'integration','vm-port',$4)`, projectID, "vm-port-project-"+suffix, projectDigest, "vm-port-project-"+suffix); err != nil {
 		t.Fatal(err)
@@ -43,10 +43,14 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepareEvacuationHost(t, ctx, db, host)
+	prepareEvacuationHost(t, ctx, db, destinationHost)
 	if err = UpsertPlacementPool(ctx, db, PlacementPoolBinding{PoolID: group, PoolGeneration: 1, LifecycleState: "ACTIVE", PolicyID: "vm-port-placement", PolicyGeneration: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = PublishHostGroupMembershipSet(ctx, db, HostGroupMembershipSetRequest{PublishRequestID: "vm-port-members-" + suffix, HostGroupID: group, SourceType: "EXPLICIT", SourceRevision: suffix, BasedOnHostGroupGeneration: 1, Members: []HostGroupMembership{{HostGroupID: group, HostID: host, Generation: 1, State: "ACTIVE", SourceType: "EXPLICIT", SourceRevision: suffix}}}); err != nil {
+	if _, err = PublishHostGroupMembershipSet(ctx, db, HostGroupMembershipSetRequest{PublishRequestID: "vm-port-members-" + suffix, HostGroupID: group, SourceType: "EXPLICIT", SourceRevision: suffix, BasedOnHostGroupGeneration: 1, Members: []HostGroupMembership{{HostGroupID: group, HostID: host, Generation: 1, State: "ACTIVE", SourceType: "EXPLICIT", SourceRevision: suffix}, {HostGroupID: group, HostID: destinationHost, Generation: 1, State: "ACTIVE", SourceType: "EXPLICIT", SourceRevision: suffix}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO kim.host_placement_pool_memberships_current(host_id,pool_id,membership_generation,membership_state) VALUES($1,$3,1,'ACTIVE'),($2,$3,1,'ACTIVE')`, host, destinationHost, group); err != nil {
 		t.Fatal(err)
 	}
 	policyID := "vm-port-policy-" + suffix
@@ -96,6 +100,9 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	if err = UpsertHostNetworkMapping(ctx, db, HostNetworkMapping{HostID: host, SegmentClaimID: segmentID, Generation: 1, State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS"}, OVNChassisName: "chassis-" + host}); err != nil {
 		t.Fatal(err)
 	}
+	if err = UpsertHostNetworkMapping(ctx, db, HostNetworkMapping{HostID: destinationHost, SegmentClaimID: segmentID, Generation: 1, State: "CURRENT", MaximumMTU: 9000, SupportedBindingTypes: []string{"OVS"}, OVNChassisName: "chassis-" + destinationHost}); err != nil {
+		t.Fatal(err)
+	}
 	port, err := CreatePortResource(ctx, db, PortResourceRequest{PortID: "vm-port-resource-" + suffix, ProjectID: projectID, NetworkID: network.NetworkID, Name: "eth0", MACPolicy: "AUTO", SubnetID: subnet.SubnetID, IPAllocationMode: "AUTO", AttachmentPolicy: "ON_DEMAND", DatapathProfile: "STANDARD"})
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +121,10 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 
 	backendID, vgUUID, classID := "vm-port-backend-"+suffix, "vm-port-vg-"+suffix, "vm-port-class-"+suffix
 	if err = RegisterLocalLVMFoundation(ctx, db, LocalLVMFoundation{BackendID: backendID, HostID: host, VGUUID: vgUUID, BackendState: "ACTIVE", CapabilityState: "CURRENT", SupportTier: "VALIDATED", BackendGeneration: 1, HostCapabilityGeneration: 1, StorageClassID: classID, ClassState: "ACTIVE", StorageClassRevision: 1, FencingPolicyRevision: 1, CapacityObservationID: "vm-port-capacity-" + suffix, CapacityState: "CURRENT", HealthState: "HEALTHY", CapacityGeneration: 1, TotalBytes: 64 << 20, ObservedFreeBytes: 64 << 20, ObservedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	destinationBackend, destinationVG := "vm-port-destination-backend-"+suffix, "vm-port-destination-vg-"+suffix
+	if err = RegisterLocalLVMFoundation(ctx, db, LocalLVMFoundation{BackendID: destinationBackend, HostID: destinationHost, VGUUID: destinationVG, BackendState: "ACTIVE", CapabilityState: "CURRENT", SupportTier: "VALIDATED", BackendGeneration: 1, HostCapabilityGeneration: 1, StorageClassID: classID, ClassState: "ACTIVE", StorageClassRevision: 1, FencingPolicyRevision: 1, CapacityObservationID: "vm-port-destination-capacity-" + suffix, CapacityState: "CURRENT", HealthState: "HEALTHY", CapacityGeneration: 1, TotalBytes: 64 << 20, ObservedFreeBytes: 64 << 20, ObservedAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
 	imageID, flavorID := "vm-port-image-"+suffix, "vm-port-flavor-"+suffix
@@ -190,10 +201,22 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 		t.Fatalf("placement=%+v err=%v", placementRequest, err)
 	}
 	dry, err := DryEvaluateAvailabilityPlacementScope(ctx, db, placementRequest)
-	if err != nil || dry.Status != "READY" || len(dry.Candidates) != 1 {
+	if err != nil || dry.Status != "READY" || len(dry.Candidates) != 2 {
 		t.Fatalf("dry=%+v err=%v", dry, err)
 	}
-	admission, err := FinalAdmitAvailabilityPlacementScope(ctx, db, dry, placementRequest, dry.Candidates[0])
+	eligible := -1
+	for i := range dry.Candidates {
+		if dry.Candidates[i].Placement.Eligible {
+			if eligible != -1 {
+				t.Fatal("multiple initial aggregate candidates unexpectedly eligible")
+			}
+			eligible = i
+		}
+	}
+	if eligible == -1 {
+		t.Fatal("no initial aggregate candidate eligible")
+	}
+	admission, err := FinalAdmitAvailabilityPlacementScope(ctx, db, dry, placementRequest, dry.Candidates[eligible])
 	if err != nil || admission.HostID != host {
 		t.Fatalf("admission=%+v err=%v", admission, err)
 	}
@@ -212,6 +235,10 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	if _, err = AcceptPortRealizationObservation(ctx, db, boundClaim, matchedPortObservation(boundClaim, boundPlan, "vm-port-bound-lsp", "RECEIVED")); err != nil {
 		t.Fatal(err)
 	}
+	// The aggregate Port producer owns the logical resource realization.  The
+	// ordinary VM runtime still records the exact bound OVN incarnation that a
+	// later retirement/handoff consumer must be able to read back.
+	completeEvacuationOVNIntent(t, ctx, db, "vm-port-runtime-intent-"+suffix, port.PortID, "vm-port-runtime-worker-"+suffix, "aggregate-"+suffix, 1)
 	if _, err = BindVMAggregateAdmission(ctx, db, claim, admission.AdmissionID); err != nil {
 		t.Fatal(err)
 	}
@@ -279,6 +306,50 @@ func TestVMAggregateOneStandardPortPostgreSQLIntegration(t *testing.T) {
 	aggregate, err = GetVMAggregate(ctx, db, vmID)
 	if err != nil || aggregate.LifecycleState != "ACTIVE" || aggregate.ConvergenceState != "CONVERGED" {
 		t.Fatalf("terminal aggregate=%+v err=%v", aggregate, err)
+	}
+	logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
+	var logicalPortDigest string
+	if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, port.PortID).Scan(&logicalPortDigest); err != nil {
+		t.Fatal(err)
+	}
+	convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, port.PortID, network.NetworkID, segmentID, port.MACAddress, "aggregate-"+suffix, 1, 1, 1)
+	source := repeatedEvacuationIncarnation{Host: host, Admission: admission.AdmissionID, Plan: decision.PlanID, Volume: volume.VolumeID, Attachment: placementRequest.Storage[0].AttachmentID, Binding: volume.BindingID, LV: volume.LVUUID, Backend: backendID, VG: vgUUID, Materialization: 1, PortGeneration: 1, BindingGeneration: 1}
+	move := executeRepeatedEvacuationMove(t, ctx, db, suffix, "aggregate", vmID, imageID, imageDigest, network.NetworkID, segmentID, port.PortID, port.MACAddress, source, destinationHost, destinationBackend, destinationVG, 1, 1, 2, 3, 2, 3, nil, nil)
+	associationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-port-evacuation-association-" + suffix, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}
+	if _, err = AssociateVMAggregateMobility(ctx, db, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID + "-wrong-terminal", VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: terminalID}); !errors.Is(err, ErrVMAggregateConflict) {
+		t.Fatalf("non-EVACUATE terminal accepted: %v", err)
+	}
+	mobilityDriftRollback := errors.New("rollback post-terminal destination drift")
+	err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE kim.virtual_machines_current SET current_plan_id=$2 WHERE vm_id=$1`, vmID, decision.PlanID); err != nil {
+			return err
+		}
+		if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID + "-drift", VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}); !errors.Is(err, ErrVMAggregateConflict) {
+			return fmt.Errorf("post-terminal destination plan drift accepted: %v", err)
+		}
+		return mobilityDriftRollback
+	})
+	if !errors.Is(err, mobilityDriftRollback) {
+		t.Fatal(err)
+	}
+	association, err := AssociateVMAggregateMobility(ctx, db, associationRequest)
+	if err != nil || association.AssociationGeneration != 1 || association.SourceHostID != host || association.DestinationHostID != destinationHost || association.SourcePlanID != decision.PlanID || association.DestinationPlanID != move.Destination.Plan || association.VMRevision != logicalRevision || association.RuntimeIntentGeneration != logicalRuntime || association.DependencyDigest != logicalDependency || association.DesiredDigest != logicalDesired {
+		t.Fatalf("mobility association=%+v err=%v", association, err)
+	}
+	replayed, err := AssociateVMAggregateMobility(ctx, db, associationRequest)
+	if err != nil || replayed.AssociationDigest != association.AssociationDigest {
+		t.Fatalf("mobility replay=%+v err=%v", replayed, err)
+	}
+	if _, err = AssociateVMAggregateMobility(ctx, db, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID, VMID: vmID, MobilityKind: "RECOVERY", MobilityTerminalEvidenceID: move.ParentTerminal}); !errors.Is(err, ErrVMAggregateConflict) {
+		t.Fatalf("association identifier rebound: %v", err)
+	}
+	var currentVMRevision, currentRuntime, currentAssociationGeneration uint64
+	var currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociation, currentPortDigest string
+	if err = db.QueryRow(ctx, `SELECT r.vm_revision,r.runtime_intent_generation,s.dependency_digest,r.desired_digest,b.host_id,b.admission_id,b.plan_id,b.mobility_association_generation,b.mobility_association_id,p.desired_digest FROM kim.vm_resources_current r JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(r.vm_id,r.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id JOIN kim.network_ports_current p ON p.port_id=$2 WHERE r.vm_id=$1`, vmID, port.PortID).Scan(&currentVMRevision, &currentRuntime, &currentDependency, &currentDesired, &currentHost, &currentAdmission, &currentPlan, &currentAssociationGeneration, &currentAssociation, &currentPortDigest); err != nil || currentVMRevision != logicalRevision || currentRuntime != logicalRuntime || currentDependency != logicalDependency || currentDesired != logicalDesired || currentPortDigest != logicalPortDigest || currentHost != destinationHost || currentAdmission != move.Destination.Admission || currentPlan != move.Destination.Plan || currentAssociationGeneration != 1 || currentAssociation != association.AssociationID {
+		t.Fatalf("post-mobility logical/runtime=%d/%d %s/%s Port=%s physical=%s/%s/%s association=%d/%s err=%v", currentVMRevision, currentRuntime, currentDependency, currentDesired, currentPortDigest, currentHost, currentAdmission, currentPlan, currentAssociationGeneration, currentAssociation, err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE kim.vm_aggregate_mobility_association_evidence SET recorded_at=recorded_at WHERE association_id=$1`, association.AssociationID); err == nil {
+		t.Fatal("immutable mobility association UPDATE succeeded")
 	}
 	for _, table := range []string{"vm_aggregate_port_binding_evidence", "vm_aggregate_network_port_verification_evidence"} {
 		if _, err = db.Exec(ctx, `UPDATE kim.`+table+` SET recorded_at=recorded_at`); err == nil {

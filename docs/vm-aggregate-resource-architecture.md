@@ -461,7 +461,7 @@ Mandatory negative coverage:
 
 ## 23. Implemented internal profiles
 
-Migration 082/083 と `internal/persistence/postgres/vm_aggregate.go` は、次の限定profileを実装・qualificationしました。
+Migration 082–084 と `internal/persistence/postgres/vm_aggregate.go` / `vm_aggregate_mobility.go` は、次の限定profileを実装・qualificationしました。
 
 ```text
 logical VM revision 1
@@ -483,7 +483,9 @@ callerはHost、Admission、backend、Binding、LV、READY、RUNNINGを供給し
 
 one STANDARD Port profileではlogical Port revision/digestとrequested attachment intentだけをdesired snapshotへ保存します。Host、binding generation、OVN backend UUID、OVS interface identityは保存しません。compilerはexact current Network/Subnet/segment/identity authorityからordinary Network requirementを導出し、Final AdmissionがHost binding incarnationを作成します。aggregate verificationは、そのbindingとexact VM planに一致するtyped OVS preboot observationを別のimmutable provenance rowとして消費します。
 
-未実装のまま残るものは Northbound/OpenAPI/Terraform、logical update/delete、multi-Port、data Volume、Recovery/EVACUATE no-drift aggregate associationです。qualification詳細は [Phase 3 VM Aggregate Internal Authority Qualification](validation/p3-vm-aggregate-internal-authority-20260815.md) と [one STANDARD Port qualification](validation/p3-vm-aggregate-one-standard-port-20260815.md) を参照してください。
+Migration 084のmobility associationは、既存RecoveryまたはHost EVACUATEの`VERIFIED` terminalを消費するpost-terminal authorityです。mobility primitiveを再実装せず、terminalのexact source incarnationがaggregate runtime binding currentと一致し、destination Admission/plan/readiness/network/powerがcurrentである場合だけruntime pointerをCASで更新します。VM revision、runtime intent generation、dependency snapshot/digest、desired digest、logical Port revision/digestは更新しません。one STANDARD Port planned EVACUATE A→Bは実chainでqualification済みです。Recovery consumer branchはschema/implementation済みですが、aggregate-origin Recovery positive campaignは未実施です。
+
+未実装のまま残るものは Northbound/OpenAPI/Terraform、logical update/delete、multi-Port、data Volume、aggregate-origin Recovery no-drift positive qualificationです。qualification詳細は [Phase 3 VM Aggregate Internal Authority Qualification](validation/p3-vm-aggregate-internal-authority-20260815.md)、[one STANDARD Port qualification](validation/p3-vm-aggregate-one-standard-port-20260815.md)、[planned EVACUATE no-drift qualification](validation/p3-vm-aggregate-evacuate-no-drift-20260815.md) を参照してください。
 
 ## 24. Explicitly out of scope
 

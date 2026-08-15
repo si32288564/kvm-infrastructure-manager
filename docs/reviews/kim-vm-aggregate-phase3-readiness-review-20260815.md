@@ -4,6 +4,8 @@
 
 > STANDARD Port addendum (2026-08-15): Migration 083 qualifies one logical STANDARD Port through exact dependency snapshot, Final Admission binding, attached OVN realization, typed OVS preboot observation and aggregate terminal drift fencing. Physical Port incarnation remains outside logical VM desired state. See [one STANDARD Port qualification](../validation/p3-vm-aggregate-one-standard-port-20260815.md).
 
+> Planned mobility addendum (2026-08-15): Migration 084 adds a pure post-terminal aggregate association consumer and qualifies one STANDARD Port Host EVACUATE A→B with unchanged logical VM/Port desired authority. Aggregate-origin Recovery remains NOT RUN. See [planned EVACUATE no-drift qualification](../validation/p3-vm-aggregate-evacuate-no-drift-20260815.md).
+
 - Date: 2026-08-15
 - Baseline: `eb9f8ae3096e135bf7446b01dd92d19e72d0f837`
 - Scope: repository architecture and authority inventory only
@@ -14,6 +16,8 @@
 ```text
 PHASE3_VM_AGGREGATE_DESIGN          = ACCEPTED
 PHASE3_VM_INTERNAL_INITIAL_SLICE    = IMPLEMENTED
+VM_AGGREGATE_EVACUATE_NO_DRIFT      = PASS
+VM_AGGREGATE_RECOVERY_NO_DRIFT      = NOT RUN
 NORTHBOUND_VM_RESOURCE     = BLOCKED
 TERRAFORM_VM_RESOURCE      = BLOCKED
 ```
@@ -35,7 +39,7 @@ Implementation did not serialize `virtual_machines_current`. Migration 082 added
 - runtime intent generation independent of metadata revision;
 - aggregate Create/Power/Delete Operation;
 - pure aggregate verification and terminal evidence;
-- logical/runtime association across Recovery and EVACUATE;
+- aggregate-origin Recovery positive association qualification;
 - safe delete quiescence/detach/absence/tombstone contract;
 - VM OpenAPI/Provider schema and acceptance campaign.
 
