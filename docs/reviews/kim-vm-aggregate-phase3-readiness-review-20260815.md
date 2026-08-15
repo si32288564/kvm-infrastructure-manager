@@ -66,3 +66,9 @@ The first gate should prove create through observed RUNNING, then SHUTOFF/RUNNIN
 ## Safety conclusion
 
 The proposed design adds no shortcut authority. It requires existing Final Admission、typed execution、read-back、readiness、Recovery、and EVACUATE evidence and introduces only the missing aggregate provenance. No Migration、code、OpenAPI、Provider、qualification result、or production status is changed by this review.
+
+## Implementation addendum: Migration 087
+
+Migration 087でmetadata-only revision、desired power Operation、delete protection、zero-Port/one-ROOT delete terminal、immutable tombstoneをqualificationした。metadata updateはruntime intent/physical incarnationを変更せず、power updateはexact dependency snapshotを維持したままtyped power read-backへ収束する。deleteはSHUTOFF、typed Domain absence、ROOT absence/no-holder、compute releaseを独立evidenceとして要求する。
+
+Port付き・複数Volume delete、Northbound `/api/v1/vms`、Terraform `kim_vm` は未qualificationであり、引き続きBLOCKEDとする。

@@ -265,6 +265,8 @@ Aggregate verificationが必要とする最低条件:
 
 ## 11. Update contract
 
+Migration 087はinitial contractを内部authorityとして実装しました。metadata-only更新はimmutable logical revisionだけを追加し、runtime intent generationとdependency snapshotを維持します。desired power更新はlogical revisionとruntime intent generationを進めますが、同じexact dependency snapshotとcurrent runtime incarnationを消費し、Placementを再実行しません。
+
 ### 11.1 Initial in-place updates
 
 - `name`: synchronous logical revision only;
@@ -302,6 +304,8 @@ Recovery/EVACUATE中にruntime-affecting user updateが競合した場合、共�
 Recovery/EVACUATEが `UNKNOWN`、`RECOVERY_REQUIRED`、`BLOCKED` の間、Terraform refreshはlogical resourceを消去またはreplacementしません。computed convergenceを `UNKNOWN`/`ACTION_REQUIRED` として返します。
 
 ## 13. Delete contract
+
+Migration 087の最初のqualified producerはzero-Port、one ROOT Volume、no PCIです。`RUNNING`からの削除は直接許可せず、先に通常のpower Operationで`SHUTOFF MATCHED`へ収束させます。Host AgentがROOT hot-detachを禁止しているため、exact inactive Domainをtyped undefineした後、ROOT attachment absence/no-holderをREAD_BACK_FIRSTで証明します。Port付きまたは複数Volumeのdeleteは別campaignまでfail-closedです。
 
 VM Deleteはcascade deleteではありません。
 
@@ -457,11 +461,11 @@ Mandatory negative coverage:
 | public API | absent | `/api/v1/vms` logical contract |
 | Terraform | absent | `kim_vm` logical state with Operation polling |
 | mobility drift | architecture invariant only | explicit aggregate association and acceptance test |
-| delete | no public aggregate contract | quiescence/detach/absence/tombstone authority |
+| delete | zero-Port/one-ROOT internal authority | Port/multi-Volume拡張後にpublic quiescence/detach/absence/tombstone contract |
 
 ## 23. Implemented internal profiles
 
-Migration 082–084 と `internal/persistence/postgres/vm_aggregate.go` / `vm_aggregate_mobility.go` は、次の限定profileを実装・qualificationしました。
+Migration 082–087 と `internal/persistence/postgres/vm_aggregate.go` / `vm_aggregate_mobility.go` / `vm_aggregate_lifecycle.go` は、次の限定profileを実装・qualificationしました。
 
 ```text
 logical VM revision 1

@@ -59,6 +59,7 @@ type VMAggregate struct {
 	DataVolumes                                              []VMAggregateVolumeRequest
 	VMRevision, RuntimeIntentGeneration, RootVolumeRevision  uint64
 	PortRevision                                             uint64
+	DeleteProtection                                         bool
 }
 
 // The producer bound tracks the largest positively qualified profile. Raise
@@ -307,7 +308,7 @@ func CreateVMAggregate(ctx context.Context, db TxBeginner, r VMAggregateCreateRe
 func GetVMAggregate(ctx context.Context, db TxBeginner, vmID string) (VMAggregate, error) {
 	var v VMAggregate
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT c.vm_id::text,c.project_id,e.vm_name,e.desired_power_state,c.lifecycle_state,c.convergence_state,c.current_operation_id,o.operation_state,s.dependency_snapshot_id,s.dependency_digest,c.desired_digest,d.volume_id,c.vm_revision,c.runtime_intent_generation,d.volume_revision FROM kim.vm_resources_current c JOIN kim.vm_resource_revision_evidence e ON(e.vm_id,e.vm_revision)=(c.vm_id,c.vm_revision) JOIN kim.vm_lifecycle_operations_current o ON o.operation_id=c.current_operation_id JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(c.vm_id,c.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_dependency_volume_evidence d ON d.dependency_snapshot_id=s.dependency_snapshot_id AND d.device_role='ROOT' WHERE c.vm_id=$1`, vmID).Scan(&v.VMID, &v.ProjectID, &v.Name, &v.DesiredPowerState, &v.LifecycleState, &v.ConvergenceState, &v.OperationID, &v.OperationState, &v.DependencySnapshotID, &v.DependencyDigest, &v.DesiredDigest, &v.RootVolumeID, &v.VMRevision, &v.RuntimeIntentGeneration, &v.RootVolumeRevision); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT c.vm_id::text,c.project_id,e.vm_name,e.desired_power_state,c.lifecycle_state,c.convergence_state,c.current_operation_id,o.operation_state,s.dependency_snapshot_id,s.dependency_digest,c.desired_digest,d.volume_id,c.vm_revision,c.runtime_intent_generation,d.volume_revision,e.delete_protection FROM kim.vm_resources_current c JOIN kim.vm_resource_revision_evidence e ON(e.vm_id,e.vm_revision)=(c.vm_id,c.vm_revision) JOIN kim.vm_lifecycle_operations_current o ON o.operation_id=c.current_operation_id JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(c.vm_id,c.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_dependency_volume_evidence d ON d.dependency_snapshot_id=s.dependency_snapshot_id AND d.device_role='ROOT' WHERE c.vm_id=$1`, vmID).Scan(&v.VMID, &v.ProjectID, &v.Name, &v.DesiredPowerState, &v.LifecycleState, &v.ConvergenceState, &v.OperationID, &v.OperationState, &v.DependencySnapshotID, &v.DependencyDigest, &v.DesiredDigest, &v.RootVolumeID, &v.VMRevision, &v.RuntimeIntentGeneration, &v.RootVolumeRevision, &v.DeleteProtection); err != nil {
 			return err
 		}
 		rows, err := tx.Query(ctx, `SELECT port_id,port_revision FROM kim.vm_dependency_port_evidence WHERE dependency_snapshot_id=$1 ORDER BY port_ordinal`, v.DependencySnapshotID)

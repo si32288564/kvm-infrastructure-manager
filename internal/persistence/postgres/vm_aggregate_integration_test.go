@@ -21,6 +21,12 @@ func TestVMAggregateDataVolumePostgreSQLIntegration(t *testing.T) {
 }
 
 func testVMAggregateVolumeProfilePostgreSQLIntegration(t *testing.T, withData bool) {
+	testVMAggregateVolumeProfilePostgreSQLIntegrationAfter(t, withData, nil)
+}
+
+type vmAggregateProfileCallback func(*testing.T, context.Context, recoveryQualificationDB, string, string, string, VMAggregate)
+
+func testVMAggregateVolumeProfilePostgreSQLIntegrationAfter(t *testing.T, withData bool, after vmAggregateProfileCallback) {
 	url := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if url == "" {
 		t.Skip("KIM_POSTGRES_TEST_URL is not set")
@@ -334,5 +340,8 @@ func testVMAggregateVolumeProfilePostgreSQLIntegration(t *testing.T, withData bo
 		if _, err = pool.Exec(ctx, `UPDATE kim.`+table+` SET recorded_at=recorded_at`); err == nil {
 			t.Fatalf("immutable UPDATE succeeded: %s", table)
 		}
+	}
+	if after != nil {
+		after(t, ctx, pool, suffix, vmID, host, aggregate)
 	}
 }

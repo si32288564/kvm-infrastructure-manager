@@ -89,7 +89,7 @@ func AcceptLocalLVMAttachmentObservation(ctx context.Context, db TxBeginner, obs
 			if !observation.DevicePresent || !observation.DeviceIdentityMatches || !observation.SourceIdentityMatches || !observation.HolderOpen || observation.ReadOnly || (claimState != "RESERVED" && claimState != "ACTIVE" && claimState != "UNKNOWN") {
 				return ErrPlacementConflict
 			}
-		} else if observation.DevicePresent || observation.DeviceIdentityMatches || observation.SourceIdentityMatches || observation.HolderOpen || (claimState != "ACTIVE" && claimState != "RELEASE_PENDING" && claimState != "UNKNOWN" && claimState != "RELEASED") {
+		} else if observation.DevicePresent || observation.DeviceIdentityMatches || observation.SourceIdentityMatches || observation.HolderOpen || (claimState != "RESERVED" && claimState != "ACTIVE" && claimState != "RELEASE_PENDING" && claimState != "UNKNOWN" && claimState != "RELEASED") {
 			return ErrPlacementConflict
 		}
 		var existingEvidenceID, existingState, existingDomain, existingTarget, existingLV string
