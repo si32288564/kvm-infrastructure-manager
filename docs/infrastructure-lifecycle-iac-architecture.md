@@ -1,14 +1,14 @@
 # Infrastructure Lifecycle and IaC Architecture
 
 - 状態: Proposed
-- 更新日: 2026-08-14
+- 更新日: 2026-08-15
 - 対象: Terraform、Ansible、KIM Northbound API、管理 UI、Host lifecycle handoff
 
 ## 1. 目的
 
 本書は KIM を IaC-first な KVM Infrastructure Control Plane として利用するための将来設計 SSOT です。Terraform、Ansible、管理 UI、KIM、Host Agent、各 backend の責務を分離し、同じ resource lifecycle contract から API、Terraform Provider、UI を構成します。
 
-`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migration 073–076 の Project、Flavor、SYSTEM Availability Policy、Image APIとPhase 1 Providerはcurrent referenceです。Migration 077–080でNetwork/Subnet/Port/Volumeのinternal Resource Contractは`CONTRACT_READY`ですが、これらのpublic API/Provider、UI、VM aggregateは引き続proposedまたはblockedです。
+`Current` は repository で確認できる現状、`Proposed` は実装前に ADR、API contract、security review、qualification が必要な目標を表します。Migrations 073–076 の Project、Flavor、SYSTEM Availability Policy、Image と Migration 081 が接続する Network、Subnet、unattached Port、backend-neutral Volume は Northbound API / Terraform Providerまでqualifiedです。VM aggregate、UI、Router/Floating IP、Security Policy は引き続きproposedまたはblockedです。
 
 ## 2. 中核原則
 
@@ -177,7 +177,7 @@ KIM-owned runtime の例は exact pCPU/NUMA/HugePages/PMD/RxQ claim、vhost-user
 
 ### 6.1 Provider と module の分離
 
-`terraform-provider-kim/` は versioned KIM Resource API の thin lifecycle clientとして、Project、Flavor、closed SYSTEM Availability Policy、Imageに加えて、Phase 2のNetwork、Subnet、unattached Port、backend-neutral Volumeをexperimental resourceとして公開します。Migration 081とpublic serviceはRBAC/idempotency/audit/OpenAPI/list/import/Operation projectionを提供し、Providerはverified terminalまでOperationをpollします。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。VM、Port attachment、Router/Floating IP、Volume resize/Cephは引き続き未公開です。
+`terraform-provider-kim/` は versioned KIM Resource API の thin lifecycle clientとして、Project、Flavor、closed SYSTEM Availability Policy、Imageに加えて、Phase 2のNetwork、Subnet、unattached Port、backend-neutral Volumeを公開します。Migration 081とpublic serviceはRBAC/idempotency/audit/OpenAPI/list/import/Operation projectionを提供し、Providerはverified terminalまでOperationをpollします。Provider は KIM の Placement、Recovery、evidence verification を再実装しません。VM、Port attachment、Router/Floating IP、Volume resize/Cephは引き続き未公開です。VMの次期aggregate contractは [VM Aggregate Resource Architecture](vm-aggregate-resource-architecture.md) に定義します。
 
 Terraform module は organization の標準 VM、network、storage、availability、datapath profile の組み合わせを提供できます。module は physical Host identity、LV UUID、PCI BDF 等を入力に要求せず、Provider の lifecycle rule を上書きしません。
 
@@ -218,7 +218,7 @@ immutable field の変更が replacement を必要とするか、in-place asynch
 
 Phase 1 ProviderはTerraform Plugin Framework v1.19.0を使用し、Bearer automation token、TLS trust、request timeout、Problem Details、ETag/If-Match、cross-process Create idempotency、authorized refresh、contract importを共通clientへ集約します。provider `client_id`とresourceごとのwrite-only `client_reference`からstable Idempotency-Keyを再構成し、KIMがcanonical desired digestへbindします。display nameはrecovery identityではなく、client referenceもKIM resource authorityではありません。Imageだけはmetadata commit後にseparate ingestion Operationを作り、`UNKNOWN`をnon-terminalとしてverified `SUCCEEDED`までbounded pollします。Operation/Attempt/evidence identityはresource stateへ保存しません。
 
-Terraform CLI acceptanceはlocal filesystem mirrorからprovider binaryをロードし、実HTTP KIM handlerとPostgreSQL 17へ接続します。Project/Flavor/Availability/Imageのcreate、no-op、new revision update、remote drift、stale ETag fail-closed、import no-op、destroy、Image再ingestion、physical-state非漏洩を検証します。これはPhase 1 logical resource acceptanceであり、Network/Volume/VMまたはproduction Registry releaseをqualifyしません。
+Terraform CLI acceptanceはlocal filesystem mirrorからprovider binaryをロードし、実HTTP KIM handlerとPostgreSQL 17へ接続します。Phase 1はProject/Flavor/Availability/Image、Phase 2はNetwork/Subnet/unattached Port/backend-neutral Volumeについてcreate、no-op、revision update、remote drift、stale ETag fail-closed、import no-op、destroy、async read-back、physical-state非漏洩を検証済みです。VMおよびproduction Registry releaseはqualifyしていません。
 
 ## 7. Persistent Resource and Operation Separation
 
@@ -408,9 +408,9 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 | Area | Current repository state | Proposed target |
 |---|---|---|
-| Northbound API | Project/Flavor/SYSTEM Availability CRUD/list、OIDC/RBAC、ETag/If-Match、exact idempotency FK、Problem Details、cursor、audit、OpenAPIがMigration 073–075で実装 | typed Image ingestion/read-back、infrastructure-managed Availability authoring、backend Operationを安全に追加 |
-| Resource persistence | Image、Flavor、Network、Volume、VM、Availability 等の persistence/authority は段階的に存在 | Terraform-ready logical resource surface と public CRUD semantics |
-| Terraform | Provider/module/registry artifact は存在しない | `terraform-provider-kim` と official modules |
+| Northbound API | Project/Flavor/SYSTEM Availability/Image/Network/Subnet/unattached Port/backend-neutral VolumeのCRUD/list、RBAC、ETag/If-Match、idempotency、Problem Details、cursor、audit、OpenAPIがMigration 081までで実装 | VM aggregate、Router/Floating IP、Security Policyをauthority gap closure後に追加 |
+| Resource persistence | Phase 1/2 logical resourcesはpublic contractまで実装。VMはinternal runtime/Placement/materialization authorityのみ | VM logical revision/dependency snapshot/aggregate terminalを追加 |
+| Terraform | ProviderがPhase 1/2の8 resourceでCRUD/import/Operation pollingを実装 | `kim_vm`、official modules、registry release |
 | UI | product UI resource editor/runtime console は未実装 | common contract に基づく interactive、authoring、troubleshooting UI |
 | Host lifecycle | Enrollment、identity、capability、compliance、typed convergence の architecture と authority がある | PXE/Ansible から KIM への machine-readable handoff API/status |
 | Ansible boundary | KIM は generic configuration management ではなく external remediation を検証する方針がある | supported collections/workflow contract と禁止 mutation surface |
@@ -419,24 +419,25 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 | Security Policy | API/resource architecture 上の概念はあるが、current persistence/compiler authority は確認できない | backend-independent resource と OVN compiler/read-back |
 | Project | first-class stable ID、immutable revision/current projection、owner ADMIN binding、delete protection/dependency guard、public CRUD/list contractが実装済み。quota/policy/tenant hierarchyは未実装 | quota/policy bindingと拡張scope model |
 | Flavor | Project-owned immutable shape revision、current projection、Placement exact-revision consumer、CRUD/list/dependency fenceが実装済み。exact pCPU/Host/NUMA realizationは非公開 | Provider import/conformanceとcatalog visibility拡張 |
-| Image | verified revision/current producerはあるが、artifact ingestionと実測checksum/signature authorityがmetadata CRUDから未分離 | ingestion Operationとlogical metadata lifecycle分離後にNorthbound化 |
-| Availability Policy | immutable revisionとRecovery/Placement consumersはあるが、SYSTEM catalog、opaque legacy fields、複数typed policy binding、PLACEMENT_POOL resolutionが前提 | public intent schema/scope/dependency contract確定後にNorthbound化 |
+| Image | logical metadataとtyped artifact ingestion/read-backを分離し、Northbound/Providerまでqualified | distribution/cache profileと追加artifact sourceを段階開放 |
+| Availability Policy | closed SYSTEM non-automatic profileをNorthbound/Providerまでqualified。existing VM Bindingはexact revisionを維持 | infrastructure-managed authoringとadditional scopeはsubordinate policy gap closure後に追加 |
 
 ## 16. Capability Gaps Before Implementation
 
-### 16.1 Terraform-ready API
+### 16.1 Phase 3 VM aggregate API
 
-- Project以外のOpenAPI resource/lifecycle metadataと互換性fixture
-- backend-convergent CRUD/action/Operation の resource-specific contract
-- import endpoint/identifier、eventual consistency、event subscription contract
-- Project patternを再利用した各resourceのdependency/tombstone/retention semantics
-- common Operationのstable error、poll、cancel、retention projection
+- immutable logical VM revision/current/tombstone authority
+- exact dependency snapshotとruntime intent generation
+- existing Placement/Materialization/Power terminalを束ねるaggregate verification
+- Recovery/EVACUATE後のlogical association/no-drift projection
+- safe delete quiescence/detach/absence contract
+- VM OpenAPI lifecycle metadata、import、common Operation projection
 
-### 16.2 Provider and modules
+### 16.2 Phase 3 Provider and modules
 
-- Provider authentication、schema generation、Operation waiter、response-loss read-back
-- importers、state upgrader、timeouts、diagnostics、acceptance test environment
-- recovery/evacuation non-drift test、concurrent UI edit test、partial failure test
+- `kim_vm` desired/computed schemaとOperation waiter
+- VM importer、timeouts、response-loss read-back、diagnostics
+- Recovery/EVACUATE no-drift、concurrent desired update、partial failure tests
 - official modules と version compatibility policy
 
 ### 16.3 UI schema and export
@@ -462,8 +463,8 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ### 16.6 Physical detail exposure
 
-- logical/public DTO と internal Placement DTO の型分離
-- current internal Placement requirements に含まれる `VGUUID`、PCI/network `DeviceAddress`、`HostMappingGeneration` 等を public persistent desired fields へそのまま昇格させない review
+- Phase 1/2のlogical/public DTO と internal realization DTO の分離をVM aggregateでも維持
+- current internal Placement requirements に含まれる `VGUUID`、PCI/network `DeviceAddress`、`HostMappingGeneration` 等をVM public persistent desired fieldsへそのまま昇格させないreview
 - Host-local path/UUID/BDF/generation の read-only projection/redaction policy
 - exact pinning requirement と arbitrary physical selection の境界
 
@@ -475,22 +476,22 @@ Terraform workspace/run metadata は audit hint であり authorization/authorit
 
 ## 17. Migration Path
 
-1. Project、Flavor、closed SYSTEM Availability Policy multi-resource contractのOpenAPI、security、revision、idempotency、audit patternを維持する（完了）。
-2. 各 resource に本書の lifecycle contract を記入し、public logical field と internal physical field を分離する。
-3. backend convergenceを持つ最初のresourceでunified Operation contractを実装する。
-4. Project experimental Provider resource/scaffoldでCRUD/import/refresh/response-loss testsを成立させる。
-5. read-only status projection と UI troubleshooting viewでauthority bypassがないことを確認する。
-6. VM/Network/Storage/Policy の asynchronous materialization と delete protection を段階的に追加する。
-7. UI IaC authoring/export と Provider semantic equivalence を qualification する。
-8. Day 0 Ansible collection/workflow と Host ownership handoff を qualification する。
-9. Security Policy OVN compiler を独立 authority として実装・qualification する。
-10. DPDK、Direct-I/O、FRR 等は各 target architecture の capability gate 後に public profileへ追加する。
+1. Project、Flavor、closed SYSTEM Availability Policy、ImageのPhase 1 contractを実装・qualificationする（完了）。
+2. Network、Subnet、unattached Port、backend-neutral VolumeのPhase 2 contractを実装・qualificationする（完了）。
+3. [VM Aggregate Resource Architecture](vm-aggregate-resource-architecture.md) のlogical revision、dependency snapshot、aggregate Operation/terminalをreviewする。
+4. VM internal aggregateをzero-Port/one root/no-PCI profileから実装・qualificationする。
+5. VM Northbound API/OpenAPIと`kim_vm` CRUD/import/response-lossを追加する。
+6. Recovery/EVACUATE後のTerraform no-driftをqualificationする。
+7. read-only status projection と UI troubleshooting viewでauthority bypassがないことを確認する。
+8. UI IaC authoring/export と Provider semantic equivalence を qualification する。
+9. Day 0 Ansible collection/workflow と Host ownership handoff を qualification する。
+10. Security Policy、DPDK、Direct-I/O、FRR等は各authority/capability gate後に追加する。
 
 各段階で current implementation と proposed contract の差を release note/API feature gate へ明示します。Provider/UI が未実装 authority を先に current resource として見せません。
 
 ## 18. Future Qualification Plan
 
-Project Phase 0 gate は validation report で qualification 済みです。後続実装では最低限、次の evidence-based qualification を継続します。
+Phase 1/2 resourceはvalidation reportでqualification済みです。Phase 3 VM以降も最低限、次のevidence-based qualificationを継続します。
 
 - API contract/replay/idempotency/ETag/response-loss/error compatibility
 - Provider create/read/update/delete/import、state upgrade、partial failure、timeout/read-back
@@ -504,9 +505,9 @@ Project Phase 0 gate は validation report で qualification 済みです。後�
 
 ## 19. Explicitly Out of Scope
 
-- Terraform Provider、module、registry release の実装
-- Project以外の Northbound API、Provider、UI、additional Migration/database schema の変更
-- qualification gate の追加または既存 gate の昇格
+- VM aggregate、Router/Floating IP、Security Policy、UIの実装
+- official module、registry release の実装
+- 本architecture更新だけを根拠にしたqualification gateの昇格
 - Ansible collection/playbook、PXE server、OS image pipeline の実装
 - Terraform state backend の選定・運用
 - arbitrary HCL の完全な visual round-trip editor
@@ -515,21 +516,20 @@ Project Phase 0 gate は validation report で qualification 済みです。後�
 - OVN 以外の Security Policy backend の具体実装
 - DPDK、SR-IOV、FRR、shared storage の未 qualification capability を current と宣言すること
 
-## 20. Decisions Required Before Implementation
+## 20. Phase 3 Review Decisions
 
-- OpenAPI extension と独立 lifecycle schema のどちらを SSOT とするか
-- Project、Site、Host、Policy/Profile の public scope/revision model
-- Terraform-managed coordination metadata と explicit handoff semantics
-- delete tombstone/retention と Terraform state removal の exact contract
-- Operation event subscription と polling の supported boundary
-- Security Policy selector/priority/stateful semantics と OVN compilation atomicity
-- UI export の module boundary と canonical naming/reference strategy
+- boot Imageとroot Volume source authorityのexact compatibility rule
+- attached Port/single-writer Volumeを含むreplacementで`create_before_destroy`を許可しないexact condition
+- active Recovery/EVACUATEとdesired power/Delete競合時のstable error/action-required contract
+- VM tombstone retentionとTerraform state removalのexact boundary
+- physical diagnostic statusのpermission/redaction/Provider exclusion metadata
+- aggregate Operation cancellation、retry、operator-action-requiredのinitial supported subset
 
 これらは実装時に黙って決めず、必要な ADR と security/API review を行います。
 
 ## 21. Related Documents
 
-Migration 076でImageはTerraform-safe logical resourceになりました。desiredはProject、name、architecture、format、expected digest、approved source ID、visibility、delete protectionです。verified digest/size/stateはcomputedであり、Host cacheの消失・再作成・別Host realizationはdriftではありません。ingestionのphase変更はresource replacementを起こさず、content変更は明示的new revisionとなり既存VMへretrofitしません。Phase 1 Provider実装開始判定はYesですが、Network/Volume/VM readinessを意味しません。
+Migration 076でImageはTerraform-safe logical resourceになりました。Migration 081まででNetwork/Subnet/unattached Port/backend-neutral Volumeもpublic contractへ接続済みです。physical incarnationはdesired driftではなく、content changeやlogical revision changeだけがresource contractに従う変更です。VM readinessはこの事実から推測せず、Phase 3 aggregate authorityを別途要求します。
 
 - [KIM Northbound API / Terraform Readiness Review](reviews/kim-terraform-api-readiness-review-20260814.md)
 - [System Architecture](architecture.md)
@@ -540,6 +540,7 @@ Migration 076でImageはTerraform-safe logical resourceになりました。desi
 - [Extension Conformance](extension-conformance.md)
 - [Network and Dataplane Target Architecture](network-dataplane-target-architecture.md)
 - [Network Resource Architecture](network-resource-architecture.md)
+- [VM Aggregate Resource Architecture](vm-aggregate-resource-architecture.md)
 - [Placement Architecture](placement-architecture.md)
 - [Execution Architecture](execution-architecture.md)
 - [Data Persistence Architecture](data-persistence-architecture.md)

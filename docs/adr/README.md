@@ -48,3 +48,8 @@ Phase 0 Decision Gate review の結果、2026-08-09 に ADR-0001〜0023 を個�
 - [ADR-0029: Northbound resource mutation の完了境界を authority で分ける](0029-northbound-resource-mutation-completion-boundary.md)
 - [ADR-0030: Image logical revision と artifact ingestion Operation を分離する](0030-image-logical-resource-and-artifact-operation-boundary.md)
 - [ADR-0031: Network desired、segment allocation、backend realization authority を分離する](0031-independent-network-resource-segment-and-realization-authority.md)
+- [ADR-0032: Subnet desired、IPAM、DHCP realization authority を分離する](0032-independent-subnet-ipam-and-dhcp-realization-authority.md)
+- [ADR-0033: Port identity、attachment、realization authority を分離する](0033-independent-port-identity-attachment-and-realization-authority.md)
+- [ADR-0034: Volume、capacity、materialization、attachment authority を分離する](0034-independent-volume-capacity-materialization-and-attachment-authority.md)
+- [ADR-0035: Phase 2 Northbound logical resource contract](0035-phase2-northbound-logical-resource-contract.md)
+- [ADR-0036: VM is a logical aggregate over physical incarnations](0036-vm-logical-aggregate-over-physical-incarnations.md)（Proposed）
