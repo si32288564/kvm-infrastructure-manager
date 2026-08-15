@@ -97,7 +97,7 @@ ROOT used SHA-256 digest `1d5aa06378228155e875fcf7d037a089c14fa463cdcb224d78beb0
 
 ## Scope
 
-This campaign qualifies planned EVACUATE for ROOT+DATA and one STANDARD Port. It does not infer ROOT+DATA Recovery, real-host Local LVM transport, multi-Volume cleanup, SR-IOV, OVS-DPDK, or production readiness. Two-Port plus ROOT+DATA EVACUATE remains a separate composite-cardinality campaign.
+This campaign qualifies planned EVACUATE for ROOT+DATA and one STANDARD Port. It does not infer ROOT+DATA Recovery, real-host Local LVM transport, multi-Volume cleanup, SR-IOV, OVS-DPDK, or production readiness. The later [maximum-profile mobility campaign](p3-vm-aggregate-maximum-profile-mobility-20260815.md) composes this Storage set with the two-Port set without adding another migration.
 
 ## Regression commands
 

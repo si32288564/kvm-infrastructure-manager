@@ -462,7 +462,7 @@ Mandatory negative coverage:
 | terminal | pure VM aggregate verification/terminal | larger dependency sets |
 | public API | `/api/v1/vms` bounded logical contract | attachment-specific actions |
 | Terraform | `kim_vm` logical state with Operation polling | production registry release |
-| mobility drift | Recovery/EVACUATE association, including two STANDARD Ports and ROOT+DATA planned EVACUATE, with no-drift qualification | ROOT+DATA Recovery and maximum-profile composite mobility |
+| mobility drift | Recovery/EVACUATE association, including the maximum two STANDARD Ports + ROOT + DATA planned EVACUATE profile, with no-drift qualification | multi-Port/multi-Volume Recovery and production mobility |
 | delete | zero through two STANDARD Ports + ROOT with optional DATA verified delete | profiles beyond public create bounds |
 
 ## 23. Implemented internal profiles
@@ -497,7 +497,7 @@ Migration 086ではVolume集合をone ROOT plus one DATAまで一般化します
 
 Recovery network verification digestはNB/SB/OVS/dataplane/source-quiescence/handoff集合、EVACUATE network verification digestはdestination preboot OVS集合です。consumerは両者を同じdigest algorithmと誤認せず、Recovery terminal digestをcurrent readinessへexact bindしたうえで、logical Port revision/digestとdestination preboot evidenceを独立に再検証します。
 
-Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はROOT+DATA deleteを追加し、Migration 091はcanonical ordinal付きtwo-Port snapshot、per-Port absence、complete absence-setを追加しました。Migration 090/091を同じterminalで消費するtwo-Port+ROOT+DATA最大profileもschema追加なしでqualification済みです。Migration 092はplanned EVACUATEをROOT+DATAのcomplete Storage safety/copy/relocation evidence setへ拡張しました。OpenAPI `/api/v1/vms` と Terraform `kim_vm` のbounded create/delete matrixは対称で、two-PortおよびROOT+DATA planned EVACUATE no-driftもPASSです。未qualificationの主対象はROOT+DATA Recoveryと最大profileのcomposite mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md)、[multi-Port mobility](validation/p3-vm-aggregate-multi-port-mobility-20260815.md)、[multi-Volume mobility](validation/p3-vm-aggregate-multi-volume-mobility-20260815.md) を参照してください。
+Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はROOT+DATA deleteを追加し、Migration 091はcanonical ordinal付きtwo-Port snapshot、per-Port absence、complete absence-setを追加しました。Migration 090/091を同じterminalで消費するtwo-Port+ROOT+DATA最大profileもschema追加なしでqualification済みです。Migration 092はplanned EVACUATEをROOT+DATAのcomplete Storage safety/copy/relocation evidence setへ拡張し、その後のcomposite campaignはMigration 091/092を同一terminalで消費してmaximum profile EVACUATEもschema追加なしでPASSしました。OpenAPI `/api/v1/vms` と Terraform `kim_vm` のbounded create/delete/EVACUATE matrixは対称です。未qualificationの主対象はmulti-Port/multi-Volume Recoveryとproduction mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md)、[multi-Port mobility](validation/p3-vm-aggregate-multi-port-mobility-20260815.md)、[multi-Volume mobility](validation/p3-vm-aggregate-multi-volume-mobility-20260815.md)、[maximum-profile mobility](validation/p3-vm-aggregate-maximum-profile-mobility-20260815.md) を参照してください。
 
 ## 24. Explicitly out of scope
 

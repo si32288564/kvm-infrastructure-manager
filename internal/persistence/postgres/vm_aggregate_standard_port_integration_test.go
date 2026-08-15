@@ -43,6 +43,10 @@ func TestVMAggregateMultiStandardPortDataVolumeDeletePostgreSQLIntegration(t *te
 	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, true, true)
 }
 
+func TestVMAggregateMaximumProfileEvacuationPostgreSQLIntegration(t *testing.T) {
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, true, false)
+}
+
 func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount int, withData, deleteAfterCreate bool) {
 	url := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if url == "" {
@@ -489,14 +493,41 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.failure_epoch_evidence),(SELECT count(*) FROM kim.failure_fencing_proof_evidence)`).Scan(&failureEpochsBefore, &fencingProofsBefore); err != nil {
 			t.Fatal(err)
 		}
-		var logicalPortDigest, logicalRootDigest, logicalDataDigest string
-		if err = db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3)`, port.PortID, volume.VolumeID, dataVolume.VolumeID).Scan(&logicalPortDigest, &logicalRootDigest, &logicalDataDigest); err != nil {
+		var logicalRootDigest, logicalDataDigest string
+		if err = db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$1),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2)`, volume.VolumeID, dataVolume.VolumeID).Scan(&logicalRootDigest, &logicalDataDigest); err != nil {
 			t.Fatal(err)
 		}
-		convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, port.PortID, network.NetworkID, segmentID, port.MACAddress, "aggregate-"+suffix, 1, 1, 1)
+		logicalPortDigests := make([]string, len(ports))
+		for i := range ports {
+			if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, ports[i].PortID).Scan(&logicalPortDigests[i]); err != nil {
+				t.Fatal(err)
+			}
+			convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, ports[i].PortID, network.NetworkID, segmentID, ports[i].MACAddress, fmt.Sprintf("aggregate-%d-%s", i, suffix), 1, 1, 1)
+		}
 		source := repeatedEvacuationIncarnation{Host: host, Admission: admission.AdmissionID, Plan: decision.PlanID, Volume: volume.VolumeID, Attachment: placementRequest.Storage[0].AttachmentID, Binding: volume.BindingID, LV: volume.LVUUID, Backend: backendID, VG: vgUUID, Materialization: 1, PortGeneration: 1, BindingGeneration: 1, Data: &repeatedEvacuationVolume{Volume: dataVolume.VolumeID, Attachment: placementRequest.Storage[1].AttachmentID, Binding: dataVolume.BindingID, LV: dataVolume.LVUUID, Backend: backendID, VG: vgUUID, AttachmentGeneration: 1, BindingGeneration: dataVolume.BindingGeneration}}
-		move := executeRepeatedEvacuationMove(t, ctx, db, suffix, "aggregate-root-data", vmID, imageID, imageDigest, network.NetworkID, segmentID, port.PortID, port.MACAddress, source, destinationHost, destinationBackend, destinationVG, 1, 1, 2, 3, 2, 3, nil, nil)
-		associationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-root-data-evacuation-association-" + suffix, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}
+		label := "aggregate-root-data"
+		var additionalPorts []repeatedEvacuationPort
+		if portCount == 2 {
+			label = "aggregate-maximum-profile"
+			additionalPorts = append(additionalPorts, repeatedEvacuationPort{PortID: ports[1].PortID, NetworkID: network.NetworkID, SegmentID: segmentID, MAC: ports[1].MACAddress, SourcePortGeneration: 1, SourceBindingGeneration: 1, RetirementIntentGeneration: 2, DestinationIntentGeneration: 3})
+		}
+		move := executeRepeatedEvacuationMove(t, ctx, db, suffix, label, vmID, imageID, imageDigest, network.NetworkID, segmentID, ports[0].PortID, ports[0].MACAddress, source, destinationHost, destinationBackend, destinationVG, 1, 1, 2, 3, 2, 3, nil, nil, additionalPorts...)
+		associationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-" + label + "-evacuation-association-" + suffix, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}
+		if portCount == 2 {
+			partialRollback := errors.New("rollback maximum-profile partial destination Port set")
+			err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+				if _, err := tx.Exec(ctx, `DELETE FROM kim.vm_network_port_realizations_current WHERE vm_id=$1 AND port_id=$2`, vmID, ports[1].PortID); err != nil {
+					return err
+				}
+				if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: associationRequest.AssociationID + "-partial-port", VMID: vmID, MobilityKind: associationRequest.MobilityKind, MobilityTerminalEvidenceID: associationRequest.MobilityTerminalEvidenceID}); !errors.Is(err, ErrVMAggregateConflict) {
+					return fmt.Errorf("maximum-profile partial destination Port set accepted: %v", err)
+				}
+				return partialRollback
+			})
+			if !errors.Is(err, partialRollback) {
+				t.Fatal(err)
+			}
+		}
 		driftRollback := errors.New("rollback destination DATA binding drift")
 		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, move.Destination.Data.Binding); err != nil {
@@ -522,10 +553,17 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		if err = db.QueryRow(ctx, `SELECT r.vm_revision,r.runtime_intent_generation,s.dependency_digest,r.desired_digest,b.host_id,b.admission_id,b.plan_id,b.mobility_association_generation,b.mobility_association_id FROM kim.vm_resources_current r JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(r.vm_id,r.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id WHERE r.vm_id=$1`, vmID).Scan(&currentRevision, &currentRuntime, &currentDependency, &currentDesired, &currentHost, &currentAdmission, &currentPlan, &currentAssociationGeneration, &currentAssociation); err != nil || currentRevision != logicalRevision || currentRuntime != logicalRuntime || currentDependency != logicalDependency || currentDesired != logicalDesired || currentHost != destinationHost || currentAdmission != move.Destination.Admission || currentPlan != move.Destination.Plan || currentAssociationGeneration != 1 || currentAssociation != association.AssociationID {
 			t.Fatalf("ROOT+DATA post-mobility logical/runtime=%d/%d %s/%s physical=%s/%s/%s association=%d/%s err=%v", currentRevision, currentRuntime, currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociationGeneration, currentAssociation, err)
 		}
-		var currentPortDigest, currentRootDigest, currentDataDigest string
-		var associatedVolumes, relocationVolumes int
-		if err = db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$4),(SELECT volume_count FROM kim.vm_aggregate_mobility_association_evidence WHERE association_id=$1),(SELECT volume_count FROM kim.vm_materialization_relocation_authority_evidence WHERE relocation_authority_id=$5)`, association.AssociationID, port.PortID, volume.VolumeID, dataVolume.VolumeID, move.Relocation).Scan(&currentPortDigest, &currentRootDigest, &currentDataDigest, &associatedVolumes, &relocationVolumes); err != nil || currentPortDigest != logicalPortDigest || currentRootDigest != logicalRootDigest || currentDataDigest != logicalDataDigest || associatedVolumes != 2 || relocationVolumes != 2 {
-			t.Fatalf("ROOT+DATA logical digests=%s/%s/%s cardinality=%d/%d err=%v", currentPortDigest, currentRootDigest, currentDataDigest, associatedVolumes, relocationVolumes, err)
+		var currentRootDigest, currentDataDigest string
+		var associatedPorts, associatedVolumes, relocationVolumes int
+		if err = db.QueryRow(ctx, `SELECT (SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$2),(SELECT desired_digest FROM kim.volumes_current WHERE volume_id=$3),(SELECT port_count FROM kim.vm_aggregate_mobility_association_evidence WHERE association_id=$1),(SELECT volume_count FROM kim.vm_aggregate_mobility_association_evidence WHERE association_id=$1),(SELECT volume_count FROM kim.vm_materialization_relocation_authority_evidence WHERE relocation_authority_id=$4)`, association.AssociationID, volume.VolumeID, dataVolume.VolumeID, move.Relocation).Scan(&currentRootDigest, &currentDataDigest, &associatedPorts, &associatedVolumes, &relocationVolumes); err != nil || currentRootDigest != logicalRootDigest || currentDataDigest != logicalDataDigest || associatedPorts != portCount || associatedVolumes != 2 || relocationVolumes != 2 {
+			t.Fatalf("ROOT+DATA logical digests=%s/%s cardinality Ports=%d Volumes=%d/%d err=%v", currentRootDigest, currentDataDigest, associatedPorts, associatedVolumes, relocationVolumes, err)
+		}
+		for i := range ports {
+			var currentDigest string
+			var portGeneration, bindingGeneration uint64
+			if err = db.QueryRow(ctx, `SELECT p.desired_digest,p.port_generation,b.binding_generation FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=p.placement_admission_id WHERE p.port_id=$1`, ports[i].PortID).Scan(&currentDigest, &portGeneration, &bindingGeneration); err != nil || currentDigest != logicalPortDigests[i] || portGeneration != 2 || bindingGeneration != 2 {
+				t.Fatalf("ROOT+DATA current Port[%d] digest=%s generation=%d/%d err=%v", i, currentDigest, portGeneration, bindingGeneration, err)
+			}
 		}
 		var releasedSourceCapacity int
 		if err = db.QueryRow(ctx, `SELECT count(*) FROM kim.storage_capacity_claims WHERE volume_id=ANY($1) AND claim_state IN ('RELEASE_PENDING','RELEASED')`, []string{volume.VolumeID, dataVolume.VolumeID}).Scan(&releasedSourceCapacity); err != nil || releasedSourceCapacity != 0 {
