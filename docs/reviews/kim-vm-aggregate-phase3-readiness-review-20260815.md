@@ -6,6 +6,8 @@
 
 > Planned mobility addendum (2026-08-15): Migration 084 adds a pure post-terminal aggregate association consumer and qualifies one STANDARD Port Host EVACUATE A→B with unchanged logical VM/Port desired authority. Aggregate-origin Recovery remains NOT RUN. See [planned EVACUATE no-drift qualification](../validation/p3-vm-aggregate-evacuate-no-drift-20260815.md).
 
+> Recovery mobility addendum (2026-08-15): the Migration 084 `RECOVERY` consumer is now qualified by an aggregate-origin Recovery A→B followed by planned EVACUATE B→C. Both associations preserve the same logical VM/Port revision and desired digests while advancing runtime association generation 0→1→2. See [Recovery no-drift qualification](../validation/p3-vm-aggregate-recovery-no-drift-20260815.md).
+
 - Date: 2026-08-15
 - Baseline: `eb9f8ae3096e135bf7446b01dd92d19e72d0f837`
 - Scope: repository architecture and authority inventory only
@@ -17,7 +19,7 @@
 PHASE3_VM_AGGREGATE_DESIGN          = ACCEPTED
 PHASE3_VM_INTERNAL_INITIAL_SLICE    = IMPLEMENTED
 VM_AGGREGATE_EVACUATE_NO_DRIFT      = PASS
-VM_AGGREGATE_RECOVERY_NO_DRIFT      = NOT RUN
+VM_AGGREGATE_RECOVERY_NO_DRIFT      = PASS
 NORTHBOUND_VM_RESOURCE     = BLOCKED
 TERRAFORM_VM_RESOURCE      = BLOCKED
 ```
@@ -39,7 +41,6 @@ Implementation did not serialize `virtual_machines_current`. Migration 082 added
 - runtime intent generation independent of metadata revision;
 - aggregate Create/Power/Delete Operation;
 - pure aggregate verification and terminal evidence;
-- aggregate-origin Recovery positive association qualification;
 - safe delete quiescence/detach/absence/tombstone contract;
 - VM OpenAPI/Provider schema and acceptance campaign.
 

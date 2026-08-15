@@ -14,7 +14,7 @@
 | `VM_AGGREGATE_EVACUATE_STANDARD_PORT_HANDOFF` | PASS |
 | `VM_AGGREGATE_MOBILITY_REPLAY_IDEMPOTENCY` | PASS |
 | `VM_AGGREGATE_MOBILITY_IMMUTABILITY` | PASS |
-| `VM_AGGREGATE_RECOVERY_NO_DESIRED_DRIFT` | NOT RUN |
+| `VM_AGGREGATE_RECOVERY_NO_DESIRED_DRIFT` | PASS (follow-on campaign) |
 | `VM_AGGREGATE_MULTI_PORT_PROFILE` | NOT RUN |
 | `VM_AGGREGATE_DATA_VOLUME_PROFILE` | NOT RUN |
 | `NORTHBOUND_VM_RESOURCE` | BLOCKED |
@@ -82,7 +82,7 @@ production workload mutation      = none
 
 ## Scope boundary
 
-Migration 084 contains both closed discriminator branches (`RECOVERY`, `HOST_EVACUATION`) so a later aggregate-origin Recovery terminal can use the same association evidence model. This campaign executed only planned EVACUATE. Therefore `VM_AGGREGATE_RECOVERY_NO_DESIRED_DRIFT` remains `NOT RUN`; no Recovery PASS is inferred from schema or query existence.
+The original campaign executed only planned EVACUATE. A follow-on aggregate-origin Recovery A→B→planned EVACUATE B→C campaign subsequently qualified the `RECOVERY` discriminator without inferring PASS from schema existence. See the dedicated Recovery validation report.
 
 Production OVN/OVS, Local LVM transport and real-Host status are unchanged. Multi-Port, data Volume, desired update/delete, Northbound `/api/v1/vms` and Terraform `kim_vm` remain later gates.
 

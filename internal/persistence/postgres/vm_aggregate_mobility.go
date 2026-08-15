@@ -43,7 +43,7 @@ func loadAggregateMobilityTerminalTx(ctx context.Context, tx pgx.Tx, r VMAggrega
 			JOIN kim.recovery_materialization_evidence m ON m.materialization_id=v.materialization_id AND m.recovery_operation_id=t.recovery_operation_id AND m.destination_admission_id=v.destination_admission_id AND m.destination_host_id=v.destination_host_id
 			JOIN kim.recovery_source_compute_release_evidence release ON release.recovery_operation_id=t.recovery_operation_id
 			JOIN kim.source_materialization_retirement_decision_evidence retirement ON retirement.failure_epoch_id=t.failure_epoch_id AND retirement.vm_id=v.vm_id AND retirement.source_host_id=operation.source_host_id
-			JOIN kim.vm_materialization_readiness_current ready ON ready.vm_id=m.vm_id AND ready.vm_generation=m.vm_generation AND ready.plan_id=m.vm_plan_id AND ready.observation_generation=v.network_observation_generation AND ready.boot_readiness='READY'
+			JOIN kim.vm_materialization_readiness_current ready ON ready.vm_id=m.vm_id AND ready.vm_generation=m.vm_generation AND ready.plan_id=m.vm_plan_id AND ready.network_observation_generation=v.network_observation_generation AND ready.network_evidence_set_digest=v.network_evidence_set_digest AND ready.boot_readiness='READY'
 			JOIN kim.vm_power_state_current power ON power.vm_id=v.vm_id AND power.vm_generation=v.vm_generation AND power.evidence_id=v.power_evidence_id AND power.observation_generation=v.power_observation_generation AND power.observed_power_state='RUNNING' AND power.convergence_state='MATCHED'
 			WHERE t.terminal_decision_id=$1 AND t.decision_state='VERIFIED'`, r.MobilityTerminalEvidenceID, r.VMID).Scan(&p.terminalDigest, &p.sourceAdmission, &p.sourceHost, &p.sourcePlan, &p.sourceVMGeneration, &p.sourceMaterialization, &p.destinationAdmission, &p.destinationHost, &p.destinationPlan, &p.destinationPlanDigest, &p.destinationVMGeneration, &p.destinationMaterialization, &p.readinessGeneration, &p.networkDigest, &p.powerEvidence, &p.powerGeneration)
 	case "HOST_EVACUATION":
@@ -115,7 +115,15 @@ func AssociateVMAggregateMobility(ctx context.Context, db TxBeginner, r VMAggreg
 				return ErrVMAggregateConflict
 			}
 		} else {
-			if err := tx.QueryRow(ctx, `SELECT current.evidence_id||':'||e.observation_digest FROM kim.vm_dependency_port_evidence d JOIN kim.network_ports_current p ON p.port_id=d.port_id AND p.port_revision=d.port_revision AND p.desired_digest=d.desired_digest AND p.placement_admission_id=$2 AND p.desired_state='RESERVED' JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=$2 AND b.host_id=$3 AND b.binding_state='RESERVED' JOIN kim.vm_network_port_realizations_current current ON current.vm_id=$4 AND current.vm_generation=$5 AND current.port_id=p.port_id AND current.binding_generation=b.binding_generation AND current.preboot_state='REALIZED' JOIN kim.vm_network_port_realization_evidence e ON e.evidence_id=current.evidence_id AND e.plan_id=$6 AND e.host_id=$3 AND e.binding_generation=b.binding_generation AND e.preboot_state='REALIZED' WHERE d.dependency_snapshot_id=$1`, dependencyID, terminal.destinationAdmission, terminal.destinationHost, r.VMID, terminal.destinationVMGeneration, terminal.destinationPlan).Scan(&portSet); err != nil || digestBytes([]byte(portSet)) != terminal.networkDigest {
+			if err := tx.QueryRow(ctx, `SELECT current.evidence_id||':'||e.observation_digest FROM kim.vm_dependency_port_evidence d JOIN kim.network_ports_current p ON p.port_id=d.port_id AND p.port_revision=d.port_revision AND p.desired_digest=d.desired_digest AND p.placement_admission_id=$2 AND p.desired_state='RESERVED' JOIN kim.port_bindings_current b ON b.port_id=p.port_id AND b.placement_admission_id=$2 AND b.host_id=$3 AND b.binding_state='RESERVED' JOIN kim.vm_network_port_realizations_current current ON current.vm_id=$4 AND current.vm_generation=$5 AND current.port_id=p.port_id AND current.binding_generation=b.binding_generation AND current.preboot_state='REALIZED' JOIN kim.vm_network_port_realization_evidence e ON e.evidence_id=current.evidence_id AND e.plan_id=$6 AND e.host_id=$3 AND e.binding_generation=b.binding_generation AND e.preboot_state='REALIZED' WHERE d.dependency_snapshot_id=$1`, dependencyID, terminal.destinationAdmission, terminal.destinationHost, r.VMID, terminal.destinationVMGeneration, terminal.destinationPlan).Scan(&portSet); err != nil {
+				return ErrVMAggregateConflict
+			}
+			// EVACUATE child verification uses the exact preboot OVS set as its
+			// network digest. Recovery uses a broader NB/SB/OVS/dataplane and
+			// handoff evidence set. The Recovery loader already binds that digest
+			// to current readiness; retain this independent logical/preboot proof
+			// without pretending the two evidence-set algorithms are identical.
+			if r.MobilityKind == "HOST_EVACUATION" && digestBytes([]byte(portSet)) != terminal.networkDigest {
 				return ErrVMAggregateConflict
 			}
 		}

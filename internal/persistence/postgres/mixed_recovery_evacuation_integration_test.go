@@ -30,6 +30,30 @@ func completeMixedRecoveryDestination(t *testing.T, ctx context.Context, db reco
 	if _, err := RefreshRecoveryOperationExecution(ctx, db, start.RecoveryOperationID, "mixed-recovery-preparation-verification-"+suffix); err != nil {
 		t.Fatal(err)
 	}
+	var portAuthoritySource string
+	if err := db.QueryRow(ctx, `SELECT authority_source FROM kim.network_ports_current WHERE port_id=$1`, portID).Scan(&portAuthoritySource); err != nil {
+		t.Fatal(err)
+	}
+	if portAuthoritySource == "PORT_RESOURCE" {
+		resource, err := GetPortResource(ctx, db, portID)
+		if err != nil || resource.RealizationState != "PENDING" {
+			t.Fatalf("Recovery destination Port realization=%+v err=%v", resource, err)
+		}
+		claim, err := ClaimPortRealization(ctx, db, resource.OperationID, "mixed-recovery-port-resource-worker-"+suffix, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, resourcePlan, err := ovnadapter.RestoreStoredPortResourcePlan(claim.CanonicalPlan, claim.PlanDigest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := AuthorizePortRealizationApply(ctx, db, claim); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := AcceptPortRealizationObservation(ctx, db, claim, matchedPortObservation(claim, resourcePlan, "mixed-recovery-port-resource-lsp-"+suffix, "RECEIVED")); err != nil {
+			t.Fatal(err)
+		}
+	}
 	required := plan.DestinationRequest.Storage[0]
 	bindingID, lvUUID := realizeEvacuationBinding(t, ctx, db, start.DestinationHostID, start.DestinationAdmissionID, required.VolumeID, destinationBackend, destinationVG, plan.DestinationRequest.RequestID)
 	request := RecoveryMaterializationRequest{RecoveryOperationID: start.RecoveryOperationID, MaterializationID: "mixed-recovery-materialization-" + suffix, VMID: vmID, VMPlanID: "mixed-recovery-plan-b-" + suffix, DefineJobID: "mixed-recovery-define-job-" + suffix, DefineCommandID: "mixed-recovery-define-command-" + suffix}
