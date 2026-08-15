@@ -110,6 +110,7 @@ type Worker struct {
 	Store                 WorkStore
 	NetworkStore          NetworkWorkStore
 	SubnetStore           SubnetWorkStore
+	PortResourceStore     PortResourceWorkStore
 	Adapter               WorkAdapter
 	Owner                 string
 	BatchLimit            int
@@ -144,11 +145,18 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 			return boolToInt(networkCompleted), subnetErr
 		}
 	}
+	portCompleted, portErr := worker.runPortResourceOnce(ctx)
+	if portErr != nil {
+		var itemFailure *itemLocalError
+		if !errors.As(portErr, &itemFailure) {
+			return boolToInt(networkCompleted) + boolToInt(subnetCompleted), portErr
+		}
+	}
 	claimStarted := time.Now()
 	work, err := worker.Store.Claim(ctx, postgres.OVNRuntimeClaimRequest{Owner: worker.Owner, Limit: worker.BatchLimit, Lease: worker.ClaimLease, MaximumLifetime: maximumLifetime})
 	worker.Metrics.recordClaim(work, time.Since(claimStarted), err)
 	if err != nil {
-		return boolToInt(networkCompleted) + boolToInt(subnetCompleted), errors.Join(networkErr, subnetErr, err)
+		return boolToInt(networkCompleted) + boolToInt(subnetCompleted) + boolToInt(portCompleted), errors.Join(networkErr, subnetErr, portErr, err)
 	}
 	// A claimed batch is also the local concurrency bound. Starting every item
 	// immediately prevents a serial local queue from consuming claim lifetime
@@ -166,7 +174,7 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 			outcomes <- itemOutcome{completed: completed, err: err}
 		}()
 	}
-	completed := boolToInt(networkCompleted) + boolToInt(subnetCompleted)
+	completed := boolToInt(networkCompleted) + boolToInt(subnetCompleted) + boolToInt(portCompleted)
 	var itemErrors, fatalErrors error
 	if networkErr != nil {
 		var itemFailure *itemLocalError
@@ -182,6 +190,14 @@ func (worker Worker) RunOnce(ctx context.Context) (int, error) {
 			itemErrors = errors.Join(itemErrors, subnetErr)
 		} else {
 			fatalErrors = errors.Join(fatalErrors, subnetErr)
+		}
+	}
+	if portErr != nil {
+		var itemFailure *itemLocalError
+		if errors.As(portErr, &itemFailure) {
+			itemErrors = errors.Join(itemErrors, portErr)
+		} else {
+			fatalErrors = errors.Join(fatalErrors, portErr)
 		}
 	}
 	for range work {

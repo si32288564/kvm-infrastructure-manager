@@ -282,7 +282,13 @@ func AllocateSubnetIP(ctx context.Context, db TxBeginner, request SubnetIPAlloca
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, `subnet-ipam/`+request.SubnetID); err != nil {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, `network-ipam/`+request.SubnetID); err != nil {
+			return err
+		}
+		// Touching the pool projection turns a waiter with an older Serializable
+		// snapshot into SQLSTATE 40001, so RunSerializable retries and observes
+		// the preceding allocation instead of selecting the same address.
+		if _, err := tx.Exec(ctx, `UPDATE kim.subnet_ipam_pools_current SET updated_at=statement_timestamp() WHERE subnet_id=$1 AND lifecycle_state='ACTIVE'`, request.SubnetID); err != nil {
 			return err
 		}
 		var existingDigest string
@@ -347,6 +353,9 @@ func recordSubnetPortAllocationTx(ctx context.Context, tx pgx.Tx, requestID, por
 	}
 	if source != "SUBNET_RESOURCE" {
 		return nil, ErrPlacementConflict
+	}
+	if _, err := tx.Exec(ctx, `UPDATE kim.subnet_ipam_pools_current SET updated_at=statement_timestamp() WHERE subnet_id=$1 AND lifecycle_state='ACTIVE'`, subnetID); err != nil {
+		return nil, err
 	}
 	var allocation SubnetIPAllocation
 	var revision, poolGeneration int64

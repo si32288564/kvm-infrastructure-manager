@@ -36,7 +36,7 @@ func main() {
 	}
 	defer pool.Close()
 	worker := ovnruntime.Worker{
-		Store: ovnruntime.PostgresWorkStore{DB: pool},
+		Store: ovnruntime.PostgresWorkStore{DB: pool}, PortResourceStore: ovnruntime.PostgresPortResourceWorkStore{DB: pool},
 		Adapter: ovnadapter.Runtime{Config: ovnadapter.RuntimeConfig{
 			NBDatabase: *nb, SBDatabase: *sb,
 			NBCTL: "/usr/bin/ovn-nbctl", SBCTL: "/usr/bin/ovn-sbctl", OVSCTL: "/usr/bin/ovs-vsctl",

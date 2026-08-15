@@ -38,15 +38,16 @@ type RuntimeConfig struct {
 }
 
 type RuntimeResult struct {
-	Observation           Observation
-	NetworkObservation    NetworkObservation
-	SubnetObservation     SubnetObservation
-	RetirementObservation PortBindingRetirementObservation
-	ApplyResponseState    string
-	NBObservationDigest   string
-	SBObservationDigest   string
-	OVSObservationDigest  string
-	ChassisIdentityDigest string
+	Observation             Observation
+	PortResourceObservation PortResourceObservation
+	NetworkObservation      NetworkObservation
+	SubnetObservation       SubnetObservation
+	RetirementObservation   PortBindingRetirementObservation
+	ApplyResponseState      string
+	NBObservationDigest     string
+	SBObservationDigest     string
+	OVSObservationDigest    string
+	ChassisIdentityDigest   string
 }
 
 type Runtime struct {
@@ -210,7 +211,8 @@ func (runtime Runtime) reconcilePort(ctx context.Context, canonicalPlan []byte, 
 	if err != nil {
 		return RuntimeResult{}, fmt.Errorf("parse OVN Logical Switch Port before apply: %w", err)
 	}
-	if portPresent && !markersPresent(beforePortMarkers, plan.PortExternalIDs, objectSetDigest) {
+	resourceOwnedTransition := beforePortMarkers["kim.owner"] == "KIM" && beforePortMarkers["kim.aggregate_type"] == "PORT_RESOURCE" && beforePortMarkers["kim.port_id"] == plan.LogicalPort.PortID && beforePortMarkers["kim.network_id"] == plan.LogicalSwitch.NetworkID
+	if portPresent && !markersPresent(beforePortMarkers, plan.PortExternalIDs, objectSetDigest) && !resourceOwnedTransition {
 		return RuntimeResult{}, ErrForeignOVNObject
 	}
 

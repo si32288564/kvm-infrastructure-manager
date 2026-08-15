@@ -197,12 +197,15 @@ func (runtime Runtime) reconcileSubnet(ctx context.Context, raw []byte, planDige
 			return state, err
 		}
 		state.backendUUID = normalizeOVSReference(string(uuid))
-		for target, column := range map[*string]string{&state.cidr: "cidr", &state.router: "options:router", &state.dns: "options:dns_server"} {
-			value, readErr := run(withGlobal(global, "--if-exists", "get", "DHCP_Options", state.backendUUID, column)...)
+		for _, field := range []struct {
+			target *string
+			column string
+		}{{&state.cidr, "cidr"}, {&state.router, "options:router"}, {&state.dns, "options:dns_server"}} {
+			value, readErr := run(withGlobal(global, "--if-exists", "get", "DHCP_Options", state.backendUUID, field.column)...)
 			if readErr != nil {
 				return state, readErr
 			}
-			*target = strings.Trim(strings.TrimSpace(string(value)), `"`)
+			*field.target = strings.Trim(strings.TrimSpace(string(value)), `"`)
 		}
 		state.observationDigest = digestText(state.observationDigest + state.backendUUID + state.cidr + state.router + state.dns)
 		return state, nil

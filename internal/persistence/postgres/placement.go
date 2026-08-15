@@ -342,7 +342,7 @@ func finalAdmitPlacement(ctx context.Context, db TxBeginner, request PlacementAd
 			return ErrPlacementIneligible
 		}
 		if current.RequestDigest != dry.RequestDigest || current.EvaluationDigest != dry.EvaluationDigest {
-			return fmt.Errorf("placement evaluation authority changed: %w", ErrPlacementStale)
+			return fmt.Errorf("placement evaluation authority changed (dry request=%s evaluation=%s, current request=%s evaluation=%s): %w", dry.RequestDigest, dry.EvaluationDigest, current.RequestDigest, current.EvaluationDigest, ErrPlacementStale)
 		}
 		explanation, err := json.Marshal(map[string]any{"eligible": true, "score": current.Score, "reason_codes": current.ReasonCodes})
 		if err != nil {
@@ -706,7 +706,9 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		       subnet.subnet_id, subnet.subnet_generation, subnet.lifecycle_state,
 		       segment.segment_claim_id, segment.segment_generation, segment.claim_state,
 		       mapping.mapping_generation, mapping.mapping_state, mapping.maximum_mtu,
-		       CASE WHEN $11='AUTOMATIC' THEN
+		       CASE WHEN EXISTS(SELECT 1 FROM kim.network_ports_current rp WHERE rp.port_id=$3 AND rp.authority_source='PORT_RESOURCE') THEN
+		           EXISTS(SELECT 1 FROM kim.subnet_ip_allocations_current a WHERE a.owner_resource_type='PORT' AND a.owner_resource_id=$3 AND a.subnet_id=$6 AND a.assigned_address=NULLIF($8,'')::inet AND a.allocation_state='ALLOCATED')
+		       WHEN $11='AUTOMATIC' THEN
 		           family(subnet.cidr)=4
 		           AND (subnet.allocation_end - subnet.allocation_start) < $12
 		           AND EXISTS (
@@ -733,7 +735,11 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		           AND NULLIF($8,'')::inet <= subnet.allocation_end
 		           AND NOT (NULLIF($8,'')::inet = ANY(subnet.excluded_addresses))
 		       END,
-		       CASE WHEN $11='AUTOMATIC' THEN false ELSE EXISTS (
+		       CASE WHEN EXISTS(SELECT 1 FROM kim.network_ports_current rp WHERE rp.port_id=$3 AND rp.authority_source='PORT_RESOURCE') THEN EXISTS (
+		           SELECT 1 FROM kim.network_identity_claims identity WHERE identity.port_id<>$3 AND identity.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED') AND ((identity.claim_type='IP' AND identity.subnet_id=$6 AND identity.ip_address=NULLIF($8,'')::inet) OR(identity.claim_type='MAC' AND identity.network_id=$5 AND identity.mac_address=NULLIF($9,'')::macaddr))
+		           UNION ALL SELECT 1 FROM kim.subnet_ip_allocations_current a WHERE a.owner_resource_id<>$3 AND a.subnet_id=$6 AND a.assigned_address=NULLIF($8,'')::inet AND a.allocation_state IN ('ALLOCATED','RELEASE_PENDING')
+		           UNION ALL SELECT 1 FROM kim.port_mac_allocations_current m WHERE m.port_id<>$3 AND m.network_id=$5 AND m.assigned_mac=NULLIF($9,'')::macaddr AND m.allocation_state IN ('ALLOCATED','RELEASE_PENDING')
+		       ) WHEN $11='AUTOMATIC' THEN false ELSE EXISTS (
 		           SELECT 1 FROM kim.network_identity_claims identity
 		           WHERE identity.claim_state IN ('RESERVED','ACTIVE','RELEASE_PENDING','QUARANTINED')
 		             AND ((identity.claim_type='IP' AND identity.subnet_id=subnet.subnet_id AND identity.ip_address=NULLIF($8,'')::inet)
@@ -744,7 +750,12 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		           WHERE allocation.subnet_id=subnet.subnet_id AND allocation.assigned_address=NULLIF($8,'')::inet
 		             AND allocation.allocation_state IN ('ALLOCATED','RELEASE_PENDING')
 		       ) END,
-		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3 AND $13=''),
+		       EXISTS (SELECT 1 FROM kim.network_ports_current port WHERE port.port_id=$3 AND $13='' AND NOT(
+		           port.authority_source='PORT_RESOURCE' AND port.port_revision=$21 AND port.project_id=$1 AND port.network_id=$5 AND port.subnet_id=$6 AND port.workload_id=$4 AND port.attachment_state='ATTACHMENT_REQUESTED'
+		           AND EXISTS(SELECT 1 FROM kim.port_attachment_intents_current ai WHERE ai.port_id=port.port_id AND ai.port_revision=port.port_revision AND ai.attachment_intent_id=$22 AND ai.workload_id=$4 AND ai.intent_state='REQUESTED')
+		           AND EXISTS(SELECT 1 FROM kim.port_mac_allocations_current m WHERE m.port_id=port.port_id AND m.assigned_mac=NULLIF($9,'')::macaddr AND m.allocation_state='ALLOCATED')
+		           AND EXISTS(SELECT 1 FROM kim.subnet_ip_allocations_current i WHERE i.owner_resource_id=port.port_id AND i.assigned_address=NULLIF($8,'')::inet AND i.allocation_state='ALLOCATED')
+		       )),
 		       ($10 = ANY(mapping.supported_binding_types)),
 		       CASE WHEN $13='' THEN true ELSE EXISTS (
 		           SELECT 1 FROM kim.network_ports_current port
@@ -787,7 +798,8 @@ func loadNetworkAuthority(ctx context.Context, row QueryRower, projectID, worklo
 		required.BindingType, allocationSource, maximumAutomaticIPv4PoolSize, required.HandoffID,
 		required.SourceQuiescenceEvidenceID, required.SourceQuiescenceEvidenceDigest,
 		required.SourcePortGeneration, required.SourceHostID, required.SourceBindingGeneration,
-		required.DestinationPortGeneration, required.DestinationBindingGeneration).Scan(
+		required.DestinationPortGeneration, required.DestinationBindingGeneration,
+		required.PortRevision, required.AttachmentIntentID).Scan(
 		&authority.PortID, &authority.NetworkID, &authority.NetworkProjectID,
 		&authority.NetworkGeneration, &authority.NetworkState, &authority.NetworkMTU,
 		&authority.SubnetID, &authority.SubnetGeneration, &authority.SubnetState,
@@ -864,11 +876,23 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 	if required.HandoffID != "" {
 		return claimNetworkPortHandoffTx(ctx, tx, admissionID, request, current, required)
 	}
+	var authoritySource string
+	if err := tx.QueryRow(ctx, `SELECT authority_source FROM kim.network_ports_current WHERE port_id=$1`, required.PortID).Scan(&authoritySource); err == nil {
+		if authoritySource != "PORT_RESOURCE" {
+			return ErrPlacementConflict
+		}
+		return bindPortResourceTx(ctx, tx, admissionID, request, current, required)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO kim.network_ports_current (
 			port_id, placement_admission_id, project_id, workload_id,
-			network_id, subnet_id, port_generation, desired_state
-		) VALUES ($1,$2,$3,$4,$5,$6,1,'RESERVED')
+			network_id, subnet_id, port_generation, desired_state,
+			port_revision,port_name,mac_policy,ip_allocation_mode,attachment_policy,
+			attachment_state,datapath_profile,delete_protection,desired_digest,authority_source,updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,1,'RESERVED',1,$1,'LEGACY_CLAIM','LEGACY_CLAIM','WORKLOAD',
+			'BOUND','STANDARD',false,encode(sha256(convert_to($1||':legacy:1','UTF8')),'hex'),'LEGACY_ADMISSION',statement_timestamp())
 	`, required.PortID, admissionID, request.ProjectID, request.WorkloadID,
 		required.NetworkID, required.SubnetID); err != nil {
 		return fmt.Errorf("reserve Network Port %s: %w", required.PortID, err)
@@ -933,19 +957,63 @@ func claimNetworkPortTx(ctx context.Context, tx pgx.Tx, admissionID string, requ
 	return nil
 }
 
+// bindPortResourceTx makes Final Admission a consumer of an independently
+// allocated logical Port. The Port revision and MAC/IP allocation generations
+// remain unchanged; only the physical binding incarnation is created.
+func bindPortResourceTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.NetworkRequirement) error {
+	var revision, networkRevision, subnetRevision, macGeneration, ipGeneration, realizationGeneration int64
+	var projectID, networkID, subnetID, workloadID, attachmentID, macID, macAddress, ipID, ipAddress, chassis string
+	var desired PortResourceRequest
+	err := tx.QueryRow(ctx, `SELECT p.port_revision,p.project_id,p.network_id,p.subnet_id,p.workload_id,a.attachment_intent_id,m.allocation_id,m.allocation_generation,m.assigned_mac::text,i.allocation_id,i.allocation_generation,host(i.assigned_address),n.network_revision,s.subnet_revision,r.realization_generation,map.ovn_chassis_name,p.port_name,p.mac_policy,COALESCE(p.requested_mac::text,''),p.ip_allocation_mode,COALESCE(host(p.requested_ip),''),p.attachment_policy,p.datapath_profile,p.delete_protection
+		FROM kim.network_ports_current p JOIN kim.port_attachment_intents_current a ON a.port_id=p.port_id JOIN kim.port_mac_allocations_current m ON m.port_id=p.port_id JOIN kim.subnet_ip_allocations_current i ON i.owner_resource_type='PORT' AND i.owner_resource_id=p.port_id JOIN kim.networks_current n ON n.network_id=p.network_id JOIN kim.network_subnets_current s ON s.subnet_id=p.subnet_id JOIN kim.port_realizations_current r ON r.port_id=p.port_id JOIN kim.host_network_mappings_current map ON map.host_id=$3 AND map.segment_claim_id=$4
+		WHERE p.port_id=$1 AND p.authority_source='PORT_RESOURCE' AND p.attachment_state='ATTACHMENT_REQUESTED' AND p.desired_state='ACTIVE' AND p.port_revision=$2 AND a.intent_state='REQUESTED' AND a.attachment_intent_id=$5 AND m.allocation_state='ALLOCATED' AND i.allocation_state='ALLOCATED' FOR UPDATE OF p,a,m,i,r`, required.PortID, required.PortRevision, current.HostID, required.SegmentClaimID, required.AttachmentIntentID).Scan(&revision, &projectID, &networkID, &subnetID, &workloadID, &attachmentID, &macID, &macGeneration, &macAddress, &ipID, &ipGeneration, &ipAddress, &networkRevision, &subnetRevision, &realizationGeneration, &chassis, &desired.Name, &desired.MACPolicy, &desired.RequestedMAC, &desired.IPAllocationMode, &desired.RequestedIP, &desired.AttachmentPolicy, &desired.DatapathProfile, &desired.DeleteProtection)
+	if err != nil {
+		return fmt.Errorf("load independent Port binding authority: %w", err)
+	}
+	if projectID != request.ProjectID || workloadID != request.WorkloadID || networkID != required.NetworkID || subnetID != required.SubnetID || attachmentID != required.AttachmentIntentID || macAddress != required.MACAddress || ipAddress != required.IPAddress || chassis == "" {
+		return fmt.Errorf("independent Port binding authority mismatch project=%t workload=%t network=%t subnet=%t attachment=%t mac=%t ip=%t chassis=%t: %w", projectID == request.ProjectID, workloadID == request.WorkloadID, networkID == required.NetworkID, subnetID == required.SubnetID, attachmentID == required.AttachmentIntentID, macAddress == required.MACAddress, ipAddress == required.IPAddress, chassis != "", ErrPlacementStale)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO kim.network_identity_claims(identity_claim_id,placement_admission_id,port_id,project_id,network_id,subnet_id,claim_type,ip_address,allocation_source,claim_generation,claim_state,subnet_revision,ip_allocation_id,ip_allocation_generation) VALUES($1,$2,$3,$4,$5,$6,'IP',$7,'EXTERNAL',1,'RESERVED',$8,$9,$10)`, "ip:"+request.RequestID+":"+required.PortID, admissionID, required.PortID, projectID, networkID, subnetID, ipAddress, subnetRevision, ipID, ipGeneration); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO kim.network_identity_claims(identity_claim_id,placement_admission_id,port_id,project_id,network_id,subnet_id,claim_type,mac_address,allocation_source,claim_generation,claim_state) VALUES($1,$2,$3,$4,$5,$6,'MAC',$7,'EXTERNAL',1,'RESERVED')`, "mac:"+request.RequestID+":"+required.PortID, admissionID, required.PortID, projectID, networkID, subnetID, macAddress); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO kim.port_bindings_current(port_id,placement_admission_id,host_id,segment_claim_id,binding_generation,binding_type,device_address,binding_state) VALUES($1,$2,$3,$4,1,$5,NULLIF($6,''),'RESERVED')`, required.PortID, admissionID, current.HostID, required.SegmentClaimID, required.BindingType, required.DeviceAddress); err != nil {
+		return err
+	}
+	boundID := attachmentID + ":bound:" + admissionID
+	digest := digestNetworkResource(fmt.Sprintf("%s/%s/%d/%s/1", boundID, required.PortID, revision, admissionID))
+	if _, err = tx.Exec(ctx, `INSERT INTO kim.port_attachment_intent_evidence(attachment_intent_id,port_id,port_revision,attachment_generation,workload_id,intent_state,placement_admission_id,binding_generation,intent_digest) VALUES($1,$2,$3,2,$4,'BOUND',$5,1,$6)`, boundID, required.PortID, revision, workloadID, admissionID, digest); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE kim.port_attachment_intents_current SET attachment_intent_id=$2,attachment_generation=2,intent_state='BOUND',updated_at=statement_timestamp() WHERE port_id=$1 AND attachment_intent_id=$3`, required.PortID, boundID, attachmentID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE kim.network_ports_current SET placement_admission_id=$2,attachment_state='BOUND',desired_state='RESERVED',updated_at=statement_timestamp() WHERE port_id=$1 AND port_revision=$3`, required.PortID, admissionID, revision); err != nil {
+		return err
+	}
+	desired.PortID, desired.ProjectID, desired.NetworkID, desired.SubnetID = required.PortID, projectID, networkID, subnetID
+	mac := PortResource{MACAllocationID: macID, MACAllocationGeneration: uint64(macGeneration), MACAddress: macAddress}
+	ip := &SubnetIPAllocation{AllocationID: ipID, AllocationGeneration: uint64(ipGeneration), AssignedAddress: ipAddress}
+	return insertPortRealizationOperationTx(ctx, tx, desired, uint64(revision), uint64(networkRevision), uint64(subnetRevision), mac, ip, uint64(realizationGeneration+1), "REALIZE", "PRESENT", 1, chassis)
+}
+
 // claimNetworkPortHandoffTx preserves logical Port and IP/MAC claim identity
 // while atomically advancing only the Host binding incarnation. Eligibility is
 // still read-only; this Final Admission transaction is the mutation authority.
 func claimNetworkPortHandoffTx(ctx context.Context, tx pgx.Tx, admissionID string, request PlacementAdmissionRequest, current placement.Evaluation, required placement.NetworkRequirement) error {
 	var sourceAdmission, sourceHost, workloadID, quiescenceDigest string
 	var sourcePortGeneration, sourceBindingGeneration uint64
+	var authoritySource string
+	var logicalPortRevision uint64
 	var quiesced bool
-	err := tx.QueryRow(ctx, `SELECT p.placement_admission_id,b.host_id,p.workload_id,p.port_generation,b.binding_generation,q.evidence_digest,q.quiescence_state='QUIESCED'
+	err := tx.QueryRow(ctx, `SELECT p.placement_admission_id,b.host_id,p.workload_id,p.port_generation,b.binding_generation,q.evidence_digest,q.quiescence_state='QUIESCED',p.authority_source,p.port_revision
 		FROM kim.network_ports_current p JOIN kim.port_bindings_current b ON b.port_id=p.port_id
 		JOIN kim.network_port_source_quiescence_evidence q ON q.evidence_id=$2 AND q.port_id=p.port_id AND q.port_generation=p.port_generation AND q.source_host_id=b.host_id AND q.source_binding_generation=b.binding_generation
 		JOIN kim.network_port_binding_retirement_evidence re ON re.evidence_id=q.retirement_evidence_id AND re.port_id=p.port_id AND re.port_generation=p.port_generation AND re.binding_generation=b.binding_generation AND re.source_host_id=b.host_id AND re.retirement_state='VERIFIED'
 		JOIN kim.network_port_binding_retirements_current rc ON rc.port_id=p.port_id AND rc.port_generation=p.port_generation AND rc.binding_generation=b.binding_generation AND rc.terminal_evidence_id=re.evidence_id AND rc.retirement_state='VERIFIED'
-		WHERE p.port_id=$1 FOR UPDATE OF p,b`, required.PortID, required.SourceQuiescenceEvidenceID).Scan(&sourceAdmission, &sourceHost, &workloadID, &sourcePortGeneration, &sourceBindingGeneration, &quiescenceDigest, &quiesced)
+		WHERE p.port_id=$1 FOR UPDATE OF p,b`, required.PortID, required.SourceQuiescenceEvidenceID).Scan(&sourceAdmission, &sourceHost, &workloadID, &sourcePortGeneration, &sourceBindingGeneration, &quiescenceDigest, &quiesced, &authoritySource, &logicalPortRevision)
 	if err != nil || !quiesced || workloadID != request.WorkloadID || sourceHost != required.SourceHostID || sourceHost == current.HostID || sourcePortGeneration != required.SourcePortGeneration || sourceBindingGeneration != required.SourceBindingGeneration || quiescenceDigest != required.SourceQuiescenceEvidenceDigest || required.DestinationPortGeneration != sourcePortGeneration+1 || required.DestinationBindingGeneration != sourceBindingGeneration+1 {
 		return ErrPlacementStale
 	}
@@ -972,7 +1040,36 @@ func claimNetworkPortHandoffTx(ctx context.Context, tx pgx.Tx, admissionID strin
 	if tag.RowsAffected() != 1 {
 		return ErrPlacementStale
 	}
+	if authoritySource == "PORT_RESOURCE" {
+		if err := advancePortResourceHandoffTx(ctx, tx, admissionID, current.HostID, required, workloadID, logicalPortRevision); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func advancePortResourceHandoffTx(ctx context.Context, tx pgx.Tx, admissionID, destinationHost string, required placement.NetworkRequirement, workloadID string, portRevision uint64) error {
+	var attachmentGeneration, networkRevision, subnetRevision, realizationGeneration int64
+	var oldAttachment, projectID, name, macPolicy, requestedMAC, ipMode, requestedIP, attachmentPolicy, profile, macID, macAddress, ipID, ipAddress, chassis string
+	var macGeneration, ipGeneration uint64
+	var protect bool
+	err := tx.QueryRow(ctx, `SELECT a.attachment_intent_id,a.attachment_generation,p.project_id,p.port_name,p.mac_policy,COALESCE(p.requested_mac::text,''),p.ip_allocation_mode,COALESCE(host(p.requested_ip),''),p.attachment_policy,p.datapath_profile,p.delete_protection,n.network_revision,s.subnet_revision,r.realization_generation,m.allocation_id,m.allocation_generation,m.assigned_mac::text,i.allocation_id,i.allocation_generation,host(i.assigned_address),map.ovn_chassis_name FROM kim.network_ports_current p JOIN kim.port_attachment_intents_current a ON a.port_id=p.port_id JOIN kim.networks_current n ON n.network_id=p.network_id JOIN kim.network_subnets_current s ON s.subnet_id=p.subnet_id JOIN kim.port_realizations_current r ON r.port_id=p.port_id JOIN kim.port_mac_allocations_current m ON m.port_id=p.port_id JOIN kim.subnet_ip_allocations_current i ON i.owner_resource_id=p.port_id AND i.allocation_state='ALLOCATED' JOIN kim.host_network_mappings_current map ON map.host_id=$2 AND map.segment_claim_id=$3 WHERE p.port_id=$1 AND p.port_revision=$4 AND p.authority_source='PORT_RESOURCE' FOR UPDATE OF a,r`, required.PortID, destinationHost, required.SegmentClaimID, portRevision).Scan(&oldAttachment, &attachmentGeneration, &projectID, &name, &macPolicy, &requestedMAC, &ipMode, &requestedIP, &attachmentPolicy, &profile, &protect, &networkRevision, &subnetRevision, &realizationGeneration, &macID, &macGeneration, &macAddress, &ipID, &ipGeneration, &ipAddress, &chassis)
+	if err != nil {
+		return ErrPlacementStale
+	}
+	newAttachment := required.HandoffID + ":attachment"
+	nextAttachment := uint64(attachmentGeneration + 1)
+	digest := digestNetworkResource(fmt.Sprintf("%s/%s/%d/%s/%d", newAttachment, required.PortID, portRevision, admissionID, required.DestinationBindingGeneration))
+	if _, err = tx.Exec(ctx, `INSERT INTO kim.port_attachment_intent_evidence(attachment_intent_id,port_id,port_revision,attachment_generation,workload_id,intent_state,placement_admission_id,binding_generation,intent_digest) VALUES($1,$2,$3,$4,$5,'BOUND',$6,$7,$8)`, newAttachment, required.PortID, portRevision, nextAttachment, workloadID, admissionID, required.DestinationBindingGeneration, digest); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE kim.port_attachment_intents_current SET attachment_intent_id=$2,attachment_generation=$3,intent_state='BOUND',updated_at=statement_timestamp() WHERE port_id=$1 AND attachment_intent_id=$4`, required.PortID, newAttachment, nextAttachment, oldAttachment); err != nil {
+		return err
+	}
+	desired := PortResourceRequest{PortID: required.PortID, ProjectID: projectID, NetworkID: required.NetworkID, Name: name, MACPolicy: macPolicy, RequestedMAC: requestedMAC, SubnetID: required.SubnetID, IPAllocationMode: ipMode, RequestedIP: requestedIP, AttachmentPolicy: attachmentPolicy, DatapathProfile: profile, DeleteProtection: protect}
+	mac := PortResource{MACAllocationID: macID, MACAllocationGeneration: macGeneration, MACAddress: macAddress}
+	ip := &SubnetIPAllocation{AllocationID: ipID, AllocationGeneration: ipGeneration, AssignedAddress: ipAddress}
+	return insertPortRealizationOperationTx(ctx, tx, desired, portRevision, uint64(networkRevision), uint64(subnetRevision), mac, ip, uint64(realizationGeneration+1), "REALIZE", "PRESENT", required.DestinationBindingGeneration, chassis)
 }
 
 func loadStorageAuthority(ctx context.Context, row QueryRower, hostID string, required placement.StorageRequirement) (placement.StorageAuthority, bool, error) {

@@ -136,6 +136,21 @@ func TestRuntimeDoesNotOverwriteForeignSharedObject(t *testing.T) {
 	}
 }
 
+func TestRuntimeConsumesOnlySameKIMPortResourceIncarnation(t *testing.T) {
+	raw, digest, plan := runtimePlan(t)
+	resourceMarkers := map[string]string{"kim.owner": "KIM", "kim.aggregate_type": "PORT_RESOURCE", "kim.port_id": plan.LogicalPort.PortID, "kim.network_id": plan.LogicalSwitch.NetworkID}
+	runner := &scriptedRunner{commands: []scriptedCommand{{output: markerOutput(plan.NetworkExternalIDs, "")}, {output: markerOutput(resourceMarkers, "resource-digest")}, {}, {output: markerOutput(plan.NetworkExternalIDs, "")}, {output: markerOutput(plan.PortExternalIDs, digest)}, {output: "datapath"}, {output: "chassis-uuid"}, {output: `"chassis-1"`}}}
+	result, err := (Runtime{Config: testRuntimeConfig(), Runner: runner}).ReconcilePort(context.Background(), raw, digest)
+	if err != nil || result.Observation.NBState() != "MATCHED" || result.Observation.SBState() != "MATCHED" {
+		t.Fatalf("resource consumer=%+v err=%v", result, err)
+	}
+	resourceMarkers["kim.port_id"] = "other"
+	foreign := &scriptedRunner{commands: []scriptedCommand{{output: markerOutput(plan.NetworkExternalIDs, "")}, {output: markerOutput(resourceMarkers, "resource-digest")}}}
+	if _, err = (Runtime{Config: testRuntimeConfig(), Runner: foreign}).ReconcilePort(context.Background(), raw, digest); !errors.Is(err, ErrForeignOVNObject) {
+		t.Fatalf("foreign resource transition=%v", err)
+	}
+}
+
 func TestRuntimeRejectsUntrustedTransportAndExecutable(t *testing.T) {
 	raw, digest, _ := runtimePlan(t)
 	for _, config := range []RuntimeConfig{

@@ -343,6 +343,14 @@
 | NET-067 | Subnet realization response loss/lease expiryをside effect不在とみなさず、successorをREAD_BACK_FIRSTにしてexact generationへ収束する | Must |
 | NET-068 | Subnet retirementはdelete protectionとPort/IP allocation dependencyを検査し、poolをfreezeした後、backend absence terminal後だけlogical deleteとpool retireを行う | Must |
 | NET-069 | new-authority SubnetをconsumeするPlacement/Portはexact current Subnetおよびparent Network VERIFIED realizationを要求し、legacy adapterによるSubnet/IPAM authority上書きを拒否する | Must |
+| NET-070 | Port logical desiredをstable IDとimmutable revision/current projectionで管理し、Project、exact verified Network、optional exact active Subnetへbindする | Must |
+| NET-071 | Port revisionからHost、Chassis、binding generation、backend UUID、PCI BDF、socketを除外し、unattached Portを正当なcurrent stateとして扱う | Must |
+| NET-072 | MAC allocationをimmutable decision/current/release authorityとして分離し、AUTOをKIMが決定し、EXPLICIT syntax/collision/replay/ABAをfail closedにする | Must |
+| NET-073 | Port createはdesired revision、MAC、optional Migration 078 IP allocationを一transactionでcommitしpartial authorityを残さない | Must |
+| NET-074 | attachment intentとphysical binding incarnationを分離し、Final Admissionは既存Port revision/MAC/IPをconsumeしてbindingだけを作る | Must |
+| NET-075 | standalone typed Port Operationは既存parent Logical Switch上のexact LSP、Network、MAC、optional IP、ownership、digest、optional Chassisをread backする | Must |
+| NET-076 | Recovery/EVACUATE handoffはsame Port revision/MAC/IPを維持しattachment/binding/realization generationだけを進め、old incarnationをfenceする | Must |
+| NET-077 | Port retirementはnew attachmentとactive bindingをfenceし、exact backend absence terminal後だけMAC/IP releaseとlogical deleteをcommitする | Must |
 
 ### 2.13 NFV Dataplane
 

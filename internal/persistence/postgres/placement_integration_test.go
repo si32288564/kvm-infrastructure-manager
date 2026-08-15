@@ -246,6 +246,84 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err != nil || replayedAutomatic.AdmissionID != automaticAdmission.AdmissionID {
 		t.Fatalf("automatic IPAM idempotent replay = %#v/%v", replayedAutomatic, err)
 	}
+	// Independently created Port authority is consumed by Final Admission;
+	// Final Admission does not generate or change its MAC/IP identity.
+	resourceDesired := PortResourceRequest{PortID: "port-persistent-" + suffix, ProjectID: resourceProjectID, NetworkID: autoNetworkID, Name: "persistent", MACPolicy: "AUTO", SubnetID: autoSubnetID, IPAllocationMode: "AUTO", AttachmentPolicy: "ON_DEMAND", DatapathProfile: "STANDARD"}
+	resourcePort, err := CreatePortResource(ctx, pool, resourceDesired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceClaim, err := ClaimPortRealization(ctx, pool, resourcePort.OperationID, "port-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, resourcePlan, _ := ovnadapter.RestoreStoredPortResourcePlan(resourceClaim.CanonicalPlan, resourceClaim.PlanDigest)
+	if err = AuthorizePortRealizationApply(ctx, pool, resourceClaim); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = AcceptPortRealizationObservation(ctx, pool, resourceClaim, matchedPortObservation(resourceClaim, resourcePlan, "persistent-lsp", "RECEIVED")); err != nil {
+		t.Fatal(err)
+	}
+	resourceWorkload := "vm-persistent-" + suffix
+	attachmentID := "port-attachment-" + suffix
+	if _, err = RequestPortAttachment(ctx, pool, PortAttachmentRequest{PortID: resourcePort.PortID, AttachmentIntentID: attachmentID, WorkloadID: resourceWorkload, ExpectedPortRevision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	resourceRequest := automaticRequest
+	resourceRequest.RequestID = "request-persistent-" + suffix
+	resourceRequest.WorkloadID = resourceWorkload
+	resourceRequest.Network = []placement.NetworkRequirement{{PortID: resourcePort.PortID, PortRevision: 1, AttachmentIntentID: attachmentID, NetworkID: autoNetworkID, NetworkGeneration: 1, SubnetID: autoSubnetID, SubnetGeneration: 1, SegmentClaimID: autoSegmentClaimID, SegmentGeneration: 1, HostMappingGeneration: 1, IPAddress: resourcePort.IPAddress, MACAddress: resourcePort.MACAddress, AllocationSource: "EXPLICIT", BindingType: "OVS", RequiredMTU: 1500}}
+	resourceDry, err := DryEvaluatePlacement(ctx, pool, resourceRequest, hostID)
+	if err != nil || !resourceDry.Eligible {
+		t.Fatalf("persistent Port dry=%+v err=%v", resourceDry, err)
+	}
+	resourceAdmission, err := FinalAdmitPlacement(ctx, pool, resourceRequest, resourceDry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persistedRevision, bindingGeneration, realizationGeneration uint64
+	var persistedMAC, persistedIP, resourceAttachmentState string
+	if err = pool.QueryRow(ctx, `SELECT p.port_revision,m.assigned_mac::text,host(i.assigned_address),p.attachment_state,b.binding_generation,r.realization_generation FROM kim.network_ports_current p JOIN kim.port_mac_allocations_current m USING(port_id) JOIN kim.subnet_ip_allocations_current i ON i.owner_resource_id=p.port_id JOIN kim.port_bindings_current b USING(port_id) JOIN kim.port_realizations_current r USING(port_id) WHERE p.port_id=$1 AND p.placement_admission_id=$2`, resourcePort.PortID, resourceAdmission.AdmissionID).Scan(&persistedRevision, &persistedMAC, &persistedIP, &resourceAttachmentState, &bindingGeneration, &realizationGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if persistedRevision != 1 || persistedMAC != resourcePort.MACAddress || persistedIP != resourcePort.IPAddress || resourceAttachmentState != "BOUND" || bindingGeneration != 1 || realizationGeneration != 2 {
+		t.Fatalf("consumer changed Port authority rev=%d identity=%s/%s attachment=%s binding=%d realization=%d", persistedRevision, persistedMAC, persistedIP, resourceAttachmentState, bindingGeneration, realizationGeneration)
+	}
+	resourceIntentRequest := OVNPortIntentRequest{IntentID: "ovn-persistent-" + suffix, IntentGeneration: 1, PortID: resourcePort.PortID}
+	if _, err = CommitOVNPortIntent(ctx, pool, resourceIntentRequest); !errors.Is(err, ErrPlacementConflict) {
+		t.Fatalf("generic OVN intent before attached Port realization terminal error = %v", err)
+	}
+	boundPort, err := GetPortResource(ctx, pool, resourcePort.PortID)
+	if err != nil || boundPort.RealizationGeneration != 2 || boundPort.RealizationState != "PENDING" {
+		t.Fatalf("bound Port realization = %+v/%v", boundPort, err)
+	}
+	boundClaim, err := ClaimPortRealization(ctx, pool, boundPort.OperationID, "port-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, boundPlan, err := ovnadapter.RestoreStoredPortResourcePlan(boundClaim.CanonicalPlan, boundClaim.PlanDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = AuthorizePortRealizationApply(ctx, pool, boundClaim); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = AcceptPortRealizationObservation(ctx, pool, boundClaim, matchedPortObservation(boundClaim, boundPlan, "persistent-lsp", "RECEIVED")); err != nil {
+		t.Fatal(err)
+	}
+	// Verify the generic materialization consumer opens only after the exact
+	// attached Port realization is terminal, without leaving shared test work.
+	outer, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = CommitOVNPortIntent(ctx, nestedTestTxBeginner{outer}, resourceIntentRequest); err != nil {
+		_ = outer.Rollback(ctx)
+		t.Fatalf("generic OVN intent after attached Port realization terminal = %v", err)
+	}
+	if err = outer.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
 
 	verifierDigest := digestBytes([]byte("network-release-verifier"))
 	_, err = RecordNetworkIdentityReleaseObservation(ctx, pool, NetworkIdentityReleaseObservation{
@@ -700,7 +778,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM kim.compute_allocation_claims WHERE host_id=$1`, hostID).Scan(&claims); err != nil {
 		t.Fatal(err)
 	}
-	if decisions != 5 || claims != 5 {
+	if decisions != 6 || claims != 6 {
 		t.Fatalf("decision/claim count = %d/%d", decisions, claims)
 	}
 	var vfClaims int
@@ -725,7 +803,7 @@ func TestDryAndFinalPlacementAdmissionPostgreSQLIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.network_ports_current WHERE network_id=$1),(SELECT count(*) FROM kim.subnet_ip_allocation_decision_evidence WHERE subnet_id=$2),(SELECT count(*) FROM kim.subnet_ip_allocation_release_evidence WHERE subnet_id=$2)`, autoNetworkID, autoSubnetID).Scan(&resourcePorts, &resourceAllocations, &resourceReleases); err != nil {
 		t.Fatal(err)
 	}
-	if resourcePorts != 2 || resourceAllocations != 2 || resourceReleases != 1 {
+	if resourcePorts != 3 || resourceAllocations != 3 || resourceReleases != 1 {
 		t.Fatalf("verified Subnet Port/IPAM/release authority=%d/%d/%d", resourcePorts, resourceAllocations, resourceReleases)
 	}
 	var volumes, capacityClaims, storageBindings, attachments, attachmentClaims, prematureLVUUIDs int

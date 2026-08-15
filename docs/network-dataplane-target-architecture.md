@@ -11,7 +11,7 @@
 
 本書は [ADR-0012](adr/0012-nfv-dataplane-resource-model.md) と [ADR-0020](adr/0020-kim-network-intent-and-layered-realization.md) の Accepted decision を変更しません。両 ADR と既存 Requirements に一致する部分は target implementation の設計 SSOT として扱います。Host FRR、Kubernetes Route Reflector、formal workload profile、route exchange authority は新しい提案です。irreversible な実装を始める前に Accepted ADR と検証可能な Requirements へ昇格させます。
 
-本書で `current` は Migration 001–078 の repository 実装、`proposed` は将来の target architecture を意味します。backend capability を実装・qualification せずに `proposed` を current capability として公開してはいけません。
+本書で `current` は Migration 001–079 の repository 実装、`proposed` は将来の target architecture を意味します。backend capability を実装・qualification せずに `proposed` を current capability として公開してはいけません。
 
 ## 2. 設計原則
 
@@ -30,7 +30,7 @@
 
 | 領域 | Current repository | Proposed target | 移行時の扱い |
 |---|---|---|---|
-| logical Network authority | Migrations 077–078でNetwork/Subnet desired revision、KIM VNI/VLAN/IPAM allocation、standalone OVN Logical Switch/DHCP terminalを独立実装。PortはAdmission consumer | 全 profile で同じlogical authorityを継続しPortを次に分離 | Network/Subnet internal contract-ready、public APIは未実装 |
+| logical Network authority | Migrations 077–079でNetwork/Subnet/Port desired revision、KIM VNI/VLAN/IP/MAC allocation、standalone OVN Logical Switch/DHCP/LSP terminalを独立実装。Port attachmentとHost binding incarnationも分離 | 全 profile で同じlogical identityを維持しprofile別physical realizationを拡張 | Network/Subnet/Port internal contract-ready、public APIは未実装 |
 | OVN | Logical Switch/Port、NB/SB、Chassis/Encap、logical flow、Geneve の typed realization/observation が存在 | Logical Router、distributed L2/L3、ACL、DHCP、route exchange まで拡張 | additive |
 | standard datapath | `OVS` Binding、kernel OVS、libvirt NIC、post-boot OVS observation | `STANDARD` profile として formalize | current path を profile 化 |
 | high-performance datapath | ADR/Requirements のみ。active schema/backend に PMD、DPDK socket memory、RxQ、vhost-user claim はない | `HIGH_PERFORMANCE` profile、OVS-DPDK、vhost-user、exact CPU/NUMA/HugePage/PMD claims | 未実装。fail closed |
@@ -38,7 +38,7 @@
 | CPU/NUMA | topology/HugePage inventory と aggregate admission は存在 | exact pCPU set、guest NUMA、HugePage node、emulator、PMD/service core realization evidence | 未実装 |
 | dynamic routing | FRR/BGP/OSPF/IS-IS/BFD/VRF authority は存在しない | Host FRR を protocol control-plane とし、OVN routes、K8s routes、underlay/external routes を policy 分離 | 新規 ADR が必要 |
 | gateway | OVN Gateway/NAT architecture は定義済み。標準 gateway VM/FRR lifecycle は current KIM authority ではない | OVN を標準 virtual routing の中心とし、FRR を routing protocol engine に限定 | gateway VM から段階移行 |
-| DHCP | Migration 078でclosed IPv4 DHCP/DNS desiredとstandalone OVN DHCP Options read-backを実装。per-Port attachment、Router/LRP、Security multi-object realizationは未完 | OVN DHCP を標準 target とする | Subnet authorityはcurrent、Port attachment/Routerはproposed |
+| DHCP | Migration 078でclosed IPv4 DHCP/DNS desiredとstandalone OVN DHCP Options read-back、Migration 079でPort IP allocation/LSP address bindingを実装。Router/LRP、Security multi-object realizationは未完 | OVN DHCP を標準 target とする | Subnet/Port authorityはcurrent、Routerはproposed |
 | load balancing | HAProxy は Agent Gateway qualification fixture の文脈に限られ、Tenant Network Service model はない | routing から分離した独立 Network Service | 新規 service authority が必要 |
 | HA storage | Local LVM の planned data-preserving relocation は synthetic PASS。Ceph backend は未実装 | HA 対象 VM は shared/external/distributed storage を要求。Local LVM は planned mobility 中心 | current safety boundary を維持 |
 

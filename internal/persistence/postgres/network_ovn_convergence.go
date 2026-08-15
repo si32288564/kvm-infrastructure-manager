@@ -51,6 +51,22 @@ func CommitOVNPortIntent(ctx context.Context, db TxBeginner, request OVNPortInte
 			JOIN kim.network_identity_claims ip ON ip.port_id=port.port_id AND ip.claim_type='IP'
 			 AND ip.claim_state IN ('RESERVED','ACTIVE')
 			WHERE port.port_id=$1 AND port.desired_state IN ('RESERVED','BINDING','ACTIVE')
+			 AND (port.authority_source='LEGACY_ADMISSION' OR (
+			   port.authority_source='PORT_RESOURCE' AND EXISTS(
+			     SELECT 1
+			     FROM kim.port_realizations_current resource_realization
+			     JOIN kim.port_realization_operation_evidence resource_operation
+			       ON resource_operation.operation_id=resource_realization.operation_id
+			      AND resource_operation.operation_generation=resource_realization.operation_generation
+			     WHERE resource_realization.port_id=port.port_id
+			       AND resource_realization.port_revision=port.port_revision
+			       AND resource_realization.realization_state='VERIFIED'
+			       AND resource_realization.terminal_evidence_id IS NOT NULL
+			       AND resource_operation.port_id=port.port_id
+			       AND resource_operation.port_revision=port.port_revision
+			       AND resource_operation.binding_generation=binding.binding_generation
+			   )
+			 ))
 			FOR UPDATE OF port,binding
 		`, request.PortID).Scan(&projectID, &networkID, &networkGeneration, &portGeneration, &segmentID, &segmentGeneration, &mappingGeneration, &bindingGeneration, &hostID, &ovnChassisName, &mac, &ip); err != nil {
 			return ErrPlacementConflict

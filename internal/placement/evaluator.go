@@ -48,6 +48,8 @@ type NetworkRequirement struct {
 	SourceQuiescenceEvidenceDigest                          string
 	SourcePortGeneration, SourceBindingGeneration           uint64
 	DestinationPortGeneration, DestinationBindingGeneration uint64
+	PortRevision                                            uint64
+	AttachmentIntentID                                      string
 }
 
 type StorageRequirement struct {

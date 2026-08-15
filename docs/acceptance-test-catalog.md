@@ -539,6 +539,14 @@ Architecture Traceability Matrixが参照する通常Acceptance/Performance Test
 | AT-NET-056 | AUTO/EXPLICIT IPAMのreplay/collision/concurrency/stale revision/release/ABAをimmutable decision/current/release evidenceで検証する |
 | AT-NET-057 | active allocation/Port/delete protectionがSubnet retirementを拒否し、pool freeze後のallocationを拒否し、exact DHCP absence後だけDELETED/RETIREDへ進む |
 | AT-NET-058 | PENDING SubnetはPlacement eligibilityを持たず、exact Network/Subnet VERIFIED後のFinal AdmissionだけがIPAM/Port/IP/MAC/Bindingを不可分にcommitする |
+| AT-NET-059 | standalone Port create/replay/updateがstable ID、immutable desired revision、verified Network/Subnet dependency、valid unattached state、evidence UPDATE拒否を維持する |
+| AT-NET-060 | AUTO/EXPLICIT MACとMigration 078 IPAMをPort desiredと不可分にcommitし、duplicate/stale/caller AUTO/partial authorityを拒否する |
+| AT-NET-061 | explicit attachment request後のFinal Admissionがexisting exact Port/MAC/IPをconsumeし、Port revisionを変えずHost bindingとattached realizationだけを作る |
+| AT-NET-062 | Recovery A→BとEVACUATE B→Cがsame Port revision/MAC/IPを維持し、attachment/binding/realization generationsとimmutable old historyだけを進める |
+| AT-NET-063 | unattached Port retirementがLSP exact absenceまでMAC/IPをRELEASE_PENDING相当に保持し、一terminal transactionだけがidentity releaseとPort DELETEDを確定する |
+| FI-NET-041 | concurrent MAC/IP collision、stale Subnet/Port revision、wrong attachment intent、old allocation release ABAがcurrent Portまたはnew ownerを進めない |
+| FI-NET-042 | standalone Port apply response loss後、successorがREAD_BACK_FIRSTでwrong MAC/IP/Network/Chassis/marker/digestを拒否しexact stateだけへ収束する |
+| FI-NET-043 | active binding、delete protection、backend LSP present、wrong absence generationのPort retirementがidentity release/reuseを発生させない |
 
 ## 18. Performance Tests
 

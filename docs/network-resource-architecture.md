@@ -2,7 +2,15 @@
 
 ## Northbound Phase 2 authority boundary (2026-08-14)
 
-Migrations 077–078 close the internal Network and Subnet authority gaps. `networks_current` and `network_subnets_current` are current projections over independent immutable desired revisions. KIM owns segment and IPAM decisions; standalone typed OVN Logical Switch and DHCP Options Operations converge through read-back to `VERIFIED` or `ABSENT`. `UpsertNetworkFoundation` is an explicit legacy adapter and cannot overwrite either resource authority. Final Admission consumes the exact current verified Network and Subnet and atomically binds IPAM evidence to its Port claims. Public CRUD and Terraform remain intentionally absent, so both readiness gates are `CONTRACT_READY`, not endpoint PASS. Port and Volume remain blocked. See [ADR-0031](adr/0031-independent-network-resource-segment-and-realization-authority.md), [ADR-0032](adr/0032-independent-subnet-ipam-and-dhcp-realization-authority.md), and the [Subnet qualification](validation/p2-subnet-resource-authority-decomposition-20260814.md).
+Migrations 077–079 close the internal Network, Subnet, and Port authority gaps. `networks_current`, `network_subnets_current`, and `network_ports_current` are compatibility/current projections over independent immutable desired revisions. KIM owns segment, IPAM, and MAC decisions; standalone typed OVN Logical Switch, DHCP Options, and Logical Switch Port Operations converge through read-back to `VERIFIED` or `ABSENT`. `UpsertNetworkFoundation` and Admission-created Ports remain explicit legacy adapters and cannot overwrite resource authority. Final Admission consumes the exact current verified Network/Subnet and an existing Port with exact identities, then creates only a physical binding incarnation. Public CRUD and Terraform remain intentionally absent, so all three readiness gates are `CONTRACT_READY`, not endpoint PASS. Volume remains blocked. See [ADR-0031](adr/0031-independent-network-resource-segment-and-realization-authority.md), [ADR-0032](adr/0032-independent-subnet-ipam-and-dhcp-realization-authority.md), [ADR-0033](adr/0033-independent-port-identity-attachment-and-realization-authority.md), and the [Port qualification](validation/p2-port-resource-authority-decomposition-20260815.md).
+
+### Current independent Port contract
+
+- stable Project/Network-owned `port_id`; desired change creates immutable `port_revision`, while Host moves advance only attachment, binding, and realization generations;
+- Port create atomically commits one exact KIM MAC decision and optional Migration 078 Subnet IP allocation; Final Admission never regenerates either identity;
+- `UNATTACHED` is valid and has no Host binding. Explicit attachment intent precedes Placement consumption;
+- standalone `kim.network-intent.ovn-port-resource/v1` creates only the exact LSP on a verified existing parent Logical Switch and verifies Network, MAC, optional IP, ownership, plan digest, and optional chassis expectation;
+- retirement freezes attachment, requires no current binding, verifies exact LSP absence, then atomically records release evidence and releases MAC/IP.
 
 ### Current independent Subnet/IPAM contract
 
