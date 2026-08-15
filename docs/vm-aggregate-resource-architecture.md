@@ -463,7 +463,7 @@ Mandatory negative coverage:
 | public API | `/api/v1/vms` bounded logical contract | attachment-specific actions |
 | Terraform | `kim_vm` logical state with Operation polling | production registry release |
 | mobility drift | Recovery/EVACUATE association and no-drift qualification | multi-Port/multi-Volume mobility |
-| delete | zero/one STANDARD Port + ROOT with optional DATA, or two STANDARD Ports + ROOT verified delete | two-Port + DATA delete |
+| delete | zero through two STANDARD Ports + ROOT with optional DATA verified delete | profiles beyond public create bounds |
 
 ## 23. Implemented internal profiles
 
@@ -497,7 +497,7 @@ Migration 086ではVolume集合をone ROOT plus one DATAまで一般化します
 
 Recovery network verification digestはNB/SB/OVS/dataplane/source-quiescence/handoff集合、EVACUATE network verification digestはdestination preboot OVS集合です。consumerは両者を同じdigest algorithmと誤認せず、Recovery terminal digestをcurrent readinessへexact bindしたうえで、logical Port revision/digestとdestination preboot evidenceを独立に再検証します。
 
-Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はROOT+DATA deleteを追加し、両authorityを同じterminalで消費するone-Port+ROOT+DATA profileもqualification済みです。Migration 091はcanonical ordinal付きtwo-Port snapshot、per-Port absence、complete absence-setを追加し、two-Port+ROOT deleteを閉じました。OpenAPI `/api/v1/vms` と Terraform `kim_vm` もbounded profileでqualification済みです。未実装のまま残るものはtwo-Port+DATA deleteとmulti-Port/multi-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
+Migration 087はmetadata、power、zero-Port/one-ROOT deleteを実装し、Migration 088はNorthbound create replayを追加しました。Migration 089はone STANDARD Port delete、Migration 090はROOT+DATA deleteを追加し、Migration 091はcanonical ordinal付きtwo-Port snapshot、per-Port absence、complete absence-setを追加しました。Migration 090/091を同じterminalで消費するtwo-Port+ROOT+DATA最大profileもschema追加なしでqualification済みです。OpenAPI `/api/v1/vms` と Terraform `kim_vm` のbounded create/delete matrixは対称になりました。未実装の主対象はmulti-Port/multi-Volume mobilityです。qualification詳細は [VM Northbound/Terraform qualification](validation/p3-vm-northbound-terraform-resource-20260815.md) と各internal profile validationを参照してください。
 
 ## 24. Explicitly out of scope
 
