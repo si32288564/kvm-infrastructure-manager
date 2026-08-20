@@ -111,17 +111,39 @@ func PrepareLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim Hos
 // VerifyLocalLVMRelocationCopy consumes a MATCHED typed read-back. Positive
 // content identity is derived only from equal exact sizes and equal SHA-256
 // digests; no caller boolean is accepted.
+type localLVMCopyConsumer struct {
+	kind, id string
+	claim    HostEvacuationClaim
+}
+
 func VerifyLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim HostEvacuationClaim, operationID, commandVerificationID, sourceEvidenceID, destinationEvidenceID, verificationID, terminalID string) (LocalLVMRelocationCopyVerification, error) {
+	return verifyLocalLVMRelocationCopy(ctx, db, localLVMCopyConsumer{kind: "HOST_EVACUATION", id: claim.ChildOperationID, claim: claim}, operationID, commandVerificationID, sourceEvidenceID, destinationEvidenceID, verificationID, terminalID)
+}
+
+func VerifyRecoveryLocalLVMDataCopy(ctx context.Context, db TxBeginner, recoveryOperationID, operationID, commandVerificationID, sourceEvidenceID, destinationEvidenceID, verificationID, terminalID string) (LocalLVMRelocationCopyVerification, error) {
+	return verifyLocalLVMRelocationCopy(ctx, db, localLVMCopyConsumer{kind: "RECOVERY", id: recoveryOperationID}, operationID, commandVerificationID, sourceEvidenceID, destinationEvidenceID, verificationID, terminalID)
+}
+
+func verifyLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, consumer localLVMCopyConsumer, operationID, commandVerificationID, sourceEvidenceID, destinationEvidenceID, verificationID, terminalID string) (LocalLVMRelocationCopyVerification, error) {
 	var out LocalLVMRelocationCopyVerification
-	if operationID == "" || commandVerificationID == "" || sourceEvidenceID == "" || destinationEvidenceID == "" || verificationID == "" || terminalID == "" {
+	if consumer.id == "" || operationID == "" || commandVerificationID == "" || sourceEvidenceID == "" || destinationEvidenceID == "" || verificationID == "" || terminalID == "" {
 		return out, ErrHostEvacuationConflict
 	}
 	err := pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
 		if err := requireActiveDatabaseAuthority(ctx, tx); err != nil {
 			return err
 		}
-		if err := validateEvacuationClaimTx(ctx, tx, claim); err != nil {
-			return err
+		if consumer.kind == "HOST_EVACUATION" {
+			if err := validateEvacuationClaimTx(ctx, tx, consumer.claim); err != nil {
+				return err
+			}
+		} else if consumer.kind == "RECOVERY" {
+			var state string
+			if err := tx.QueryRow(ctx, `SELECT lifecycle_state FROM kim.recovery_operations_current WHERE recovery_operation_id=$1 FOR SHARE`, consumer.id).Scan(&state); err != nil || (state != "RUNNING" && state != "VERIFYING") {
+				return ErrRecoveryOperationBlocked
+			}
+		} else {
+			return ErrHostEvacuationConflict
 		}
 		var existingOperation string
 		if err := tx.QueryRow(ctx, `SELECT copy_operation_id FROM kim.local_lvm_relocation_copy_terminal_evidence WHERE terminal_evidence_id=$1`, terminalID).Scan(&existingOperation); err == nil {
@@ -134,7 +156,11 @@ func VerifyLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim Host
 		}
 		var generation, sourceBindingGeneration, destinationBindingGeneration, expectedSize, sourceMaterialization uint64
 		var commandID, sourceHost, sourceVolume, sourceBinding, sourceLV, destinationHost, destinationAdmission, destinationVolume, destinationBinding, destinationLV, safetyID, safetyDigest string
-		if err := tx.QueryRow(ctx, `SELECT copy_generation,command_id,source_host_id,source_materialization_generation,source_volume_id,source_binding_id,source_binding_generation,source_lv_uuid,source_storage_safety_evidence_id,source_storage_safety_digest,destination_host_id,destination_admission_id,destination_volume_id,destination_binding_id,destination_binding_generation,destination_lv_uuid,expected_size_bytes FROM kim.local_lvm_relocation_copy_operation_evidence WHERE copy_operation_id=$1 AND child_operation_id=$2`, operationID, claim.ChildOperationID).Scan(&generation, &commandID, &sourceHost, &sourceMaterialization, &sourceVolume, &sourceBinding, &sourceBindingGeneration, &sourceLV, &safetyID, &safetyDigest, &destinationHost, &destinationAdmission, &destinationVolume, &destinationBinding, &destinationBindingGeneration, &destinationLV, &expectedSize); err != nil {
+		consumerColumn := "child_operation_id"
+		if consumer.kind == "RECOVERY" {
+			consumerColumn = "recovery_operation_id"
+		}
+		if err := tx.QueryRow(ctx, `SELECT copy_generation,command_id,source_host_id,source_materialization_generation,source_volume_id,source_binding_id,source_binding_generation,source_lv_uuid,coalesce(source_storage_safety_evidence_id,recovery_storage_safety_proof_id),coalesce(source_storage_safety_digest,recovery_storage_safety_proof_digest),destination_host_id,destination_admission_id,destination_volume_id,destination_binding_id,destination_binding_generation,destination_lv_uuid,expected_size_bytes FROM kim.local_lvm_relocation_copy_operation_evidence WHERE copy_operation_id=$1 AND `+consumerColumn+`=$2`, operationID, consumer.id).Scan(&generation, &commandID, &sourceHost, &sourceMaterialization, &sourceVolume, &sourceBinding, &sourceBindingGeneration, &sourceLV, &safetyID, &safetyDigest, &destinationHost, &destinationAdmission, &destinationVolume, &destinationBinding, &destinationBindingGeneration, &destinationLV, &expectedSize); err != nil {
 			return ErrHostEvacuationBlocked
 		}
 		var attempt int
@@ -174,7 +200,13 @@ func VerifyLocalLVMRelocationCopy(ctx context.Context, db TxBeginner, claim Host
 		}
 		// Re-read all source safety and both binding incarnations immediately before accepting identity.
 		var stillCurrent bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_evacuation_source_storage_safety_evidence s JOIN kim.volume_backend_bindings_current sb ON sb.binding_id=$3 AND sb.binding_generation=$4 AND sb.volume_id=$5 AND sb.lv_uuid=$6 AND sb.host_id=$7 AND sb.binding_state='BOUND' JOIN kim.volume_backend_bindings_current db ON db.binding_id=$8 AND db.binding_generation=$9 AND db.volume_id=$10 AND db.lv_uuid=$11 AND db.host_id=$12 AND db.binding_state='BOUND' JOIN kim.virtual_machines_current vm ON vm.vm_id=s.vm_id AND vm.current_plan_id=s.source_plan_id AND vm.host_id=s.source_host_id WHERE s.safety_evidence_id=$1 AND s.safety_digest=$2 AND s.source_materialization_generation=$13 AND s.safety_state='SAFE')`, safetyID, safetyDigest, sourceBinding, sourceBindingGeneration, sourceVolume, sourceLV, sourceHost, destinationBinding, destinationBindingGeneration, destinationVolume, destinationLV, destinationHost, sourceMaterialization).Scan(&stillCurrent); err != nil || !stillCurrent {
+		var currentErr error
+		if consumer.kind == "HOST_EVACUATION" {
+			currentErr = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.host_evacuation_source_storage_safety_evidence s JOIN kim.volume_backend_bindings_current sb ON sb.binding_id=$3 AND sb.binding_generation=$4 AND sb.volume_id=$5 AND sb.lv_uuid=$6 AND sb.host_id=$7 AND sb.binding_state='BOUND' JOIN kim.volume_backend_bindings_current db ON db.binding_id=$8 AND db.binding_generation=$9 AND db.volume_id=$10 AND db.lv_uuid=$11 AND db.host_id=$12 AND db.binding_state='BOUND' JOIN kim.virtual_machines_current vm ON vm.vm_id=s.vm_id AND vm.current_plan_id=s.source_plan_id AND vm.host_id=s.source_host_id WHERE s.safety_evidence_id=$1 AND s.safety_digest=$2 AND s.source_materialization_generation=$13 AND s.safety_state='SAFE')`, safetyID, safetyDigest, sourceBinding, sourceBindingGeneration, sourceVolume, sourceLV, sourceHost, destinationBinding, destinationBindingGeneration, destinationVolume, destinationLV, destinationHost, sourceMaterialization).Scan(&stillCurrent)
+		} else {
+			currentErr = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM kim.local_lvm_relocation_copy_operation_evidence copy JOIN kim.storage_safety_proof_evidence proof ON proof.proof_id=copy.recovery_storage_safety_proof_id AND proof.proof_digest=copy.recovery_storage_safety_proof_digest AND proof.proof_state='SAFE' JOIN kim.storage_safety_evaluation_input_evidence input ON input.evaluation_id=proof.evaluation_id AND input.attachment_evidence_id=copy.recovery_source_attachment_evidence_id AND input.observation_digest=copy.recovery_source_attachment_observation_digest JOIN kim.volume_attachment_observations_current source_current ON source_current.evidence_id=input.attachment_evidence_id AND source_current.observation_generation=input.observation_generation AND source_current.attachment_state='DETACHED' AND NOT source_current.device_present AND NOT source_current.holder_open JOIN kim.volume_attachment_claims source_claim ON source_claim.attachment_claim_id=input.attachment_claim_id AND source_claim.claim_state='RELEASED' AND source_claim.claim_state_generation=input.claim_state_generation JOIN kim.volume_backend_bindings_current sb ON sb.binding_id=$3 AND sb.binding_generation=$4 AND sb.volume_id=$5 AND sb.lv_uuid=$6 AND sb.host_id=$7 AND sb.binding_state='BOUND' JOIN kim.volume_backend_bindings_current db ON db.binding_id=$8 AND db.binding_generation=$9 AND db.volume_id=$10 AND db.lv_uuid=$11 AND db.host_id=$12 AND db.binding_state='BOUND' WHERE copy.copy_operation_id=$1 AND copy.recovery_operation_id=$2 AND copy.source_materialization_generation=$13)`, operationID, consumer.id, sourceBinding, sourceBindingGeneration, sourceVolume, sourceLV, sourceHost, destinationBinding, destinationBindingGeneration, destinationVolume, destinationLV, destinationHost, sourceMaterialization).Scan(&stillCurrent)
+		}
+		if currentErr != nil || !stillCurrent {
 			return ErrHostEvacuationStale
 		}
 		var leaseGeneration, hostAuthority, sessionGeneration uint64

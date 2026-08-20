@@ -20,6 +20,8 @@ type RecoveryMaterialization struct {
 	RootAttachmentID, MaterializationDigest                                           string
 	VMGeneration, MaterializationGeneration, RootBindingGeneration                    uint64
 	RootAttachmentGeneration                                                          uint64
+	VolumeCount                                                                       uint64
+	VolumeEvidenceSetDigest                                                           string
 }
 
 type RecoveryPowerAuthority struct {
@@ -44,6 +46,8 @@ type RecoveryVerification struct {
 	PowerObservationGeneration, StorageAttachmentGeneration                        uint64
 	StorageObservationGeneration, NetworkObservationGeneration                     uint64
 	BudgetStateGeneration                                                          uint64
+	VolumeCount                                                                    uint64
+	StorageEvidenceSetDigest                                                       string
 }
 
 func currentRecoveryPCIEvidenceSetTx(ctx context.Context, tx pgx.Tx, admissionID, vmID string, vmGeneration uint64) (uint64, string, bool, error) {
@@ -201,20 +205,67 @@ func PrepareRecoveryMaterialization(ctx context.Context, db TxBeginner, request 
 		if err := tx.QueryRow(ctx, `SELECT network_requirements_digest,pci_requirements_digest FROM kim.placement_admission_decisions WHERE admission_id=$1`, admissionID).Scan(&networkDigest, &pciDigest); err != nil {
 			return err
 		}
-		payload := map[string]any{"recovery_operation_id": request.RecoveryOperationID, "destination_admission_id": admissionID, "destination_host_id": destinationHost, "vm_id": request.VMID, "workload_id": workloadID, "vm_generation": vmGeneration, "materialization_generation": materializationGeneration, "vm_plan_id": request.VMPlanID, "vm_plan_digest": decision.PlanDigest, "image_id": imageID, "image_revision": imageRevision, "flavor_id": flavorID, "flavor_revision": flavorRevision, "root_volume_id": rootVolume, "root_binding_id": rootBinding, "root_binding_generation": bindingGeneration, "root_attachment_id": rootAttachment, "root_attachment_generation": attachmentGeneration, "network_requirements_digest": networkDigest, "pci_requirements_digest": pciDigest}
+		type recoveryVolumeMember struct {
+			ordinal                                                                    uint64
+			role, volume, desired, binding, lv, attachment, authorityKind, authorityID string
+			volumeRevision, bindingGeneration, attachmentGeneration                    uint64
+			authorityDigest, memberDigest                                              string
+		}
+		var rootRevision uint64
+		var rootDesired, imageContentDigest string
+		if err := tx.QueryRow(ctx, `SELECT v.volume_revision,v.desired_digest,i.declared_checksum FROM kim.volumes_current v JOIN kim.image_revision_evidence i ON i.image_id=$2 AND i.image_revision=$3 AND i.validation_state='VERIFIED' WHERE v.volume_id=$1 AND v.placement_admission_id=$4 AND v.bootable`, rootVolume, imageID, imageRevision, admissionID).Scan(&rootRevision, &rootDesired, &imageContentDigest); err != nil {
+			return ErrRecoveryOperationStale
+		}
+		rootMember := recoveryVolumeMember{ordinal: 0, role: "ROOT", volume: rootVolume, volumeRevision: rootRevision, desired: rootDesired, binding: rootBinding, bindingGeneration: bindingGeneration, attachment: rootAttachment, attachmentGeneration: attachmentGeneration, authorityKind: "BASE_IMAGE_REBUILD", authorityID: fmt.Sprintf("%s:%d", imageID, imageRevision), authorityDigest: imageContentDigest}
+		if err := tx.QueryRow(ctx, `SELECT lv_uuid FROM kim.volume_backend_bindings_current WHERE binding_id=$1 AND binding_generation=$2 AND volume_id=$3 AND host_id=$4 AND binding_state='BOUND'`, rootBinding, bindingGeneration, rootVolume, destinationHost).Scan(&rootMember.lv); err != nil {
+			return ErrRecoveryOperationStale
+		}
+		rootMember.memberDigest = digestReleaseBytes([]byte(fmt.Sprintf("0/ROOT/%s/%d/%s/%s/%d/%s/%s/%d/%s/%s", rootMember.volume, rootMember.volumeRevision, rootMember.desired, rootMember.binding, rootMember.bindingGeneration, rootMember.lv, rootMember.attachment, rootMember.attachmentGeneration, rootMember.authorityID, rootMember.authorityDigest)))
+		members := []recoveryVolumeMember{rootMember}
+		var storageCount int
+		if err := tx.QueryRow(ctx, `SELECT jsonb_array_length(storage_requirements) FROM kim.placement_admission_decisions WHERE admission_id=$1`, admissionID).Scan(&storageCount); err != nil || storageCount < 1 || storageCount > maxVMAggregateVolumes {
+			return ErrRecoveryOperationBlocked
+		}
+		if storageCount == 2 {
+			var data recoveryVolumeMember
+			data.ordinal, data.role, data.authorityKind = 1, "DATA", "LOCAL_LVM_COPY"
+			if err := tx.QueryRow(ctx, `SELECT v.volume_id,v.volume_revision,v.desired_digest,b.binding_id,b.binding_generation,b.lv_uuid,a.attachment_id,a.attachment_generation,t.terminal_evidence_id,t.terminal_digest
+				FROM kim.volumes_current v
+				JOIN kim.volume_backend_bindings_current b ON b.volume_id=v.volume_id AND b.host_id=$2 AND b.binding_state='BOUND'
+				JOIN kim.volume_attachments_current a ON a.volume_id=v.volume_id AND a.placement_admission_id=$1 AND a.desired_host_id=$2
+				JOIN kim.local_lvm_relocation_copy_operation_evidence copy ON copy.recovery_operation_id=$3 AND copy.volume_ordinal=1 AND copy.destination_admission_id=$1 AND copy.destination_host_id=$2 AND copy.destination_volume_id=v.volume_id AND copy.destination_binding_id=b.binding_id AND copy.destination_binding_generation=b.binding_generation AND copy.destination_lv_uuid=b.lv_uuid
+				JOIN kim.local_lvm_relocation_copy_operations_current current USING(copy_operation_id,copy_generation)
+				JOIN kim.local_lvm_relocation_copy_terminal_evidence t ON t.terminal_evidence_id=current.terminal_evidence_id AND t.copy_operation_id=copy.copy_operation_id AND t.copy_generation=copy.copy_generation AND t.terminal_state='VERIFIED'
+				WHERE v.placement_admission_id=$1 AND NOT v.bootable AND current.operation_state='VERIFIED'`, admissionID, destinationHost, request.RecoveryOperationID).Scan(&data.volume, &data.volumeRevision, &data.desired, &data.binding, &data.bindingGeneration, &data.lv, &data.attachment, &data.attachmentGeneration, &data.authorityID, &data.authorityDigest); err != nil {
+				return ErrRecoveryOperationBlocked
+			}
+			data.memberDigest = digestReleaseBytes([]byte(fmt.Sprintf("1/DATA/%s/%d/%s/%s/%d/%s/%s/%d/%s/%s", data.volume, data.volumeRevision, data.desired, data.binding, data.bindingGeneration, data.lv, data.attachment, data.attachmentGeneration, data.authorityID, data.authorityDigest)))
+			members = append(members, data)
+		}
+		volumeSet := ""
+		for _, member := range members {
+			volumeSet += fmt.Sprintf("%d:%s,", member.ordinal, member.memberDigest)
+		}
+		volumeSetDigest := digestBytes([]byte(volumeSet))
+		payload := map[string]any{"recovery_operation_id": request.RecoveryOperationID, "destination_admission_id": admissionID, "destination_host_id": destinationHost, "vm_id": request.VMID, "workload_id": workloadID, "vm_generation": vmGeneration, "materialization_generation": materializationGeneration, "vm_plan_id": request.VMPlanID, "vm_plan_digest": decision.PlanDigest, "image_id": imageID, "image_revision": imageRevision, "flavor_id": flavorID, "flavor_revision": flavorRevision, "root_volume_id": rootVolume, "root_binding_id": rootBinding, "root_binding_generation": bindingGeneration, "root_attachment_id": rootAttachment, "root_attachment_generation": attachmentGeneration, "network_requirements_digest": networkDigest, "pci_requirements_digest": pciDigest, "volume_count": len(members), "volume_evidence_set_digest": volumeSetDigest}
 		raw, _ := json.Marshal(payload)
 		digest := digestReleaseBytes(raw)
-		if _, err := tx.Exec(ctx, `INSERT INTO kim.recovery_materialization_evidence(materialization_id,recovery_operation_id,operation_generation,destination_admission_id,destination_host_id,vm_id,workload_id,vm_generation,materialization_generation,vm_plan_id,vm_plan_digest,image_id,image_revision,flavor_id,flavor_revision,root_volume_id,root_binding_id,root_binding_generation,root_attachment_id,root_attachment_generation,network_requirements_digest,pci_requirements_digest,materialization_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, request.MaterializationID, request.RecoveryOperationID, operation.OperationGeneration, admissionID, destinationHost, request.VMID, workloadID, vmGeneration, materializationGeneration, request.VMPlanID, decision.PlanDigest, imageID, imageRevision, flavorID, flavorRevision, rootVolume, rootBinding, bindingGeneration, rootAttachment, attachmentGeneration, networkDigest, pciDigest, digest); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO kim.recovery_materialization_evidence(materialization_id,recovery_operation_id,operation_generation,destination_admission_id,destination_host_id,vm_id,workload_id,vm_generation,materialization_generation,vm_plan_id,vm_plan_digest,image_id,image_revision,flavor_id,flavor_revision,root_volume_id,root_binding_id,root_binding_generation,root_attachment_id,root_attachment_generation,network_requirements_digest,pci_requirements_digest,materialization_digest,volume_count,volume_evidence_set_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, request.MaterializationID, request.RecoveryOperationID, operation.OperationGeneration, admissionID, destinationHost, request.VMID, workloadID, vmGeneration, materializationGeneration, request.VMPlanID, decision.PlanDigest, imageID, imageRevision, flavorID, flavorRevision, rootVolume, rootBinding, bindingGeneration, rootAttachment, attachmentGeneration, networkDigest, pciDigest, digest, len(members), volumeSetDigest); err != nil {
 			return err
 		}
-		out = RecoveryMaterialization{request.RecoveryOperationID, request.MaterializationID, admissionID, destinationHost, request.VMID, workloadID, request.VMPlanID, decision.PlanDigest, rootVolume, rootBinding, rootAttachment, digest, vmGeneration, materializationGeneration, bindingGeneration, attachmentGeneration}
+		for _, member := range members {
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.recovery_materialization_volume_evidence(materialization_id,volume_ordinal,device_role,volume_id,volume_revision,desired_digest,binding_id,binding_generation,lv_uuid,attachment_id,attachment_generation,content_authority_kind,content_authority_id,content_authority_digest,member_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, request.MaterializationID, member.ordinal, member.role, member.volume, member.volumeRevision, member.desired, member.binding, member.bindingGeneration, member.lv, member.attachment, member.attachmentGeneration, member.authorityKind, member.authorityID, member.authorityDigest, member.memberDigest); err != nil {
+				return err
+			}
+		}
+		out = RecoveryMaterialization{RecoveryOperationID: request.RecoveryOperationID, MaterializationID: request.MaterializationID, DestinationAdmissionID: admissionID, DestinationHostID: destinationHost, VMID: request.VMID, WorkloadID: workloadID, VMPlanID: request.VMPlanID, VMPlanDigest: decision.PlanDigest, RootVolumeID: rootVolume, RootBindingID: rootBinding, RootAttachmentID: rootAttachment, MaterializationDigest: digest, VMGeneration: vmGeneration, MaterializationGeneration: materializationGeneration, RootBindingGeneration: bindingGeneration, RootAttachmentGeneration: attachmentGeneration, VolumeCount: uint64(len(members)), VolumeEvidenceSetDigest: volumeSetDigest}
 		return nil
 	})
 	return out, err
 }
 
 func loadRecoveryMaterializationTx(ctx context.Context, tx pgx.Tx, id string, out *RecoveryMaterialization) error {
-	return tx.QueryRow(ctx, `SELECT recovery_operation_id,materialization_id,destination_admission_id,destination_host_id,vm_id::text,workload_id,vm_plan_id,vm_plan_digest,root_volume_id,root_binding_id,root_attachment_id,materialization_digest,vm_generation,materialization_generation,root_binding_generation,root_attachment_generation FROM kim.recovery_materialization_evidence WHERE materialization_id=$1`, id).Scan(&out.RecoveryOperationID, &out.MaterializationID, &out.DestinationAdmissionID, &out.DestinationHostID, &out.VMID, &out.WorkloadID, &out.VMPlanID, &out.VMPlanDigest, &out.RootVolumeID, &out.RootBindingID, &out.RootAttachmentID, &out.MaterializationDigest, &out.VMGeneration, &out.MaterializationGeneration, &out.RootBindingGeneration, &out.RootAttachmentGeneration)
+	return tx.QueryRow(ctx, `SELECT recovery_operation_id,materialization_id,destination_admission_id,destination_host_id,vm_id::text,workload_id,vm_plan_id,vm_plan_digest,root_volume_id,root_binding_id,root_attachment_id,materialization_digest,vm_generation,materialization_generation,root_binding_generation,root_attachment_generation,volume_count,coalesce(volume_evidence_set_digest,'') FROM kim.recovery_materialization_evidence WHERE materialization_id=$1`, id).Scan(&out.RecoveryOperationID, &out.MaterializationID, &out.DestinationAdmissionID, &out.DestinationHostID, &out.VMID, &out.WorkloadID, &out.VMPlanID, &out.VMPlanDigest, &out.RootVolumeID, &out.RootBindingID, &out.RootAttachmentID, &out.MaterializationDigest, &out.VMGeneration, &out.MaterializationGeneration, &out.RootBindingGeneration, &out.RootAttachmentGeneration, &out.VolumeCount, &out.VolumeEvidenceSetDigest)
 }
 
 // MarkRecoveryNoNetworkReady is the closed zero-port path. It emits no power
@@ -429,9 +480,40 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 			}
 		}
 		_ = tx.QueryRow(ctx, `SELECT p.evidence_id,p.observation_generation,e.observation_digest FROM kim.vm_power_state_current p JOIN kim.vm_power_observation_evidence e ON e.evidence_id=p.evidence_id AND e.observation_generation=p.observation_generation WHERE p.vm_id=$1 AND p.vm_generation=$2 AND p.desired_power_state='RUNNING' AND p.observed_power_state='RUNNING' AND p.convergence_state='MATCHED'`, out.VMID, out.VMGeneration).Scan(&out.PowerEvidenceID, &out.PowerObservationGeneration, &out.PowerObservationDigest)
-		var attachmentState string
-		var holderOpen bool
-		_ = tx.QueryRow(ctx, `SELECT o.evidence_id,o.attachment_generation,o.observation_generation,o.attachment_state,o.holder_open FROM kim.recovery_materialization_evidence m JOIN kim.volume_attachment_claims c ON c.attachment_id=m.root_attachment_id AND c.attachment_generation=m.root_attachment_generation AND c.claim_state='ACTIVE' JOIN kim.volume_attachment_observations_current o ON o.attachment_id=c.attachment_id AND o.attachment_generation=c.attachment_generation WHERE m.recovery_operation_id=$1`, operationID).Scan(&out.StorageAttachmentEvidenceID, &out.StorageAttachmentGeneration, &out.StorageObservationGeneration, &attachmentState, &holderOpen)
+		type verifiedStorageMember struct {
+			ordinal                                                                        uint64
+			role, materialization, volume, binding, lv, attachment, evidence, memberDigest string
+			bindingGeneration, attachmentGeneration, observationGeneration                 uint64
+		}
+		storageMembers := make([]verifiedStorageMember, 0, materialization.VolumeCount)
+		storageRows, storageErr := tx.Query(ctx, `SELECT member.volume_ordinal,member.device_role,member.materialization_id,member.volume_id,member.binding_id,member.binding_generation,member.lv_uuid,member.attachment_id,member.attachment_generation,observation.evidence_id,observation.observation_generation
+			FROM kim.recovery_materialization_volume_evidence member
+			JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=member.binding_id AND binding.binding_generation=member.binding_generation AND binding.volume_id=member.volume_id AND binding.lv_uuid=member.lv_uuid AND binding.host_id=$2 AND binding.binding_state='BOUND'
+			JOIN kim.volume_attachment_claims claim ON claim.attachment_id=member.attachment_id AND claim.attachment_generation=member.attachment_generation AND claim.volume_id=member.volume_id AND claim.host_id=$2 AND claim.claim_state='ACTIVE'
+			JOIN kim.volume_attachment_observations_current observation ON observation.attachment_id=member.attachment_id AND observation.attachment_generation=member.attachment_generation AND observation.binding_id=member.binding_id AND observation.binding_generation=member.binding_generation AND observation.observed_lv_uuid=member.lv_uuid AND observation.attachment_state='ATTACHED' AND observation.device_present AND observation.holder_open
+			WHERE member.materialization_id=$1 ORDER BY member.volume_ordinal`, materialization.MaterializationID, materialization.DestinationHostID)
+		if storageErr == nil {
+			defer storageRows.Close()
+			for storageRows.Next() {
+				var member verifiedStorageMember
+				if err := storageRows.Scan(&member.ordinal, &member.role, &member.materialization, &member.volume, &member.binding, &member.bindingGeneration, &member.lv, &member.attachment, &member.attachmentGeneration, &member.evidence, &member.observationGeneration); err != nil {
+					return err
+				}
+				member.memberDigest = digestReleaseBytes([]byte(fmt.Sprintf("%d/%s/%s/%s/%d/%s/%s/%d/%s/%d", member.ordinal, member.role, member.volume, member.binding, member.bindingGeneration, member.lv, member.attachment, member.attachmentGeneration, member.evidence, member.observationGeneration)))
+				storageMembers = append(storageMembers, member)
+				if member.ordinal == 0 {
+					out.StorageAttachmentEvidenceID, out.StorageAttachmentGeneration, out.StorageObservationGeneration = member.evidence, member.attachmentGeneration, member.observationGeneration
+				}
+			}
+			storageErr = storageRows.Err()
+		}
+		storageSet := ""
+		for _, member := range storageMembers {
+			storageSet += fmt.Sprintf("%d:%s,", member.ordinal, member.memberDigest)
+		}
+		out.VolumeCount = uint64(len(storageMembers))
+		out.StorageEvidenceSetDigest = digestBytes([]byte(storageSet))
+		storageComplete := storageErr == nil && out.VolumeCount == materialization.VolumeCount && materialization.VolumeCount > 0
 		out.PCIRequirementsDigest = digestBytes([]byte("[]"))
 		var pciCount int
 		_ = tx.QueryRow(ctx, `SELECT jsonb_array_length(pci_requirements) FROM kim.placement_admission_decisions WHERE admission_id=$1`, out.DestinationAdmissionID).Scan(&pciCount)
@@ -458,8 +540,8 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 			out.ResultState, out.ReasonCode = "STALE_DESTINATION", "destination_materialization_not_current_ready"
 		case out.PowerEvidenceID == "":
 			out.ResultState, out.ReasonCode = "UNKNOWN", "destination_power_read_back_missing"
-		case attachmentState != "ATTACHED" || !holderOpen:
-			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_storage_attachment_not_matched"
+		case !storageComplete:
+			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_storage_attachment_set_not_complete"
 		case networkState != "REALIZED":
 			out.ResultState, out.ReasonCode = "NOT_VERIFIED", "destination_network_not_realized"
 		case !networkEvidenceCurrent:
@@ -473,14 +555,22 @@ func EvaluateRecoveryVerification(ctx context.Context, db TxBeginner, verificati
 		copy.VerificationDigest = ""
 		raw, _ := json.Marshal(copy)
 		out.VerificationDigest = digestReleaseBytes(raw)
-		_, err = tx.Exec(ctx, `INSERT INTO kim.recovery_verification_evidence(verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id,vm_generation,power_evidence_id,power_observation_generation,power_observation_digest,storage_attachment_evidence_id,storage_attachment_generation,storage_observation_generation,network_observation_generation,network_evidence_set_digest,pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest,pci_observation_generation,pci_evidence_set_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,0),NULLIF($12,''),NULLIF($13,''),NULLIF($14,0),NULLIF($15,0),NULLIF($16,0),NULLIF($17,''),$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NULLIF($32,0),NULLIF($33,''))`, out.VerificationID, out.RecoveryOperationID, out.OperationGeneration, out.OperationStateGeneration, out.MaterializationID, out.DestinationAdmissionID, out.DestinationHostID, out.VMID, out.VMGeneration, out.PowerEvidenceID, out.PowerObservationGeneration, out.PowerObservationDigest, out.StorageAttachmentEvidenceID, out.StorageAttachmentGeneration, out.StorageObservationGeneration, out.NetworkObservationGeneration, out.NetworkEvidenceSetDigest, out.PCIRequirementsDigest, out.FencingProofID, out.FencingProofDigest, out.FencingUsability, out.StorageSafetyProofID, out.StorageSafetyProofDigest, out.StorageUsability, out.BudgetClaimID, out.BudgetStateGeneration, out.ResultState, out.ReasonCode, out.VerifierVersion, out.VerifierDigest, out.VerificationDigest, out.PCIObservationGeneration, out.PCIEvidenceSetDigest)
-		return err
+		_, err = tx.Exec(ctx, `INSERT INTO kim.recovery_verification_evidence(verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id,vm_generation,power_evidence_id,power_observation_generation,power_observation_digest,storage_attachment_evidence_id,storage_attachment_generation,storage_observation_generation,network_observation_generation,network_evidence_set_digest,pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest,pci_observation_generation,pci_evidence_set_digest,volume_count,storage_evidence_set_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),NULLIF($11,0),NULLIF($12,''),NULLIF($13,''),NULLIF($14,0),NULLIF($15,0),NULLIF($16,0),NULLIF($17,''),$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NULLIF($32,0),NULLIF($33,''),$34,$35)`, out.VerificationID, out.RecoveryOperationID, out.OperationGeneration, out.OperationStateGeneration, out.MaterializationID, out.DestinationAdmissionID, out.DestinationHostID, out.VMID, out.VMGeneration, out.PowerEvidenceID, out.PowerObservationGeneration, out.PowerObservationDigest, out.StorageAttachmentEvidenceID, out.StorageAttachmentGeneration, out.StorageObservationGeneration, out.NetworkObservationGeneration, out.NetworkEvidenceSetDigest, out.PCIRequirementsDigest, out.FencingProofID, out.FencingProofDigest, out.FencingUsability, out.StorageSafetyProofID, out.StorageSafetyProofDigest, out.StorageUsability, out.BudgetClaimID, out.BudgetStateGeneration, out.ResultState, out.ReasonCode, out.VerifierVersion, out.VerifierDigest, out.VerificationDigest, out.PCIObservationGeneration, out.PCIEvidenceSetDigest, out.VolumeCount, out.StorageEvidenceSetDigest)
+		if err != nil {
+			return err
+		}
+		for _, member := range storageMembers {
+			if _, err := tx.Exec(ctx, `INSERT INTO kim.recovery_storage_volume_verification_evidence(verification_id,volume_ordinal,device_role,materialization_id,volume_id,binding_id,binding_generation,lv_uuid,attachment_id,attachment_generation,attachment_evidence_id,attachment_observation_generation,member_digest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, out.VerificationID, member.ordinal, member.role, member.materialization, member.volume, member.binding, member.bindingGeneration, member.lv, member.attachment, member.attachmentGeneration, member.evidence, member.observationGeneration, member.memberDigest); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return out, err
 }
 
 func loadRecoveryVerificationTx(ctx context.Context, tx pgx.Tx, id string, out *RecoveryVerification) error {
-	return tx.QueryRow(ctx, `SELECT verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id::text,vm_generation,coalesce(power_evidence_id,''),coalesce(power_observation_generation,0),coalesce(power_observation_digest,''),coalesce(storage_attachment_evidence_id,''),coalesce(storage_attachment_generation,0),coalesce(storage_observation_generation,0),coalesce(network_observation_generation,0),coalesce(network_evidence_set_digest,''),pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest,coalesce(pci_observation_generation,0),coalesce(pci_evidence_set_digest,'') FROM kim.recovery_verification_evidence WHERE verification_id=$1`, id).Scan(&out.VerificationID, &out.RecoveryOperationID, &out.OperationGeneration, &out.OperationStateGeneration, &out.MaterializationID, &out.DestinationAdmissionID, &out.DestinationHostID, &out.VMID, &out.VMGeneration, &out.PowerEvidenceID, &out.PowerObservationGeneration, &out.PowerObservationDigest, &out.StorageAttachmentEvidenceID, &out.StorageAttachmentGeneration, &out.StorageObservationGeneration, &out.NetworkObservationGeneration, &out.NetworkEvidenceSetDigest, &out.PCIRequirementsDigest, &out.FencingProofID, &out.FencingProofDigest, &out.FencingUsability, &out.StorageSafetyProofID, &out.StorageSafetyProofDigest, &out.StorageUsability, &out.BudgetClaimID, &out.BudgetStateGeneration, &out.ResultState, &out.ReasonCode, &out.VerifierVersion, &out.VerifierDigest, &out.VerificationDigest, &out.PCIObservationGeneration, &out.PCIEvidenceSetDigest)
+	return tx.QueryRow(ctx, `SELECT verification_id,recovery_operation_id,operation_generation,operation_state_generation,materialization_id,destination_admission_id,destination_host_id,vm_id::text,vm_generation,coalesce(power_evidence_id,''),coalesce(power_observation_generation,0),coalesce(power_observation_digest,''),coalesce(storage_attachment_evidence_id,''),coalesce(storage_attachment_generation,0),coalesce(storage_observation_generation,0),coalesce(network_observation_generation,0),coalesce(network_evidence_set_digest,''),pci_requirements_digest,fencing_proof_id,fencing_proof_digest,fencing_usability,storage_safety_proof_id,storage_safety_proof_digest,storage_usability,budget_claim_id,budget_state_generation,result_state,reason_code,verifier_version,verifier_digest,verification_digest,coalesce(pci_observation_generation,0),coalesce(pci_evidence_set_digest,''),volume_count,coalesce(storage_evidence_set_digest,'') FROM kim.recovery_verification_evidence WHERE verification_id=$1`, id).Scan(&out.VerificationID, &out.RecoveryOperationID, &out.OperationGeneration, &out.OperationStateGeneration, &out.MaterializationID, &out.DestinationAdmissionID, &out.DestinationHostID, &out.VMID, &out.VMGeneration, &out.PowerEvidenceID, &out.PowerObservationGeneration, &out.PowerObservationDigest, &out.StorageAttachmentEvidenceID, &out.StorageAttachmentGeneration, &out.StorageObservationGeneration, &out.NetworkObservationGeneration, &out.NetworkEvidenceSetDigest, &out.PCIRequirementsDigest, &out.FencingProofID, &out.FencingProofDigest, &out.FencingUsability, &out.StorageSafetyProofID, &out.StorageSafetyProofDigest, &out.StorageUsability, &out.BudgetClaimID, &out.BudgetStateGeneration, &out.ResultState, &out.ReasonCode, &out.VerifierVersion, &out.VerifierDigest, &out.VerificationDigest, &out.PCIObservationGeneration, &out.PCIEvidenceSetDigest, &out.VolumeCount, &out.StorageEvidenceSetDigest)
 }
 
 func CommitRecoveryTerminalDecision(ctx context.Context, db TxBeginner, decisionID, verificationID, decidedBy string) (RecoveryTerminalDecision, error) {
@@ -556,9 +646,15 @@ func CommitRecoveryTerminalDecision(ctx context.Context, db TxBeginner, decision
 		if err := tx.QueryRow(ctx, `SELECT evidence_id,observation_generation FROM kim.vm_power_state_current WHERE vm_id=$1 AND vm_generation=$2 AND observed_power_state='RUNNING' AND convergence_state='MATCHED' FOR UPDATE`, verification.VMID, verification.VMGeneration).Scan(&powerEvidence, &powerGeneration); err != nil || powerEvidence != verification.PowerEvidenceID || powerGeneration != verification.PowerObservationGeneration {
 			return ErrRecoveryOperationStale
 		}
-		var attachmentEvidence string
-		var attachmentGeneration, attachmentObservation uint64
-		if err := tx.QueryRow(ctx, `SELECT o.evidence_id,o.attachment_generation,o.observation_generation FROM kim.recovery_materialization_evidence m JOIN kim.volume_attachment_claims c ON c.attachment_id=m.root_attachment_id AND c.attachment_generation=m.root_attachment_generation AND c.claim_state='ACTIVE' JOIN kim.volume_attachment_observations_current o ON o.attachment_id=c.attachment_id AND o.attachment_generation=c.attachment_generation AND o.attachment_state='ATTACHED' AND o.device_present AND o.holder_open WHERE m.recovery_operation_id=$1`, op.RecoveryOperationID).Scan(&attachmentEvidence, &attachmentGeneration, &attachmentObservation); err != nil || attachmentEvidence != verification.StorageAttachmentEvidenceID || attachmentGeneration != verification.StorageAttachmentGeneration || attachmentObservation != verification.StorageObservationGeneration {
+		var storageCount int
+		var storageSet string
+		if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(string_agg(member.volume_ordinal||':'||member.member_digest||',' , '' ORDER BY member.volume_ordinal),'')
+			FROM kim.recovery_storage_volume_verification_evidence member
+			JOIN kim.recovery_materialization_volume_evidence materialized ON materialized.materialization_id=member.materialization_id AND materialized.volume_ordinal=member.volume_ordinal AND materialized.volume_id=member.volume_id AND materialized.binding_id=member.binding_id AND materialized.binding_generation=member.binding_generation AND materialized.lv_uuid=member.lv_uuid AND materialized.attachment_id=member.attachment_id AND materialized.attachment_generation=member.attachment_generation
+			JOIN kim.volume_backend_bindings_current binding ON binding.binding_id=member.binding_id AND binding.binding_generation=member.binding_generation AND binding.volume_id=member.volume_id AND binding.lv_uuid=member.lv_uuid AND binding.host_id=$2 AND binding.binding_state='BOUND'
+			JOIN kim.volume_attachment_claims claim ON claim.attachment_id=member.attachment_id AND claim.attachment_generation=member.attachment_generation AND claim.volume_id=member.volume_id AND claim.host_id=$2 AND claim.claim_state='ACTIVE'
+			JOIN kim.volume_attachment_observations_current observation ON observation.attachment_id=member.attachment_id AND observation.attachment_generation=member.attachment_generation AND observation.evidence_id=member.attachment_evidence_id AND observation.observation_generation=member.attachment_observation_generation AND observation.binding_id=member.binding_id AND observation.binding_generation=member.binding_generation AND observation.observed_lv_uuid=member.lv_uuid AND observation.attachment_state='ATTACHED' AND observation.device_present AND observation.holder_open
+			WHERE member.verification_id=$1`, verification.VerificationID, verification.DestinationHostID).Scan(&storageCount, &storageSet); err != nil || uint64(storageCount) != verification.VolumeCount || digestBytes([]byte(storageSet)) != verification.StorageEvidenceSetDigest {
 			return ErrRecoveryOperationStale
 		}
 		var currentReadiness, currentNetworkState, currentNetworkDigest string

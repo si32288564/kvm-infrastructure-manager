@@ -164,34 +164,50 @@ func recoveryPlacementResourceID(kind, operationID string, index int) string {
 	return fmt.Sprintf("recovery-%s-%s-%d", kind, digest[:32], index)
 }
 
-// addRecoveryBootStorageRequirementTx converts the source boot-volume shape
-// into an ordinary destination Placement storage requirement. It selects no
-// backend outside the fixed destination Host and creates no storage authority;
-// Final Admission remains the only reservation boundary.
-func addRecoveryBootStorageRequirementTx(ctx context.Context, tx pgx.Tx, operationID, sourceAdmissionID, destinationHostID string, request *PlacementAdmissionRequest) error {
+// addRecoveryStorageRequirementsTx converts the bounded canonical source
+// ROOT+DATA shape into ordinary destination Placement requirements. It selects
+// no backend outside the fixed destination Host and creates no storage
+// authority; Final Admission remains the only reservation boundary.
+func addRecoveryStorageRequirementsTx(ctx context.Context, tx pgx.Tx, operationID, sourceAdmissionID, destinationHostID string, request *PlacementAdmissionRequest) error {
 	if len(request.Storage) != 0 {
 		return nil
 	}
-	var classID, accessMode string
-	var classRevision, fencingRevision, sizeBytes uint64
-	var bootable bool
-	if err := tx.QueryRow(ctx, `SELECT v.storage_class_id,v.storage_class_revision,v.size_bytes,v.access_mode,v.bootable,c.fencing_policy_revision FROM kim.volumes_current v JOIN kim.storage_class_revision_evidence c ON c.storage_class_id=v.storage_class_id AND c.class_revision=v.storage_class_revision WHERE v.placement_admission_id=$1 AND v.bootable AND v.lifecycle_state IN ('RESERVED','CREATING','AVAILABLE')`, sourceAdmissionID).Scan(&classID, &classRevision, &sizeBytes, &accessMode, &bootable, &fencingRevision); err != nil {
+	rows, err := tx.Query(ctx, `SELECT v.storage_class_id,v.storage_class_revision,v.size_bytes,v.access_mode,v.bootable,c.fencing_policy_revision FROM kim.volumes_current v JOIN kim.storage_class_revision_evidence c ON c.storage_class_id=v.storage_class_id AND c.class_revision=v.storage_class_revision WHERE v.placement_admission_id=$1 AND v.lifecycle_state IN ('RESERVED','CREATING','AVAILABLE') ORDER BY v.bootable DESC,v.volume_id`, sourceAdmissionID)
+	if err != nil {
+		return err
+	}
+	type storageShape struct {
+		classID, accessMode                       string
+		classRevision, fencingRevision, sizeBytes uint64
+		bootable                                  bool
+	}
+	var shapes []storageShape
+	for rows.Next() {
+		var shape storageShape
+		if err := rows.Scan(&shape.classID, &shape.classRevision, &shape.sizeBytes, &shape.accessMode, &shape.bootable, &shape.fencingRevision); err != nil {
+			rows.Close()
+			return err
+		}
+		shapes = append(shapes, shape)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, shape := range shapes {
+		var backendID, vgUUID string
+		var backendGeneration, capacityGeneration uint64
+		var candidates int
+		if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(min(b.backend_id),''),coalesce(min(b.vg_uuid),''),coalesce(min(b.backend_generation),0),coalesce(min(p.capacity_generation),0) FROM kim.storage_backends_current b JOIN kim.storage_capacity_projections_current p ON p.backend_id=b.backend_id AND p.projection_state='CURRENT' JOIN kim.storage_classes_current cc ON cc.storage_class_id=$2 AND cc.class_revision=$3 AND cc.lifecycle_state='ACTIVE' WHERE b.host_id=$1 AND b.backend_type='LOCAL_LVM' AND b.lifecycle_state='ACTIVE' AND b.capability_state='CURRENT'`, destinationHostID, shape.classID, shape.classRevision).Scan(&candidates, &backendID, &vgUUID, &backendGeneration, &capacityGeneration); err != nil || candidates != 1 {
+			return ErrRecoveryOperationBlocked
+		}
+		index := len(request.Storage) + 1
+		request.Storage = append(request.Storage, placement.StorageRequirement{VolumeID: recoveryPlacementResourceID("volume", operationID, index), AttachmentID: recoveryPlacementResourceID("attachment", operationID, index), BackendID: backendID, VGUUID: vgUUID, StorageClassID: shape.classID, BackendGeneration: backendGeneration, StorageClassRevision: shape.classRevision, CapacityGeneration: capacityGeneration, AttachmentGeneration: 1, FencingPolicyRevision: shape.fencingRevision, SizeBytes: shape.sizeBytes, AccessMode: shape.accessMode, Bootable: shape.bootable})
+	}
+	if len(request.Storage) < 1 || len(request.Storage) > maxVMAggregateVolumes || !request.Storage[0].Bootable || (len(request.Storage) == 2 && request.Storage[1].Bootable) {
 		return ErrRecoveryOperationBlocked
 	}
-	var backendID, vgUUID string
-	var backendGeneration, capacityGeneration uint64
-	var candidates int
-	if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(min(b.backend_id),''),coalesce(min(b.vg_uuid),''),coalesce(min(b.backend_generation),0),coalesce(min(p.capacity_generation),0) FROM kim.storage_backends_current b JOIN kim.storage_capacity_projections_current p ON p.backend_id=b.backend_id AND p.projection_state='CURRENT' JOIN kim.storage_classes_current cc ON cc.storage_class_id=$2 AND cc.class_revision=$3 AND cc.lifecycle_state='ACTIVE' WHERE b.host_id=$1 AND b.backend_type='LOCAL_LVM' AND b.lifecycle_state='ACTIVE' AND b.capability_state='CURRENT'`, destinationHostID, classID, classRevision).Scan(&candidates, &backendID, &vgUUID, &backendGeneration, &capacityGeneration); err != nil || candidates != 1 {
-		return ErrRecoveryOperationBlocked
-	}
-	request.Storage = []placement.StorageRequirement{{
-		VolumeID: recoveryPlacementResourceID("volume", operationID, 1), AttachmentID: recoveryPlacementResourceID("attachment", operationID, 1),
-		BackendID: backendID, VGUUID: vgUUID, StorageClassID: classID,
-		BackendGeneration: backendGeneration, StorageClassRevision: classRevision,
-		CapacityGeneration: capacityGeneration, AttachmentGeneration: 1,
-		FencingPolicyRevision: fencingRevision, SizeBytes: sizeBytes,
-		AccessMode: accessMode, Bootable: bootable,
-	}}
 	return nil
 }
 
@@ -268,7 +284,7 @@ func PlanRecoveryOperation(ctx context.Context, db TxBeginner, operationID, plan
 		if err := addRecoveryPCIHandoffRequirementsTx(ctx, tx, operationID, epoch.AdmissionID, &destinationRequest); err != nil {
 			return err
 		}
-		if err := addRecoveryBootStorageRequirementTx(ctx, tx, operationID, epoch.AdmissionID, destinationHostID, &destinationRequest); err != nil {
+		if err := addRecoveryStorageRequirementsTx(ctx, tx, operationID, epoch.AdmissionID, destinationHostID, &destinationRequest); err != nil {
 			return err
 		}
 		dry, err := DryEvaluateAvailabilityPlacementScope(ctx, scopeTxBeginner{tx}, destinationRequest)

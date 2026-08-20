@@ -47,7 +47,12 @@ func TestVMAggregateMaximumProfileEvacuationPostgreSQLIntegration(t *testing.T) 
 	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, true, false)
 }
 
-func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount int, withData, deleteAfterCreate bool) {
+func TestVMAggregateMaximumProfileRecoveryPostgreSQLIntegration(t *testing.T) {
+	testVMAggregateStandardPortsPostgreSQLIntegration(t, 2, true, false, "RECOVERY")
+}
+
+func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount int, withData, deleteAfterCreate bool, profiles ...string) {
+	maximumRecovery := len(profiles) > 0 && profiles[0] == "RECOVERY"
 	url := os.Getenv("KIM_POSTGRES_TEST_URL")
 	if url == "" {
 		t.Skip("KIM_POSTGRES_TEST_URL is not set")
@@ -487,7 +492,7 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		}
 		return
 	}
-	if withData {
+	if withData && !maximumRecovery {
 		logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
 		var failureEpochsBefore, fencingProofsBefore int
 		if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM kim.failure_epoch_evidence),(SELECT count(*) FROM kim.failure_fencing_proof_evidence)`).Scan(&failureEpochsBefore, &fencingProofsBefore); err != nil {
@@ -584,7 +589,7 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		}
 		return
 	}
-	if portCount == 2 {
+	if portCount == 2 && !maximumRecovery {
 		logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
 		logicalPortDigests := make([]string, len(ports))
 		for i := range ports {
@@ -649,16 +654,34 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 		return
 	}
 	logicalRevision, logicalRuntime, logicalDependency, logicalDesired := aggregate.VMRevision, aggregate.RuntimeIntentGeneration, aggregate.DependencyDigest, aggregate.DesiredDigest
-	var logicalPortDigest string
-	if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, port.PortID).Scan(&logicalPortDigest); err != nil {
-		t.Fatal(err)
+	logicalPortDigests := make([]string, len(ports))
+	for i := range ports {
+		if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, ports[i].PortID).Scan(&logicalPortDigests[i]); err != nil {
+			t.Fatal(err)
+		}
+		convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, ports[i].PortID, network.NetworkID, segmentID, ports[i].MACAddress, fmt.Sprintf("aggregate-recovery-%d-%s", i, suffix), 1, 1, 1)
 	}
-	convergeEvacuationOVSDataplane(t, ctx, db, host, vmID, decision.PlanID, port.PortID, network.NetworkID, segmentID, port.MACAddress, "aggregate-"+suffix, 1, 1, 1)
 	source := repeatedEvacuationIncarnation{Host: host, Admission: admission.AdmissionID, Plan: decision.PlanID, Volume: volume.VolumeID, Attachment: placementRequest.Storage[0].AttachmentID, Binding: volume.BindingID, LV: volume.LVUUID, Backend: backendID, VG: vgUUID, Materialization: 1, PortGeneration: 1, BindingGeneration: 1}
 	if err = AuthorizeVMPowerOff(ctx, db, vmID, 1, host, "vm-port-recovery-shutoff-job-"+suffix, "vm-port-recovery-shutoff-command-"+suffix); err != nil {
 		t.Fatal(err)
 	}
 	acceptEvacuationCommand(t, ctx, db, host, "vm-port-recovery-shutoff-command-"+suffix, "vm-port-recovery-shutoff-verification-"+suffix, 2, map[string]any{"domain_uuid": vmID, "desired_state": "SHUTOFF", "observed_state": "SHUTOFF", "source": "libvirt_domain_state"}, "SUCCEEDED")
+	if withData {
+		dataCommand := "vm-port-recovery-source-data-detach-command-" + suffix
+		dataAttachment := placementRequest.Storage[1].AttachmentID
+		var dataResourceKey string
+		if err = db.QueryRow(ctx, `SELECT backend_resource_key FROM kim.volume_backend_binding_intents WHERE binding_id=$1`, dataVolume.BindingID).Scan(&dataResourceKey); err != nil {
+			t.Fatal(err)
+		}
+		if err = CreateExecutionCommand(ctx, db, ExecutionCommandRequest{JobID: "vm-port-recovery-source-data-detach-job-" + suffix, CommandID: dataCommand, HostID: host, ResourceType: "VOLUME_ATTACHMENT", ResourceID: dataAttachment, DesiredRevision: 1, CommandType: libvirtvolume.CommandType, SchemaVersion: libvirtvolume.SchemaVersion, TargetResourceID: "attachment:" + dataAttachment, Payload: map[string]any{"domain_uuid": vmID, "volume_id": dataVolume.VolumeID, "vg_uuid": vgUUID, "lv_uuid": dataVolume.LVUUID, "backend_resource_key": dataResourceKey, "disk_slot": 1, "desired_state": "DETACHED", "access_mode": "SINGLE_WRITER"}}); err != nil {
+			t.Fatal(err)
+		}
+		dataVerification := "vm-port-recovery-source-data-detach-verification-" + suffix
+		dataAttempt := acceptEvacuationCommand(t, ctx, db, host, dataCommand, dataVerification, 2, map[string]any{"attachment_id": dataAttachment, "volume_id": dataVolume.VolumeID, "binding_id": dataVolume.BindingID, "domain_uuid": vmID, "target_device": "vdb", "observed_lv_uuid": dataVolume.LVUUID, "desired_state": "DETACHED", "device_present": false, "device_identity_matches": false, "source_identity_matches": false, "holder_open": false, "read_only": false}, "SUCCEEDED")
+		if err = AcceptLocalLVMAttachmentObservation(ctx, db, LocalLVMAttachmentObservation{EvidenceID: "vm-port-recovery-source-data-detach-evidence-" + suffix, AttachmentID: dataAttachment, VolumeID: dataVolume.VolumeID, AttachmentGeneration: 1, BindingID: dataVolume.BindingID, BindingGeneration: dataVolume.BindingGeneration, HostID: host, DomainUUID: vmID, TargetDevice: "vdb", ObservedLVUUID: dataVolume.LVUUID, DesiredState: "DETACHED", CommandID: dataCommand, VerificationID: dataVerification, ObservationGeneration: 2, AttemptIndex: uint32(dataAttempt), ObservationDigest: digestBytes([]byte(dataCommand + "/observation")), VerifierDigest: digestBytes([]byte(dataCommand + "/verifier")), EvidenceState: "MATCHED"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	epoch, err := OpenFailureEpoch(ctx, db, OpenFailureEpochRequest{OpenRequestID: "vm-port-failure-open-" + suffix, FailureEpochID: "vm-port-failure-epoch-" + suffix, IncidentKey: "vm-port-recovery-" + suffix, WorkloadID: placementRequest.WorkloadID, FailureClass: "VM_RUNTIME_UNAVAILABLE", RequestedBy: "qualification", ExpectedBindingRevision: admission.AvailabilityBinding.BindingRevision, ExpectedBindingDigest: admission.AvailabilityBinding.BindingDigest, Trigger: FailureObservation{EvidenceID: "vm-port-failure-observation-" + suffix, EvidenceType: "VM_RUNTIME_OBSERVATION", SourceType: "LIBVIRT_READ_BACK", SourceHostID: host, ObservedState: "PRESENT", FreshnessState: "CURRENT", PayloadDigest: digestBytes([]byte("vm-port-recovery-shutoff-command-" + suffix + "/observation")), ObservationGeneration: 2, ObservedAt: time.Now().UTC()}})
 	if err != nil {
 		t.Fatal(err)
@@ -709,30 +732,34 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	if err != nil {
 		t.Fatal(err)
 	}
-	retirement, err := CommitOVNPortBindingRetirement(ctx, db, OVNPortBindingRetirementRequest{OperationID: "vm-port-recovery-retirement-" + suffix, OperationGeneration: 1, IntentID: "vm-port-recovery-retirement-intent-" + suffix, IntentGeneration: 2, PortID: port.PortID, PortGeneration: 1, BindingGeneration: 1, SourceHostID: host})
-	if err != nil {
-		t.Fatal(err)
-	}
-	retirementWork, err := ClaimOVNRuntimeWork(ctx, db, OVNRuntimeClaimRequest{Owner: "vm-port-retirement-worker-" + suffix, Limit: 1, Lease: time.Minute})
-	if err != nil || len(retirementWork) != 1 {
-		t.Fatalf("retirement work=%+v err=%v", retirementWork, err)
-	}
-	retirementClaim := OVNRuntimeClaim{WorkID: retirement.WorkID, Owner: "vm-port-retirement-worker-" + suffix, ClaimGeneration: retirementWork[0].ClaimGeneration}
-	if err = AuthorizeOVNRuntimeApply(ctx, db, retirementClaim); err != nil {
-		t.Fatal(err)
-	}
-	retirementEvidence := "vm-port-recovery-retirement-evidence-" + suffix
-	if err = CompleteOVNPortBindingRetirement(ctx, db, retirementClaim, OVNPortBindingRetirementObservation{EvidenceID: retirementEvidence, IntentID: retirement.IntentID, IntentGeneration: retirement.IntentGeneration, PortID: port.PortID, PortGeneration: 1, BindingGeneration: 1, SourceHostID: host, OperationGeneration: 1, NBObservationGeneration: 2, SBObservationGeneration: 2, OVSObservationGeneration: 2, NBObservationDigest: digestBytes([]byte("vm-port-retirement-nb-" + suffix)), SBObservationDigest: digestBytes([]byte("vm-port-retirement-sb-" + suffix)), OVSObservationDigest: digestBytes([]byte("vm-port-retirement-ovs-" + suffix)), AdapterArtifactDigest: digestBytes([]byte("vm-port-retirement-adapter-" + suffix)), ApplyResponseState: "RECEIVED", Observation: verifiedOVNRetirementObservation()}); err != nil {
-		t.Fatal(err)
-	}
-	quiescence, err := PrepareNetworkPortSourceQuiescence(ctx, db, NetworkPortSourceQuiescenceRequest{FailureEpochID: epoch.FailureEpochID, PortID: port.PortID, JobID: "vm-port-recovery-quiescence-job-" + suffix, CommandID: "vm-port-recovery-quiescence-command-" + suffix})
-	if err != nil {
-		t.Fatal(err)
-	}
-	quiescenceVerification := "vm-port-recovery-quiescence-verification-" + suffix
-	quiescenceAttempt := acceptEvacuationCommand(t, ctx, db, host, quiescence.CommandID, quiescenceVerification, 1, map[string]any{"domain_uuid": vmID, "vm_generation": float64(1), "port_id": port.PortID, "port_generation": float64(1), "binding_generation": float64(1), "domain_running": false, "interface_present": false}, "SUCCEEDED")
-	if err = AcceptNetworkPortSourceQuiescence(ctx, db, NetworkPortSourceQuiescenceObservation{EvidenceID: "vm-port-recovery-quiescence-evidence-" + suffix, FailureEpochID: epoch.FailureEpochID, PortID: port.PortID, SourceHostID: host, VMID: vmID, CommandID: quiescence.CommandID, VerificationID: quiescenceVerification, ObservationDigest: digestBytes([]byte(quiescence.CommandID + "/observation")), VerifierDigest: digestBytes([]byte(quiescence.CommandID + "/verifier")), PortGeneration: 1, BindingGeneration: 1, VMGeneration: 1, ObservationGeneration: 1, AttemptIndex: uint32(quiescenceAttempt)}); err != nil {
-		t.Fatal(err)
+	for i, recoveryPort := range ports {
+		portSuffix := fmt.Sprintf("%d-%s", i, suffix)
+		retirement, err := CommitOVNPortBindingRetirement(ctx, db, OVNPortBindingRetirementRequest{OperationID: "vm-port-recovery-retirement-" + portSuffix, OperationGeneration: 1, IntentID: "vm-port-recovery-retirement-intent-" + portSuffix, IntentGeneration: 2, PortID: recoveryPort.PortID, PortGeneration: 1, BindingGeneration: 1, SourceHostID: host})
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := "vm-port-retirement-worker-" + portSuffix
+		retirementWork, err := ClaimOVNRuntimeWork(ctx, db, OVNRuntimeClaimRequest{Owner: owner, Limit: 1, Lease: time.Minute})
+		if err != nil || len(retirementWork) != 1 {
+			t.Fatalf("retirement work[%d]=%+v err=%v", i, retirementWork, err)
+		}
+		retirementClaim := OVNRuntimeClaim{WorkID: retirement.WorkID, Owner: owner, ClaimGeneration: retirementWork[0].ClaimGeneration}
+		if err = AuthorizeOVNRuntimeApply(ctx, db, retirementClaim); err != nil {
+			t.Fatal(err)
+		}
+		retirementEvidence := "vm-port-recovery-retirement-evidence-" + portSuffix
+		if err = CompleteOVNPortBindingRetirement(ctx, db, retirementClaim, OVNPortBindingRetirementObservation{EvidenceID: retirementEvidence, IntentID: retirement.IntentID, IntentGeneration: retirement.IntentGeneration, PortID: recoveryPort.PortID, PortGeneration: 1, BindingGeneration: 1, SourceHostID: host, OperationGeneration: 1, NBObservationGeneration: 2, SBObservationGeneration: 2, OVSObservationGeneration: 2, NBObservationDigest: digestBytes([]byte("vm-port-retirement-nb-" + portSuffix)), SBObservationDigest: digestBytes([]byte("vm-port-retirement-sb-" + portSuffix)), OVSObservationDigest: digestBytes([]byte("vm-port-retirement-ovs-" + portSuffix)), AdapterArtifactDigest: digestBytes([]byte("vm-port-retirement-adapter-" + portSuffix)), ApplyResponseState: "RECEIVED", Observation: verifiedOVNRetirementObservation()}); err != nil {
+			t.Fatal(err)
+		}
+		quiescence, err := PrepareNetworkPortSourceQuiescence(ctx, db, NetworkPortSourceQuiescenceRequest{FailureEpochID: epoch.FailureEpochID, PortID: recoveryPort.PortID, JobID: "vm-port-recovery-quiescence-job-" + portSuffix, CommandID: "vm-port-recovery-quiescence-command-" + portSuffix})
+		if err != nil {
+			t.Fatal(err)
+		}
+		quiescenceVerification := "vm-port-recovery-quiescence-verification-" + portSuffix
+		quiescenceAttempt := acceptEvacuationCommand(t, ctx, db, host, quiescence.CommandID, quiescenceVerification, 1, map[string]any{"domain_uuid": vmID, "vm_generation": float64(1), "port_id": recoveryPort.PortID, "port_generation": float64(1), "binding_generation": float64(1), "domain_running": false, "interface_present": false}, "SUCCEEDED")
+		if err = AcceptNetworkPortSourceQuiescence(ctx, db, NetworkPortSourceQuiescenceObservation{EvidenceID: "vm-port-recovery-quiescence-evidence-" + portSuffix, FailureEpochID: epoch.FailureEpochID, PortID: recoveryPort.PortID, SourceHostID: host, VMID: vmID, CommandID: quiescence.CommandID, VerificationID: quiescenceVerification, ObservationDigest: digestBytes([]byte(quiescence.CommandID + "/observation")), VerifierDigest: digestBytes([]byte(quiescence.CommandID + "/verifier")), PortGeneration: 1, BindingGeneration: 1, VMGeneration: 1, ObservationGeneration: 1, AttemptIndex: uint32(quiescenceAttempt)}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err = RetireSourceMaterialization(ctx, db, "vm-port-source-retirement-"+suffix, epoch.FailureEpochID, rootProof.ProofID, fencingProof.ProofID, "vm-port-retirement-authority/v1"); err != nil {
 		t.Fatal(err)
@@ -757,7 +784,14 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	if err != nil {
 		t.Fatal(err)
 	}
-	recovery := completeMixedRecoveryDestination(t, ctx, db, "aggregate-"+suffix, vmID, imageID, imageDigest, network.NetworkID, segmentID, port.PortID, port.MACAddress, destinationBackend, destinationVG, recoveryPlan, recoveryStart, fencingProof.ProofID, storageProof.ProofID)
+	recoveryOptions := mixedRecoveryDestinationOptions{}
+	for i := 1; i < len(ports); i++ {
+		recoveryOptions.AdditionalPorts = append(recoveryOptions.AdditionalPorts, repeatedEvacuationPort{PortID: ports[i].PortID, NetworkID: network.NetworkID, SegmentID: segmentID, MAC: ports[i].MACAddress})
+	}
+	if withData {
+		recoveryOptions.DataContentDigest = digestBytes([]byte("vm-aggregate-recovery-data-marker/" + suffix))
+	}
+	recovery := completeMixedRecoveryDestination(t, ctx, db, "aggregate-"+suffix, vmID, imageID, imageDigest, network.NetworkID, segmentID, port.PortID, port.MACAddress, destinationBackend, destinationVG, recoveryPlan, recoveryStart, fencingProof.ProofID, storageProof.ProofID, recoveryOptions)
 	recovery.Source = source
 	recoveryAssociationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-port-recovery-association-" + suffix, VMID: vmID, MobilityKind: "RECOVERY", MobilityTerminalEvidenceID: recovery.Terminal}
 	mobilityDriftRollback := errors.New("rollback post-terminal destination drift")
@@ -773,6 +807,36 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	if !errors.Is(err, mobilityDriftRollback) {
 		t.Fatal(err)
 	}
+	if portCount == 2 {
+		partialRollback := errors.New("rollback Recovery partial destination Port set")
+		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `DELETE FROM kim.vm_network_port_realizations_current WHERE vm_id=$1 AND port_id=$2`, vmID, ports[1].PortID); err != nil {
+				return err
+			}
+			if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: recoveryAssociationRequest.AssociationID + "-partial-port", VMID: vmID, MobilityKind: "RECOVERY", MobilityTerminalEvidenceID: recovery.Terminal}); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("Recovery partial destination Port set accepted: %v", err)
+			}
+			return partialRollback
+		})
+		if !errors.Is(err, partialRollback) {
+			t.Fatal(err)
+		}
+	}
+	if withData {
+		dataDriftRollback := errors.New("rollback Recovery destination DATA binding drift")
+		err = pgx.BeginTxFunc(ctx, db, pgx.TxOptions{}, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `UPDATE kim.volume_backend_bindings_current SET binding_state='STALE' WHERE binding_id=$1`, recovery.Destination.Data.Binding); err != nil {
+				return err
+			}
+			if _, err := AssociateVMAggregateMobility(ctx, scopeTxBeginner{tx}, VMAggregateMobilityAssociationRequest{AssociationID: recoveryAssociationRequest.AssociationID + "-data-drift", VMID: vmID, MobilityKind: "RECOVERY", MobilityTerminalEvidenceID: recovery.Terminal}); !errors.Is(err, ErrVMAggregateConflict) {
+				return fmt.Errorf("Recovery destination DATA binding drift accepted: %v", err)
+			}
+			return dataDriftRollback
+		})
+		if !errors.Is(err, dataDriftRollback) {
+			t.Fatal(err)
+		}
+	}
 	recoveryAssociation, err := AssociateVMAggregateMobility(ctx, db, recoveryAssociationRequest)
 	if err != nil || recoveryAssociation.AssociationGeneration != 1 || recoveryAssociation.SourceHostID != host || recoveryAssociation.DestinationHostID != destinationHost || recoveryAssociation.SourcePlanID != decision.PlanID || recoveryAssociation.DestinationPlanID != recovery.Destination.Plan || recoveryAssociation.VMRevision != logicalRevision || recoveryAssociation.RuntimeIntentGeneration != logicalRuntime || recoveryAssociation.DependencyDigest != logicalDependency || recoveryAssociation.DesiredDigest != logicalDesired {
 		t.Fatalf("Recovery association=%+v err=%v", recoveryAssociation, err)
@@ -783,6 +847,35 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	}
 	if _, err = AssociateVMAggregateMobility(ctx, db, VMAggregateMobilityAssociationRequest{AssociationID: recoveryAssociationRequest.AssociationID, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: recovery.Terminal}); !errors.Is(err, ErrVMAggregateConflict) {
 		t.Fatalf("association identifier rebound: %v", err)
+	}
+	if maximumRecovery {
+		var associationPorts, associationVolumes, materializationVolumes, verificationVolumes int
+		var epochState, operationState, copyResponse string
+		if err = db.QueryRow(ctx, `SELECT association.port_count,association.volume_count,materialization.volume_count,verification.volume_count,epoch.epoch_state,operation.lifecycle_state,copy.response_state
+			FROM kim.vm_aggregate_mobility_association_evidence association
+			JOIN kim.recovery_terminal_decision_evidence terminal ON terminal.terminal_decision_id=association.mobility_terminal_evidence_id
+			JOIN kim.recovery_operation_evidence recovery_operation ON recovery_operation.recovery_operation_id=terminal.recovery_operation_id
+			JOIN kim.recovery_operations_current operation ON operation.recovery_operation_id=recovery_operation.recovery_operation_id
+			JOIN kim.failure_epochs_current epoch ON epoch.failure_epoch_id=recovery_operation.failure_epoch_id
+			JOIN kim.recovery_materialization_evidence materialization ON materialization.recovery_operation_id=recovery_operation.recovery_operation_id
+			JOIN kim.recovery_verification_evidence verification ON verification.verification_id=terminal.verification_id
+			JOIN kim.local_lvm_relocation_copy_operation_evidence copy_operation ON copy_operation.recovery_operation_id=recovery_operation.recovery_operation_id AND copy_operation.volume_ordinal=1
+			JOIN kim.local_lvm_relocation_copy_operations_current copy ON copy.copy_operation_id=copy_operation.copy_operation_id AND copy.copy_generation=copy_operation.copy_generation
+			WHERE association.association_id=$1`, recoveryAssociation.AssociationID).Scan(&associationPorts, &associationVolumes, &materializationVolumes, &verificationVolumes, &epochState, &operationState, &copyResponse); err != nil || associationPorts != 2 || associationVolumes != 2 || materializationVolumes != 2 || verificationVolumes != 2 || epochState != "RECOVERED" || operationState != "VERIFIED" || copyResponse != "LOST" {
+			t.Fatalf("maximum Recovery cardinality Ports=%d Volumes=%d/%d/%d epoch=%s operation=%s copy=%s err=%v", associationPorts, associationVolumes, materializationVolumes, verificationVolumes, epochState, operationState, copyResponse, err)
+		}
+		for i := range ports {
+			var digest string
+			if err = db.QueryRow(ctx, `SELECT desired_digest FROM kim.network_ports_current WHERE port_id=$1`, ports[i].PortID).Scan(&digest); err != nil || digest != logicalPortDigests[i] {
+				t.Fatalf("maximum Recovery logical Port[%d] digest=%s err=%v", i, digest, err)
+			}
+		}
+		for _, table := range []string{"recovery_materialization_volume_evidence", "recovery_storage_volume_verification_evidence"} {
+			if _, err = db.Exec(ctx, `UPDATE kim.`+table+` SET recorded_at=recorded_at`); err == nil {
+				t.Fatalf("immutable UPDATE succeeded: %s", table)
+			}
+		}
+		return
 	}
 	move := executeRepeatedEvacuationMove(t, ctx, db, suffix, "aggregate-after-recovery", vmID, imageID, imageDigest, network.NetworkID, segmentID, port.PortID, port.MACAddress, recovery.Destination, evacuationHost, evacuationBackend, evacuationVG, 2, 2, 4, 5, 4, 5, nil, nil)
 	evacuationAssociationRequest := VMAggregateMobilityAssociationRequest{AssociationID: "vm-port-evacuation-association-" + suffix, VMID: vmID, MobilityKind: "HOST_EVACUATION", MobilityTerminalEvidenceID: move.ParentTerminal}
@@ -795,7 +888,7 @@ func testVMAggregateStandardPortsPostgreSQLIntegration(t *testing.T, portCount i
 	}
 	var currentVMRevision, currentRuntime, currentAssociationGeneration uint64
 	var currentDependency, currentDesired, currentHost, currentAdmission, currentPlan, currentAssociation, currentPortDigest string
-	if err = db.QueryRow(ctx, `SELECT r.vm_revision,r.runtime_intent_generation,s.dependency_digest,r.desired_digest,b.host_id,b.admission_id,b.plan_id,b.mobility_association_generation,b.mobility_association_id,p.desired_digest FROM kim.vm_resources_current r JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(r.vm_id,r.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id JOIN kim.network_ports_current p ON p.port_id=$2 WHERE r.vm_id=$1`, vmID, port.PortID).Scan(&currentVMRevision, &currentRuntime, &currentDependency, &currentDesired, &currentHost, &currentAdmission, &currentPlan, &currentAssociationGeneration, &currentAssociation, &currentPortDigest); err != nil || currentVMRevision != logicalRevision || currentRuntime != logicalRuntime || currentDependency != logicalDependency || currentDesired != logicalDesired || currentPortDigest != logicalPortDigest || currentHost != evacuationHost || currentAdmission != move.Destination.Admission || currentPlan != move.Destination.Plan || currentAssociationGeneration != 2 || currentAssociation != evacuationAssociation.AssociationID {
+	if err = db.QueryRow(ctx, `SELECT r.vm_revision,r.runtime_intent_generation,s.dependency_digest,r.desired_digest,b.host_id,b.admission_id,b.plan_id,b.mobility_association_generation,b.mobility_association_id,p.desired_digest FROM kim.vm_resources_current r JOIN kim.vm_runtime_intent_evidence i ON(i.vm_id,i.runtime_intent_generation)=(r.vm_id,r.runtime_intent_generation) JOIN kim.vm_dependency_snapshot_evidence s ON s.dependency_snapshot_id=i.dependency_snapshot_id JOIN kim.vm_resource_runtime_bindings_current b ON b.vm_id=r.vm_id JOIN kim.network_ports_current p ON p.port_id=$2 WHERE r.vm_id=$1`, vmID, port.PortID).Scan(&currentVMRevision, &currentRuntime, &currentDependency, &currentDesired, &currentHost, &currentAdmission, &currentPlan, &currentAssociationGeneration, &currentAssociation, &currentPortDigest); err != nil || currentVMRevision != logicalRevision || currentRuntime != logicalRuntime || currentDependency != logicalDependency || currentDesired != logicalDesired || currentPortDigest != logicalPortDigests[0] || currentHost != evacuationHost || currentAdmission != move.Destination.Admission || currentPlan != move.Destination.Plan || currentAssociationGeneration != 2 || currentAssociation != evacuationAssociation.AssociationID {
 		t.Fatalf("post-mobility logical/runtime=%d/%d %s/%s Port=%s physical=%s/%s/%s association=%d/%s err=%v", currentVMRevision, currentRuntime, currentDependency, currentDesired, currentPortDigest, currentHost, currentAdmission, currentPlan, currentAssociationGeneration, currentAssociation, err)
 	}
 	if _, err = db.Exec(ctx, `UPDATE kim.vm_aggregate_mobility_association_evidence SET recorded_at=recorded_at WHERE association_id=$1`, recoveryAssociation.AssociationID); err == nil {

@@ -194,6 +194,8 @@ func TestMigratePostgreSQLIntegration(t *testing.T) {
 		"local_lvm_relocation_transport_event_evidence",
 		"local_lvm_relocation_transport_peer_observation_evidence",
 		"local_lvm_relocation_transport_terminal_evidence",
+		"recovery_materialization_volume_evidence",
+		"recovery_storage_volume_verification_evidence",
 		"local_lvm_source_cleanup_authority_evidence",
 		"local_lvm_source_cleanup_observation_identity_evidence",
 		"local_lvm_capacity_reclamation_evidence",

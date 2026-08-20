@@ -130,10 +130,16 @@ func AssociateVMAggregateMobility(ctx context.Context, db TxBeginner, r VMAggreg
 		}
 		var volumeSet string
 		if r.MobilityKind == "RECOVERY" {
-			if volumeCount != 1 {
-				return ErrVMAggregateConflict
-			}
-			if err := tx.QueryRow(ctx, `SELECT desired_digest||':'||$2 FROM kim.vm_dependency_volume_evidence WHERE dependency_snapshot_id=$1 AND volume_ordinal=0 AND device_role='ROOT'`, dependencyID, terminal.destinationPlanDigest).Scan(&volumeSet); err != nil {
+			var matched int
+			if err := tx.QueryRow(ctx, `SELECT count(*),coalesce(string_agg(dependency.volume_ordinal||':'||dependency.desired_digest||':'||materialized.member_digest||':'||verified.member_digest,',' ORDER BY dependency.volume_ordinal),'')
+				FROM kim.vm_dependency_volume_evidence dependency
+				JOIN kim.recovery_materialization_evidence recovery ON recovery.recovery_operation_id=(SELECT recovery_operation_id FROM kim.recovery_terminal_decision_evidence WHERE terminal_decision_id=$2) AND recovery.destination_admission_id=$3 AND recovery.destination_host_id=$4 AND recovery.volume_count=$5
+				JOIN kim.recovery_materialization_volume_evidence materialized ON materialized.materialization_id=recovery.materialization_id AND materialized.volume_ordinal=dependency.volume_ordinal AND materialized.device_role=dependency.device_role
+				JOIN kim.volume_backend_bindings_current current_binding ON current_binding.binding_id=materialized.binding_id AND current_binding.binding_generation=materialized.binding_generation AND current_binding.volume_id=materialized.volume_id AND current_binding.lv_uuid=materialized.lv_uuid AND current_binding.host_id=$4 AND current_binding.binding_state='BOUND'
+				LEFT JOIN kim.local_lvm_relocation_copy_operation_evidence copy ON copy.recovery_operation_id=recovery.recovery_operation_id AND copy.volume_ordinal=dependency.volume_ordinal AND copy.device_role=dependency.device_role AND copy.source_volume_id=dependency.volume_id AND copy.destination_volume_id=materialized.volume_id AND copy.destination_binding_id=materialized.binding_id AND copy.destination_binding_generation=materialized.binding_generation AND copy.destination_lv_uuid=materialized.lv_uuid
+				JOIN kim.recovery_verification_evidence verification ON verification.verification_id=(SELECT verification_id FROM kim.recovery_terminal_decision_evidence WHERE terminal_decision_id=$2) AND verification.recovery_operation_id=recovery.recovery_operation_id AND verification.result_state='VERIFIED' AND verification.volume_count=$5
+				JOIN kim.recovery_storage_volume_verification_evidence verified ON verified.verification_id=verification.verification_id AND verified.materialization_id=recovery.materialization_id AND verified.volume_ordinal=dependency.volume_ordinal AND verified.device_role=dependency.device_role AND verified.volume_id=materialized.volume_id AND verified.binding_id=materialized.binding_id AND verified.binding_generation=materialized.binding_generation AND verified.lv_uuid=materialized.lv_uuid
+				WHERE dependency.dependency_snapshot_id=$1 AND (dependency.volume_ordinal=0 OR copy.copy_operation_id IS NOT NULL)`, dependencyID, r.MobilityTerminalEvidenceID, terminal.destinationAdmission, terminal.destinationHost, volumeCount).Scan(&matched, &volumeSet); err != nil || matched != volumeCount {
 				return ErrVMAggregateConflict
 			}
 		} else if volumeCount == 1 {
